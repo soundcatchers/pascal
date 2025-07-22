@@ -41,7 +41,7 @@ Pascal is a comprehensive AI assistant that runs locally on Raspberry Pi 5 while
 
 1. **Clone the repository:**
    ```bash
-   git clone https://github.com/yourusername/pascal.git
+   git clone https://github.com/soundcatchers/pascal.git
    cd pascal
    ```
 
