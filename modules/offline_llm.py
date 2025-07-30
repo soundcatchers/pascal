@@ -23,42 +23,52 @@ class OfflineLLM:
             'top_p': 0.9,
             'stop': ['\n\nUser:', '\n\nHuman:', '\n\nAssistant:']
         }
-    
+    #below this line
     async def initialize(self) -> bool:
         """Initialize the offline LLM"""
         try:
+            print(f"DEBUG: Checking model path: {self.model_path}")
+            print(f"DEBUG: Model exists: {self.model_path.exists()}")
+        
             if not self.model_path.exists():
-                if settings.debug_mode:
-                    print(f"Local model not found at: {self.model_path}")
+                print(f"DEBUG: Local model not found at: {self.model_path}")
                 return False
-            
+        
             # Try to import and initialize llama-cpp-python
             try:
+                print("DEBUG: Importing llama_cpp...")
                 from llama_cpp import Llama
-                
+                print("DEBUG: llama_cpp imported successfully")
+            
+                print("DEBUG: Loading model...")
                 # Initialize model in a separate thread to avoid blocking
                 self.model = await asyncio.get_event_loop().run_in_executor(
                     None, 
                     self._load_model,
                     str(self.model_path)
                 )
-                
+                print("DEBUG: Model loaded successfully")
+            
                 self.model_loaded = True
-                
+            
                 if settings.debug_mode:
                     print("✅ Offline LLM initialized successfully")
-                
+            
                 return True
-                
-            except ImportError:
+            
+            except ImportError as e:
+                print(f"DEBUG: ImportError - {e}")
                 if settings.debug_mode:
                     print("❌ llama-cpp-python not installed")
                 return False
-            
-        except Exception as e:
-            if settings.debug_mode:
-                print(f"❌ Failed to initialize offline LLM: {e}")
-            return False
+        
+    except Exception as e:
+        print(f"DEBUG: Exception in initialize: {e}")
+        import traceback
+        traceback.print_exc()
+        if settings.debug_mode:
+            print(f"❌ Failed to initialize offline LLM: {e}")
+        return False
     
     def _load_model(self, model_path: str):
         """Load the model (runs in executor to avoid blocking)"""
