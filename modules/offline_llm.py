@@ -1,6 +1,6 @@
 """
 Pascal AI Assistant - Offline LLM Integration
-Handles local language model inference
+Handles local language model inference with performance optimizations
 """
 
 import asyncio
@@ -11,7 +11,7 @@ from pathlib import Path
 from config.settings import settings
 
 class OfflineLLM:
-    """Manages local LLM inference"""
+    """Manages local LLM inference with optimizations for Raspberry Pi 5"""
     
     def __init__(self):
         self.model = None
@@ -21,11 +21,11 @@ class OfflineLLM:
             'max_tokens': settings.max_response_tokens,
             'temperature': 0.7,
             'top_p': 0.9,
-            'stop': ['\n\nUser:', '\n\nHuman:', '\n\nAssistant:']
+            'stop': ['\n\nUser:', '\n\nHuman:', '\n\nAssistant:', '<|eot_id|>']
         }
     
     async def initialize(self) -> bool:
-        """Initialize the offline LLM"""
+        """Initialize the offline LLM with performance optimizations"""
         try:
             print(f"DEBUG: Checking model path: {self.model_path}")
             print(f"DEBUG: Model exists: {self.model_path.exists()}")
@@ -76,30 +76,21 @@ class OfflineLLM:
             if settings.debug_mode:
                 print(f"❌ Failed to initialize offline LLM: {e}")
             return False
-        
-         except Exception as e:
-             print(f"DEBUG: Exception in initialize: {e}")
-             import traceback
-             traceback.print_exc()
-             if settings.debug_mode:
-                 print(f"❌ Failed to initialize offline LLM: {e}")
-             return False
-             
-    def _load_model(self, model_path: str):
-        """Load the model (runs in executor to avoid blocking)"""
-        from llama_cpp import Llama
     
+    def _load_model(self, model_path: str):
+        """Load the model with performance optimizations (runs in executor to avoid blocking)"""
+        from llama_cpp import Llama
+        
         return Llama(
             model_path=model_path,
             n_ctx=settings.local_model_context,
             n_threads=settings.local_model_threads,
             verbose=settings.debug_mode,
-            n_batch=512,  # Add batch processing
+            n_batch=512,  # Batch processing for efficiency
             use_mmap=True,  # Memory mapping for faster access
             use_mlock=False,  # Don't lock memory (saves RAM)
             n_gpu_layers=0,  # CPU only for Pi
         )
-    
     
     async def generate_response(self, query: str, personality_context: str, memory_context: str) -> str:
         """Generate response using local LLM"""
@@ -107,7 +98,6 @@ class OfflineLLM:
             print("DEBUG: Model not loaded, using fallback")
             return await self._fallback_response(query)
         
-        # Add this debug line
         print("DEBUG: Using existing loaded model")
         
         try:
@@ -135,34 +125,49 @@ class OfflineLLM:
             return await self._fallback_response(query)
     
     def _build_prompt(self, query: str, personality_context: str, memory_context: str) -> str:
-        """Build the complete prompt for the LLM"""
+        """Build the complete prompt for the LLM using Llama 3.1 chat format"""
+        # Use Llama 3.1 chat format for better performance
         prompt_parts = []
         
-        # Add personality context
+        # Start with begin of text token
+        prompt_parts.append("<|begin_of_text|>")
+        
+        # Add system message if we have personality context
         if personality_context:
-            prompt_parts.append(f"System: {personality_context}")
+            prompt_parts.append("<|start_header_id|>system<|end_header_id|>")
+            prompt_parts.append("")  # Empty line
+            prompt_parts.append(personality_context)
+            
+            # Add memory context to system if available
+            if memory_context:
+                prompt_parts.append(f"\nPrevious context: {memory_context}")
+            
+            prompt_parts.append("<|eot_id|>")
         
-        # Add memory context
-        if memory_context:
-            prompt_parts.append(f"Context: {memory_context}")
+        # Add user message
+        prompt_parts.append("<|start_header_id|>user<|end_header_id|>")
+        prompt_parts.append("")  # Empty line
+        prompt_parts.append(query)
+        prompt_parts.append("<|eot_id|>")
         
-        # Add current query
-        prompt_parts.append(f"User: {query}")
-        prompt_parts.append("Assistant:")
+        # Start assistant response
+        prompt_parts.append("<|start_header_id|>assistant<|end_header_id|>")
+        prompt_parts.append("")  # Empty line
         
-        return "\n\n".join(prompt_parts)
+        return "\n".join(prompt_parts)
     
     def _generate_text(self, prompt: str) -> str:
         """Generate text using the model (runs in executor)"""
         try:
-            # Generate response
+            # Generate response with optimized parameters
             output = self.model(
                 prompt,
                 max_tokens=self.generation_params['max_tokens'],
                 temperature=self.generation_params['temperature'],
                 top_p=self.generation_params['top_p'],
                 stop=self.generation_params['stop'],
-                echo=False
+                echo=False,
+                stream=False,  # Disable streaming for now
             )
             
             # Extract generated text
@@ -189,6 +194,16 @@ class OfflineLLM:
         # Remove common artifacts
         response = response.replace("</s>", "")
         response = response.replace("<|endoftext|>", "")
+        response = response.replace("<|eot_id|>", "")
+        
+        # Clean up any remaining chat template artifacts
+        if response.startswith("<|start_header_id|>"):
+            lines = response.split('\n')
+            clean_lines = []
+            for line in lines:
+                if not line.startswith("<|") and not line.endswith("|>"):
+                    clean_lines.append(line)
+            response = '\n'.join(clean_lines).strip()
         
         # Ensure response ends with proper punctuation
         if response and not response[-1] in '.!?':
@@ -264,10 +279,10 @@ class OfflineLLM:
     
     def get_performance_stats(self) -> Dict[str, Any]:
         """Get performance statistics"""
-        # Basic stats - could be expanded with actual timing data
         return {
             'model_loaded': self.model_loaded,
             'available': self.is_available(),
             'context_length': settings.local_model_context,
-            'max_tokens': self.generation_params['max_tokens']
+            'max_tokens': self.generation_params['max_tokens'],
+            'optimization_enabled': True
         }
