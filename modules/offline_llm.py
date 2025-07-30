@@ -106,7 +106,7 @@ class OfflineLLM:
         if not self.model_loaded or not self.model:
             print("DEBUG: Model not loaded, using fallback")
             return await self._fallback_response(query)
-    
+        
         # Add this debug line
         print("DEBUG: Using existing loaded model")
         
