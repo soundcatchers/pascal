@@ -84,17 +84,22 @@ class OfflineLLM:
              if settings.debug_mode:
                  print(f"❌ Failed to initialize offline LLM: {e}")
              return False
-    
+             
     def _load_model(self, model_path: str):
         """Load the model (runs in executor to avoid blocking)"""
         from llama_cpp import Llama
-        
+    
         return Llama(
             model_path=model_path,
             n_ctx=settings.local_model_context,
             n_threads=settings.local_model_threads,
-            verbose=settings.debug_mode
+            verbose=settings.debug_mode,
+            n_batch=512,  # Add batch processing
+            use_mmap=True,  # Memory mapping for faster access
+            use_mlock=False,  # Don't lock memory (saves RAM)
+            n_gpu_layers=0,  # CPU only for Pi
         )
+    
     
     async def generate_response(self, query: str, personality_context: str, memory_context: str) -> str:
         """Generate response using local LLM"""
