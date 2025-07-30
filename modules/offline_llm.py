@@ -78,20 +78,35 @@ class OfflineLLM:
             return False
     
     def _load_model(self, model_path: str):
-        """Load the model with performance optimizations (runs in executor to avoid blocking)"""
-        from llama_cpp import Llama
-        
-        return Llama(
-            model_path=model_path,
-            n_ctx=settings.local_model_context,
-            n_threads=settings.local_model_threads,
-            verbose=settings.debug_mode,
-            n_batch=512,  # Batch processing for efficiency
-            use_mmap=True,  # Memory mapping for faster access
-            use_mlock=False,  # Don't lock memory (saves RAM)
-            n_gpu_layers=0,  # CPU only for Pi
-        )
+        """Load the model with maximum performance optimizations"""
+      from llama_cpp import Llama
     
+      return Llama(
+          model_path=model_path,
+          n_ctx=settings.local_model_context,
+          n_threads=settings.local_model_threads,
+          verbose=settings.debug_mode,
+        
+          # Memory optimizations
+          n_batch=256,           # Smaller batch for Pi 5
+          use_mmap=True,         # Memory mapping for faster access
+          use_mlock=False,       # Don't lock memory (saves RAM)
+          n_gpu_layers=0,        # CPU only for Pi
+        
+          # Performance optimizations
+          f16_kv=True,           # Use FP16 for KV cache (faster)
+          logits_all=False,      # Don't compute logits for all tokens
+          vocab_only=False,      # Load full model
+          low_vram=True,         # Optimize for low memory
+        
+          # ARM-specific optimizations
+          numa=False,            # Disable NUMA (not needed on Pi)
+          n_threads_batch=-1,    # Auto-detect batch threads
+        
+          # Speed optimizations
+          rope_scaling_type=0,   # Default rope scaling
+          mul_mat_q=True,        # Use quantized matrix multiplication
+      )    
     async def generate_response(self, query: str, personality_context: str, memory_context: str) -> str:
         """Generate response using local LLM"""
         if not self.model_loaded or not self.model:
