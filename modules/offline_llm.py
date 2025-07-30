@@ -99,7 +99,11 @@ class OfflineLLM:
     async def generate_response(self, query: str, personality_context: str, memory_context: str) -> str:
         """Generate response using local LLM"""
         if not self.model_loaded or not self.model:
+            print("DEBUG: Model not loaded, using fallback")
             return await self._fallback_response(query)
+    
+        # Add this debug line
+        print("DEBUG: Using existing loaded model")
         
         try:
             # Construct prompt
