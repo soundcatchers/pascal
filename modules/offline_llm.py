@@ -29,45 +29,53 @@ class OfflineLLM:
         try:
             print(f"DEBUG: Checking model path: {self.model_path}")
             print(f"DEBUG: Model exists: {self.model_path.exists()}")
-        
+            
             if not self.model_path.exists():
                 print(f"DEBUG: Local model not found at: {self.model_path}")
                 return False
-        
+            
             print("DEBUG: Model file found, attempting to import llama_cpp...")
-        
+            
             # Try to import and initialize llama-cpp-python
-             try:
-                 from llama_cpp import Llama
-                 print("DEBUG: llama_cpp imported successfully")
+            try:
+                from llama_cpp import Llama
+                print("DEBUG: llama_cpp imported successfully")
+                
+                print("DEBUG: About to load model in executor...")
+                print(f"DEBUG: Model path: {str(self.model_path)}")
+                print(f"DEBUG: Context length: {settings.local_model_context}")
+                print(f"DEBUG: Threads: {settings.local_model_threads}")
+                
+                # Initialize model in a separate thread to avoid blocking
+                self.model = await asyncio.get_event_loop().run_in_executor(
+                    None, 
+                    self._load_model,
+                    str(self.model_path)
+                )
+                
+                print("DEBUG: Model loading completed")
+                print(f"DEBUG: Model object: {type(self.model)}")
+                
+                self.model_loaded = True
+                
+                if settings.debug_mode:
+                    print("✅ Offline LLM initialized successfully")
+                
+                return True
+                
+            except ImportError as e:
+                print(f"DEBUG: ImportError - {e}")
+                if settings.debug_mode:
+                    print("❌ llama-cpp-python not installed")
+                return False
             
-                 print("DEBUG: About to load model in executor...")
-                 print(f"DEBUG: Model path: {str(self.model_path)}")
-                 print(f"DEBUG: Context length: {settings.local_model_context}")
-                 print(f"DEBUG: Threads: {settings.local_model_threads}")
-            
-                 # Initialize model in a separate thread to avoid blocking
-                 self.model = await asyncio.get_event_loop().run_in_executor(
-                     None, 
-                     self._load_model,
-                     str(self.model_path)
-                 )
-            
-                 print("DEBUG: Model loading completed")
-                 print(f"DEBUG: Model object: {type(self.model)}")
-            
-                 self.model_loaded = True
-            
-                 if settings.debug_mode:
-                     print("✅ Offline LLM initialized successfully")
-            
-                 return True
-            
-             except ImportError as e:
-                 print(f"DEBUG: ImportError - {e}")
-                 if settings.debug_mode:
-                     print("❌ llama-cpp-python not installed")
-                 return False
+        except Exception as e:
+            print(f"DEBUG: Exception in initialize: {e}")
+            import traceback
+            traceback.print_exc()
+            if settings.debug_mode:
+                print(f"❌ Failed to initialize offline LLM: {e}")
+            return False
         
          except Exception as e:
              print(f"DEBUG: Exception in initialize: {e}")
