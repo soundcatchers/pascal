@@ -125,23 +125,28 @@ class OfflineLLM:
             return await self._fallback_response(query)
     
     def _build_prompt(self, query: str, personality_context: str, memory_context: str) -> str:
-        """Build a simple, working prompt for the LLM"""
-        prompt_parts = []
+        """Build Gemma 2 compatible chat prompt"""
         
-        # Simple system prompt
+        # Use Gemma 2 chat format
+        prompt_parts = ["<bos>"]
+        
+        # Add system/personality as first user message if present
         if personality_context:
-            prompt_parts.append(f"System: {personality_context}")
+            prompt_parts.append("<start_of_turn>user")
+            prompt_parts.append(f"You are Pascal, an AI assistant. {personality_context}")
+            prompt_parts.append("<end_of_turn>")
+            prompt_parts.append("<start_of_turn>model")
+            prompt_parts.append("I understand. I'm Pascal, ready to help!")
+            prompt_parts.append("<end_of_turn>")
         
-        # Add memory context if available
-        if memory_context:
-            prompt_parts.append(f"Context: {memory_context}")
+        # Add the actual user query
+        prompt_parts.append("<start_of_turn>user")
+        prompt_parts.append(query)
+        prompt_parts.append("<end_of_turn>")
+        prompt_parts.append("<start_of_turn>model")
         
-        # Add the user query
-        prompt_parts.append(f"User: {query}")
-        prompt_parts.append("Assistant:")
+        return "\n".join(prompt_parts)
         
-        return "\n\n".join(prompt_parts)
-    
     def _generate_text(self, prompt: str) -> str:
         """Generate text using the model (runs in executor)"""
         try:
