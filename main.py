@@ -41,6 +41,9 @@ class Pascal:
             self.personality_manager = PersonalityManager()
             self.memory_manager = MemoryManager()
             self.router = Router(self.personality_manager, self.memory_manager)
+
+            # Wait for router to check LLM availability
+            await self.router._check_llm_availability()
             
             # Load default personality
             await self.personality_manager.load_personality(settings.default_personality)
