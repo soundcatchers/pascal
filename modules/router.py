@@ -58,35 +58,47 @@ class Router:
         asyncio.create_task(self._check_llm_availability())
     
     async def _check_llm_availability(self):
-        """Check which LLM options are available"""
-        try:
-            # Check offline LLM
-            if settings.is_local_model_available():
-                try:
-                    from modules.offline_llm import OfflineLLM
-                    self.offline_llm = OfflineLLM()
-                    await self.offline_llm.initialize()
-                    self.offline_available = True
-                except Exception as e:
-                    if settings.debug_mode:
-                        print(f"Offline LLM not available: {e}")
-                    self.offline_available = False
-            
-            # Check online LLM
-            if settings.is_online_available():
-                try:
-                    from modules.online_llm import OnlineLLM
-                    self.online_llm = OnlineLLM()
-                    await self.online_llm.initialize()
-                    self.online_available = True
-                except Exception as e:
-                    if settings.debug_mode:
-                        print(f"Online LLM not available: {e}")
-                    self.online_available = False
-            
-        except Exception as e:
-            if settings.debug_mode:
-                print(f"Error checking LLM availability: {e}")
+         """Check which LLM options are available"""
+         try:
+             print("DEBUG: Checking LLM availability...")
+        
+             # Check offline LLM
+             print(f"DEBUG: settings.is_local_model_available() = {settings.is_local_model_available()}")
+             if settings.is_local_model_available():
+                 try:
+                     print("DEBUG: Importing OfflineLLM...")
+                     from modules.offline_llm import OfflineLLM
+                     print("DEBUG: Creating OfflineLLM instance...")
+                     self.offline_llm = OfflineLLM()
+                     print("DEBUG: Initializing OfflineLLM...")
+                     await self.offline_llm.initialize()
+                     print(f"DEBUG: OfflineLLM initialized, available = {self.offline_llm.is_available()}")
+                     self.offline_available = self.offline_llm.is_available()
+                 except Exception as e:
+                     print(f"DEBUG: OfflineLLM initialization failed: {e}")
+                     import traceback
+                     traceback.print_exc()
+                     self.offline_available = False
+        
+             # Check online LLM
+             print(f"DEBUG: settings.is_online_available() = {settings.is_online_available()}")
+             if settings.is_online_available():
+                 try:
+                     print("DEBUG: Importing OnlineLLM...")
+                     from modules.online_llm import OnlineLLM
+                     self.online_llm = OnlineLLM()
+                     await self.online_llm.initialize()
+                     self.online_available = True
+                 except Exception as e:
+                     print(f"DEBUG: OnlineLLM initialization failed: {e}")
+                     self.online_available = False
+        
+             print(f"DEBUG: Final availability - Offline: {self.offline_available}, Online: {self.online_available}")
+        
+         except Exception as e:
+             print(f"DEBUG: Error in _check_llm_availability: {e}")
+             import traceback
+             traceback.print_exc()
     
     def _analyze_query_complexity(self, query: str) -> Dict[str, Any]:
         """Analyze query to determine complexity and requirements"""
