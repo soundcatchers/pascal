@@ -55,7 +55,7 @@ class Router:
         self.online_failures = 0
         
         # Initialize LLM availability
-        asyncio.create_task(self._check_llm_availability())
+        #asyncio.create_task(self._check_llm_availability())
     
     async def _check_llm_availability(self):
         """Check which LLM options are available"""
