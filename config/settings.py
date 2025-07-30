@@ -51,7 +51,7 @@ class Settings:
         self.fallback_to_offline = True
         
         # Memory Settings
-        self.short_term_memory_limit = 50  # Number of messages
+        self.short_term_memory_limit = 55  # Number of messages
         self.long_term_memory_enabled = True
         self.memory_save_interval = 300  # Seconds
         
