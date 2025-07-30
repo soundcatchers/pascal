@@ -125,36 +125,22 @@ class OfflineLLM:
             return await self._fallback_response(query)
     
     def _build_prompt(self, query: str, personality_context: str, memory_context: str) -> str:
-        """Build the complete prompt for the LLM using Llama 3.1 chat format"""
-        # Use Llama 3.1 chat format for better performance
+        """Build a simple, working prompt for the LLM"""
         prompt_parts = []
-        
-        # Start with begin of text token
-        prompt_parts.append("<|begin_of_text|>")
-        
-        # Add system message if we have personality context
+    
+        # Simple system prompt
         if personality_context:
-            prompt_parts.append("<|start_header_id|>system<|end_header_id|>")
-            prompt_parts.append("")  # Empty line
-            prompt_parts.append(personality_context)
-            
-            # Add memory context to system if available
-            if memory_context:
-                prompt_parts.append(f"\nPrevious context: {memory_context}")
-            
-            prompt_parts.append("<|eot_id|>")
-        
-        # Add user message
-        prompt_parts.append("<|start_header_id|>user<|end_header_id|>")
-        prompt_parts.append("")  # Empty line
-        prompt_parts.append(query)
-        prompt_parts.append("<|eot_id|>")
-        
-        # Start assistant response
-        prompt_parts.append("<|start_header_id|>assistant<|end_header_id|>")
-        prompt_parts.append("")  # Empty line
-        
-        return "\n".join(prompt_parts)
+            prompt_parts.append(f"System: {personality_context}")
+    
+        # Add memory context if available
+        if memory_context:
+            prompt_parts.append(f"Context: {memory_context}")
+    
+        # Add the user query
+        prompt_parts.append(f"User: {query}")
+        prompt_parts.append("Assistant:")
+    
+        return "\n\n".join(prompt_parts)
     
     def _generate_text(self, prompt: str) -> str:
         """Generate text using the model (runs in executor)"""
