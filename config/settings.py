@@ -33,7 +33,7 @@ class Settings:
         # LLM Configuration
         self.default_personality = "default"
         self.max_context_length = 4096
-        self.max_response_tokens = 100
+        self.max_response_tokens = 75
         
         # Online LLM APIs
         self.openai_api_key = os.getenv("OPENAI_API_KEY")
@@ -43,7 +43,7 @@ class Settings:
         # Local LLM Settings
         self.local_model_path = self.models_dir / "local_model.gguf"
         self.local_model_threads = 4  # Use all Pi 5 cores
-        self.local_model_context = 1024  # Reduce from 2048 to 1024
+        self.local_model_context = 512  # Reduce from 2048 to 1024
         
         # Router Settings
         self.prefer_offline = True  # Default to offline when possible
@@ -51,7 +51,7 @@ class Settings:
         self.fallback_to_offline = True
         
         # Memory Settings
-        self.short_term_memory_limit = 2  # Number of messages
+        self.short_term_memory_limit = 1  # Number of messages
         self.long_term_memory_enabled = True
         self.memory_save_interval = 300  # Seconds
         
