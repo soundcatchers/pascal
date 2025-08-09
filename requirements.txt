@@ -1,4 +1,4 @@
-# Pascal AI Assistant Dependencies - Optimized for Raspberry Pi 5 with Ollama
+# Pascal AI Assistant Dependencies - Ollama Version (Fixed)
 
 # Core framework
 fastapi==0.104.1
@@ -43,8 +43,5 @@ asyncio-throttle==1.0.2
 pytest==7.4.3
 pytest-asyncio==0.21.1
 
-# Performance profiling
-cProfile
-
-# Note: Ollama is installed separately via the download_models.sh script
-# This provides better ARM optimization and model management than llama-cpp-python
+# Note: cProfile is built-in, no need to install
+# Note: Ollama is installed separately via download_models.sh
