@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
 """
-Pascal AI Assistant - Performance Testing Script
-Tests offline LLM performance across different profiles on Pi 5
+Pascal AI Assistant - Performance Testing Script (Ollama Version)
+Tests Ollama LLM performance across different profiles and models on Pi 5
 """
 
 import asyncio
 import time
 import sys
+import json
 from pathlib import Path
 
 # Add modules to path
@@ -16,7 +17,7 @@ from modules.offline_llm import OptimizedOfflineLLM
 from config.settings import settings
 
 class PerformanceTester:
-    """Performance testing for Pascal's offline LLM"""
+    """Performance testing for Pascal's Ollama integration"""
     
     def __init__(self):
         self.llm = None
@@ -45,16 +46,18 @@ class PerformanceTester:
         }
     
     async def initialize(self):
-        """Initialize the offline LLM"""
-        print("🔧 Initializing Pascal's offline LLM...")
+        """Initialize the Ollama LLM"""
+        print("🔧 Initializing Pascal's Ollama integration...")
         self.llm = OptimizedOfflineLLM()
         success = await self.llm.initialize()
         
         if success:
-            print("✅ LLM initialized successfully")
+            print("✅ Ollama LLM initialized successfully")
             return True
         else:
-            print("❌ LLM initialization failed")
+            print("❌ Ollama LLM initialization failed")
+            print("Make sure Ollama is running: sudo systemctl start ollama")
+            print("And models are downloaded: ./download_models.sh")
             return False
     
     async def test_profile_performance(self, profile: str, queries: list):
@@ -62,7 +65,23 @@ class PerformanceTester:
         print(f"\n🧪 Testing {profile.upper()} profile:")
         print("=" * 50)
         
+        # Set performance profile
         self.llm.set_performance_profile(profile)
+        
+        # Get optimal model for this profile
+        profile_settings = self.llm.performance_profiles[profile]
+        preferred_models = profile_settings.get('preferred_models', [])
+        
+        # Try to switch to optimal model
+        for model_name in preferred_models:
+            available_models = [m['name'] for m in self.llm.list_available_models()]
+            matching_model = next((m for m in available_models if model_name in m), None)
+            if matching_model:
+                await self.llm.switch_model(matching_model)
+                break
+        
+        current_model = self.llm.current_model.name if self.llm.current_model else "Unknown"
+        print(f"Using model: {current_model}")
         
         total_time = 0
         successful_responses = 0
@@ -72,7 +91,7 @@ class PerformanceTester:
             
             try:
                 start_time = time.time()
-                response = await self.llm.generate_response(query, "", "")
+                response = await self.llm.generate_response(query, "", "", profile)
                 end_time = time.time()
                 
                 response_time = end_time - start_time
@@ -90,11 +109,12 @@ class PerformanceTester:
         if successful_responses > 0:
             avg_time = total_time / successful_responses
             print(f"\n📊 {profile.upper()} Profile Summary:")
+            print(f"   • Model used: {current_model}")
             print(f"   • Successful responses: {successful_responses}/{len(queries)}")
             print(f"   • Average response time: {avg_time:.2f}s")
             print(f"   • Total time: {total_time:.2f}s")
             
-            # Performance rating
+            # Performance rating for Pi 5
             if avg_time <= 2:
                 rating = "🚀 Excellent"
             elif avg_time <= 4:
@@ -112,8 +132,8 @@ class PerformanceTester:
             return None, 0
     
     async def test_model_switching(self):
-        """Test switching between available models"""
-        print("\n🔄 Testing Model Switching:")
+        """Test switching between available Ollama models"""
+        print("\n🔄 Testing Ollama Model Switching:")
         print("=" * 50)
         
         available_models = self.llm.list_available_models()
@@ -122,11 +142,14 @@ class PerformanceTester:
             print("Only one model available, skipping switching test")
             return
         
-        test_query = "Hello, can you tell me your name?"
+        test_query = "Hello, can you tell me your name and respond briefly?"
         
         for model_info in available_models[:3]:  # Test up to 3 models
             model_name = model_info['name']
             print(f"\n🤖 Testing model: {model_name}")
+            print(f"   Size: {model_info['size']}")
+            print(f"   Speed rating: {model_info['speed_rating']}")
+            print(f"   Quality rating: {model_info['quality_rating']}")
             
             try:
                 start_time = time.time()
@@ -149,12 +172,49 @@ class PerformanceTester:
             except Exception as e:
                 print(f"❌ Error testing model {model_name}: {e}")
     
+    async def test_ollama_integration(self):
+        """Test Ollama-specific features"""
+        print("\n🦙 Testing Ollama Integration:")
+        print("=" * 50)
+        
+        # Test Ollama connection
+        stats = self.llm.get_performance_stats()
+        print(f"Ollama Host: {stats.get('ollama_host', 'Unknown')}")
+        print(f"Ollama Enabled: {stats.get('ollama_enabled', False)}")
+        
+        # Test model listing
+        models = self.llm.list_available_models()
+        print(f"Available models: {len(models)}")
+        
+        for model in models:
+            status = "🟢 LOADED" if model['loaded'] else "⚪ Available"
+            print(f"  • {model['name']} ({model['size']}) - Speed: {model['speed_rating']} - Quality: {model['quality_rating']} {status}")
+        
+        # Test performance stats
+        print(f"\nPerformance Statistics:")
+        for key, value in stats.items():
+            if key not in ['ollama_host', 'ollama_enabled']:
+                print(f"  • {key}: {value}")
+    
     async def stress_test(self, duration_seconds: int = 60):
         """Perform stress test for specified duration"""
         print(f"\n💪 Stress Test ({duration_seconds}s):")
         print("=" * 50)
         
-        self.llm.set_performance_profile('speed')  # Use speed profile for stress test
+        # Use speed profile for stress test
+        self.llm.set_performance_profile('speed')
+        
+        # Switch to fastest model
+        available_models = self.llm.list_available_models()
+        fastest_model = None
+        for model in available_models:
+            if 'phi3:mini' in model['name'] or 'gemma2:2b' in model['name']:
+                fastest_model = model['name']
+                break
+        
+        if fastest_model:
+            await self.llm.switch_model(fastest_model)
+            print(f"Using fastest model: {fastest_model}")
         
         start_time = time.time()
         end_time = start_time + duration_seconds
@@ -167,7 +227,7 @@ class PerformanceTester:
             "Count from 1 to 5",
             "What is AI?",
             "Hello!",
-            "Explain Python",
+            "Explain Python briefly",
             "Name three colors"
         ]
         
@@ -177,7 +237,7 @@ class PerformanceTester:
             
             try:
                 query_start = time.time()
-                response = await self.llm.generate_response(query, "", "")
+                response = await self.llm.generate_response(query, "", "", 'speed')
                 query_end = time.time()
                 
                 response_time = query_end - query_start
@@ -189,8 +249,8 @@ class PerformanceTester:
             except Exception as e:
                 print(f"Request {request_count}: Error - {e} ❌")
             
-            # Brief pause to avoid overwhelming the system
-            await asyncio.sleep(0.1)
+            # Brief pause to avoid overwhelming Ollama
+            await asyncio.sleep(0.2)
         
         actual_duration = time.time() - start_time
         
@@ -208,7 +268,7 @@ class PerformanceTester:
             print(f"   • Requests per second: {requests_per_second:.2f}")
     
     async def system_info_test(self):
-        """Display system information and model details"""
+        """Display system information and Ollama details"""
         print("\n🖥️  System Information:")
         print("=" * 50)
         
@@ -216,23 +276,77 @@ class PerformanceTester:
         hw_info = settings.get_hardware_info()
         print(f"Hardware: {hw_info}")
         
-        # Model info
+        # Ollama integration info
         if self.llm:
-            model_stats = self.llm.get_performance_stats()
-            print(f"\nModel Statistics:")
-            for key, value in model_stats.items():
-                print(f"   • {key}: {value}")
+            stats = self.llm.get_performance_stats()
+            print(f"\nOllama Integration:")
+            print(f"   • Host: {stats.get('ollama_host', 'Unknown')}")
+            print(f"   • Status: {'Connected' if stats.get('ollama_enabled') else 'Disconnected'}")
+            print(f"   • Current Model: {stats.get('current_model', 'None')}")
+            print(f"   • Model Size: {stats.get('model_size', 'Unknown')}")
+            print(f"   • Performance Profile: {stats.get('performance_profile', 'Unknown')}")
             
             # Available models
             available_models = self.llm.list_available_models()
             print(f"\nAvailable Models ({len(available_models)}):")
             for model in available_models:
                 status = "🟢 LOADED" if model['loaded'] else "⚪ Available"
-                print(f"   • {model['name']} - {model['ram_usage']} RAM - Speed: {model['speed_rating']} - Quality: {model['quality_rating']} {status}")
+                print(f"   • {model['name']} - {model['size']} - Speed: {model['speed_rating']} - Quality: {model['quality_rating']} {status}")
+    
+    async def benchmark_all_models(self):
+        """Benchmark all available models"""
+        print("\n🏃 Benchmarking All Models:")
+        print("=" * 50)
+        
+        available_models = self.llm.list_available_models()
+        test_query = "Explain artificial intelligence in one paragraph."
+        
+        results = []
+        
+        for model in available_models:
+            model_name = model['name']
+            print(f"\n🤖 Benchmarking: {model_name}")
+            
+            try:
+                # Switch to model
+                await self.llm.switch_model(model_name)
+                
+                # Run 3 test queries and average the time
+                times = []
+                for i in range(3):
+                    start = time.time()
+                    response = await self.llm.generate_response(test_query, "", "")
+                    end = time.time()
+                    times.append(end - start)
+                
+                avg_time = sum(times) / len(times)
+                results.append({
+                    'model': model_name,
+                    'size': model['size'],
+                    'avg_time': avg_time,
+                    'speed_rating': model['speed_rating'],
+                    'quality_rating': model['quality_rating']
+                })
+                
+                print(f"   Average time: {avg_time:.2f}s")
+                
+            except Exception as e:
+                print(f"   Error: {e}")
+                continue
+        
+        # Sort by performance
+        results.sort(key=lambda x: x['avg_time'])
+        
+        print(f"\n🏆 Model Performance Ranking:")
+        print("=" * 50)
+        for i, result in enumerate(results, 1):
+            print(f"{i}. {result['model']} - {result['avg_time']:.2f}s ({result['size']})")
+        
+        return results
     
     async def run_comprehensive_test(self):
         """Run comprehensive performance test"""
-        print("🤖 Pascal AI Assistant - Performance Test Suite")
+        print("🤖 Pascal AI Assistant - Ollama Performance Test Suite")
         print("=" * 60)
         
         if not await self.initialize():
@@ -240,6 +354,9 @@ class PerformanceTester:
         
         # System information
         await self.system_info_test()
+        
+        # Ollama integration test
+        await self.test_ollama_integration()
         
         # Test all profiles
         profile_results = {}
@@ -257,6 +374,9 @@ class PerformanceTester:
         # Model switching test
         await self.test_model_switching()
         
+        # Benchmark all models
+        await self.benchmark_all_models()
+        
         # Stress test (30 seconds)
         await self.stress_test(30)
         
@@ -268,7 +388,8 @@ class PerformanceTester:
             if results['avg_time']:
                 print(f"{profile.upper()} Profile: {results['avg_time']:.2f}s avg, {results['success_count']} successes")
         
-        print("\n✅ Performance testing complete!")
+        print("\n✅ Ollama performance testing complete!")
+        print("🦙 Ollama provides excellent model management for Pascal!")
         
         # Close LLM
         if self.llm:
@@ -299,12 +420,18 @@ async def main():
         elif test_type == 'models':
             await tester.test_model_switching()
         
+        elif test_type == 'benchmark':
+            await tester.benchmark_all_models()
+        
+        elif test_type == 'ollama':
+            await tester.test_ollama_integration()
+        
         elif test_type == 'info':
             await tester.system_info_test()
         
         else:
             print(f"Unknown test type: {test_type}")
-            print("Available tests: quick, stress [duration], models, info")
+            print("Available tests: quick, stress [duration], models, benchmark, ollama, info")
         
         if tester.llm:
             await tester.llm.close()
