@@ -529,8 +529,3 @@ class OptimizedOfflineLLM:
         """Clean shutdown"""
         self._unload_model()
         self.executor.shutdown(wait=True)
-
-# For backward compatibility with existing router
-class OfflineLLM(OptimizedOfflineLLM):
-    """Alias for backward compatibility"""
-    pass
