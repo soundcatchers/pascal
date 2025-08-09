@@ -1,12 +1,12 @@
 #!/bin/bash
 
-# Pascal AI Assistant - Model Download Script for Raspberry Pi 5
-# Downloads optimized GGUF models for best Pi 5 performance
+# Pascal AI Assistant - Model Download Script for Raspberry Pi 5 (Ollama Version)
+# Downloads and manages models using Ollama for optimal Pi 5 performance
 
 set -e
 
-echo "🤖 Pascal AI Assistant - Model Downloader for Raspberry Pi 5"
-echo "=============================================================="
+echo "🤖 Pascal AI Assistant - Ollama Model Manager for Raspberry Pi 5"
+echo "================================================================="
 
 # Colors for output
 RED='\033[0;31m'
@@ -37,16 +37,16 @@ check_pi() {
     if [ -f /proc/device-tree/model ]; then
         PI_MODEL=$(cat /proc/device-tree/model)
         if [[ $PI_MODEL == *"Raspberry Pi 5"* ]]; then
-            print_success "Detected Raspberry Pi 5 - proceeding with optimized downloads"
+            print_success "Detected Raspberry Pi 5 - proceeding with optimized setup"
         elif [[ $PI_MODEL == *"Raspberry Pi"* ]]; then
-            print_warning "Detected $PI_MODEL - these models are optimized for Pi 5"
+            print_warning "Detected $PI_MODEL - Ollama optimized for Pi 5"
             read -p "Continue anyway? (y/N): " -n 1 -r
             echo
             if [[ ! $REPLY =~ ^[Yy]$ ]]; then
                 exit 1
             fi
         else
-            print_warning "Not running on Raspberry Pi - models are optimized for Pi 5"
+            print_warning "Not running on Raspberry Pi - Ollama works on most systems"
         fi
     fi
 }
@@ -56,8 +56,8 @@ check_space() {
     AVAILABLE_GB=$(df . | tail -1 | awk '{print int($4/1024/1024)}')
     print_status "Available disk space: ${AVAILABLE_GB}GB"
     
-    if [ $AVAILABLE_GB -lt 20 ]; then
-        print_error "Insufficient disk space. Need at least 20GB free."
+    if [ $AVAILABLE_GB -lt 15 ]; then
+        print_error "Insufficient disk space. Need at least 15GB free for Ollama and models."
         exit 1
     fi
 }
@@ -73,109 +73,137 @@ check_ram() {
     fi
 }
 
-# Create models directory
-setup_directory() {
-    print_status "Setting up models directory..."
+# Install Ollama
+install_ollama() {
+    print_status "Checking Ollama installation..."
     
-    # Get script directory
-    SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
-    MODELS_DIR="$SCRIPT_DIR/data/models"
-    
-    mkdir -p "$MODELS_DIR"
-    cd "$MODELS_DIR"
-    
-    print_success "Models directory: $MODELS_DIR"
-}
-
-# Download function with progress and retry
-download_model() {
-    local name="$1"
-    local url="$2"
-    local filename="$3"
-    local size="$4"
-    
-    print_status "Downloading $name ($size)..."
-    print_status "URL: $url"
-    
-    # Check if file already exists
-    if [ -f "$filename" ]; then
-        print_warning "$filename already exists. Skipping download."
+    if command -v ollama &> /dev/null; then
+        print_success "Ollama is already installed"
+        ollama --version
         return 0
     fi
     
-    # Download with wget, showing progress
-    if wget --progress=bar:force:noscroll -O "$filename.tmp" "$url"; then
-        mv "$filename.tmp" "$filename"
-        print_success "Downloaded $name successfully"
+    print_status "Installing Ollama..."
+    
+    # Download and install Ollama
+    curl -fsSL https://ollama.ai/install.sh | sh
+    
+    if command -v ollama &> /dev/null; then
+        print_success "Ollama installed successfully"
         
-        # Verify file size (basic check)
-        ACTUAL_SIZE=$(du -h "$filename" | cut -f1)
-        print_status "File size: $ACTUAL_SIZE"
+        # Start Ollama service
+        print_status "Starting Ollama service..."
+        sudo systemctl enable ollama
+        sudo systemctl start ollama
         
+        # Wait for service to start
+        sleep 5
+        
+        print_success "Ollama service started"
         return 0
     else
-        print_error "Failed to download $name"
-        rm -f "$filename.tmp"
+        print_error "Ollama installation failed"
         return 1
     fi
 }
 
-# Main download function
+# Configure Ollama for Pi 5
+configure_ollama() {
+    print_status "Configuring Ollama for Raspberry Pi 5..."
+    
+    # Create Ollama service override for Pi 5 optimization
+    sudo mkdir -p /etc/systemd/system/ollama.service.d
+    
+    cat << EOF | sudo tee /etc/systemd/system/ollama.service.d/override.conf
+[Service]
+Environment="OLLAMA_HOST=127.0.0.1:11434"
+Environment="OLLAMA_NUM_PARALLEL=1"
+Environment="OLLAMA_MAX_LOADED_MODELS=1"
+Environment="OLLAMA_MAX_QUEUE=4"
+Environment="OLLAMA_FLASH_ATTENTION=0"
+Environment="OLLAMA_KV_CACHE_TYPE=f16"
+Environment="OLLAMA_NUM_THREAD=4"
+Environment="OLLAMA_TMPDIR=/tmp"
+EOF
+
+    # Reload systemd and restart Ollama
+    sudo systemctl daemon-reload
+    sudo systemctl restart ollama
+    
+    # Wait for restart
+    sleep 5
+    
+    print_success "Ollama configured for Pi 5 optimization"
+}
+
+# Test Ollama connection
+test_ollama() {
+    print_status "Testing Ollama connection..."
+    
+    # Try to connect to Ollama
+    for i in {1..10}; do
+        if curl -s http://localhost:11434/api/version > /dev/null; then
+            print_success "Ollama is running and accessible"
+            return 0
+        fi
+        
+        print_status "Waiting for Ollama to start... (attempt $i/10)"
+        sleep 2
+    done
+    
+    print_error "Could not connect to Ollama after 20 seconds"
+    return 1
+}
+
+# Download models using Ollama
 download_models() {
-    print_status "Starting model downloads..."
-    
-    # Model definitions: name, URL, filename, approximate size
-    declare -A MODELS
-    
-    # Gemma 2-9B (Q4_K_M) - Best overall quality for Pi 5
-    MODELS["gemma2-9b"]="https://huggingface.co/bartowski/gemma-2-9b-it-GGUF/resolve/main/gemma-2-9b-it-Q4_K_M.gguf|gemma-2-9b-it-Q4_K_M.gguf|5.4GB"
-    
-    # Qwen2.5-7B (Q4_K_M) - Excellent efficiency
-    MODELS["qwen2.5-7b"]="https://huggingface.co/Qwen/Qwen2.5-7B-Instruct-GGUF/resolve/main/qwen2.5-7b-instruct-q4_k_m.gguf|qwen2.5-7b-instruct-q4_k_m.gguf|4.4GB"
-    
-    # Phi-3-Mini (Q5_K_M) - Fastest responses
-    MODELS["phi3-mini"]="https://huggingface.co/microsoft/Phi-3-mini-4k-instruct-gguf/resolve/main/Phi-3-mini-4k-instruct-q5_k_m.gguf|Phi-3-mini-4k-instruct-q5_k_m.gguf|2.8GB"
-    
-    # Interactive selection
+    print_status "Available models optimized for Raspberry Pi 5:"
     echo ""
-    echo "Available models for Raspberry Pi 5:"
-    echo "1. Gemma 2-9B (Q4_K_M) - 5.4GB - Best overall quality and reasoning"
-    echo "2. Qwen2.5-7B (Q4_K_M) - 4.4GB - Excellent balance of speed and quality"
-    echo "3. Phi-3-Mini (Q5_K_M) - 2.8GB - Fastest responses, good for quick tasks"
-    echo "4. Download all models (12.6GB total)"
-    echo "5. Custom selection"
+    echo "1. Phi-3 Mini (4K) - 2.3GB - Fastest responses, best for Pi 5"
+    echo "2. Llama 3.2 3B - 2.0GB - Excellent efficiency and speed"
+    echo "3. Gemma 2 2B - 1.6GB - Very fast, good for quick tasks"
+    echo "4. Qwen2.5 7B - 4.4GB - Best quality (requires good cooling)"
+    echo "5. Download recommended set (Phi-3 Mini + Llama 3.2 3B)"
+    echo "6. Download all models"
+    echo "7. Custom selection"
     echo ""
     
-    read -p "Choose an option (1-5): " choice
+    read -p "Choose an option (1-7): " choice
     
     case $choice in
         1)
-            download_model "Gemma 2-9B" $(echo ${MODELS["gemma2-9b"]} | cut -d'|' -f1) $(echo ${MODELS["gemma2-9b"]} | cut -d'|' -f2) $(echo ${MODELS["gemma2-9b"]} | cut -d'|' -f3)
+            download_single_model "phi3:mini" "Phi-3 Mini (4K)" "2.3GB"
             ;;
         2)
-            download_model "Qwen2.5-7B" $(echo ${MODELS["qwen2.5-7b"]} | cut -d'|' -f1) $(echo ${MODELS["qwen2.5-7b"]} | cut -d'|' -f2) $(echo ${MODELS["qwen2.5-7b"]} | cut -d'|' -f3)
+            download_single_model "llama3.2:3b" "Llama 3.2 3B" "2.0GB"
             ;;
         3)
-            download_model "Phi-3-Mini" $(echo ${MODELS["phi3-mini"]} | cut -d'|' -f1) $(echo ${MODELS["phi3-mini"]} | cut -d'|' -f2) $(echo ${MODELS["phi3-mini"]} | cut -d'|' -f3)
+            download_single_model "gemma2:2b" "Gemma 2 2B" "1.6GB"
             ;;
         4)
-            for model_key in "${!MODELS[@]}"; do
-                model_data=${MODELS[$model_key]}
-                url=$(echo $model_data | cut -d'|' -f1)
-                filename=$(echo $model_data | cut -d'|' -f2)
-                size=$(echo $model_data | cut -d'|' -f3)
-                download_model "$model_key" "$url" "$filename" "$size"
-            done
+            download_single_model "qwen2.5:7b" "Qwen2.5 7B" "4.4GB"
             ;;
         5)
-            echo "Select models to download (space-separated numbers, e.g., '1 3'):"
-            read -p "Models: " selected
-            for num in $selected; do
-                case $num in
-                    1) download_model "Gemma 2-9B" $(echo ${MODELS["gemma2-9b"]} | cut -d'|' -f1) $(echo ${MODELS["gemma2-9b"]} | cut -d'|' -f2) $(echo ${MODELS["gemma2-9b"]} | cut -d'|' -f3) ;;
-                    2) download_model "Qwen2.5-7B" $(echo ${MODELS["qwen2.5-7b"]} | cut -d'|' -f1) $(echo ${MODELS["qwen2.5-7b"]} | cut -d'|' -f2) $(echo ${MODELS["qwen2.5-7b"]} | cut -d'|' -f3) ;;
-                    3) download_model "Phi-3-Mini" $(echo ${MODELS["phi3-mini"]} | cut -d'|' -f1) $(echo ${MODELS["phi3-mini"]} | cut -d'|' -f2) $(echo ${MODELS["phi3-mini"]} | cut -d'|' -f3) ;;
-                    *) print_warning "Invalid selection: $num" ;;
+            download_single_model "phi3:mini" "Phi-3 Mini (4K)" "2.3GB"
+            download_single_model "llama3.2:3b" "Llama 3.2 3B" "2.0GB"
+            ;;
+        6)
+            download_single_model "phi3:mini" "Phi-3 Mini (4K)" "2.3GB"
+            download_single_model "llama3.2:3b" "Llama 3.2 3B" "2.0GB"
+            download_single_model "gemma2:2b" "Gemma 2 2B" "1.6GB"
+            download_single_model "qwen2.5:7b" "Qwen2.5 7B" "4.4GB"
+            ;;
+        7)
+            echo "Available models: phi3:mini, llama3.2:3b, gemma2:2b, qwen2.5:7b"
+            echo "Enter model names separated by spaces:"
+            read -p "Models: " selected_models
+            for model in $selected_models; do
+                case $model in
+                    "phi3:mini") download_single_model "phi3:mini" "Phi-3 Mini (4K)" "2.3GB" ;;
+                    "llama3.2:3b") download_single_model "llama3.2:3b" "Llama 3.2 3B" "2.0GB" ;;
+                    "gemma2:2b") download_single_model "gemma2:2b" "Gemma 2 2B" "1.6GB" ;;
+                    "qwen2.5:7b") download_single_model "qwen2.5:7b" "Qwen2.5 7B" "4.4GB" ;;
+                    *) print_warning "Unknown model: $model" ;;
                 esac
             done
             ;;
@@ -186,160 +214,253 @@ download_models() {
     esac
 }
 
-# Verify downloads
+# Download a single model
+download_single_model() {
+    local model_name="$1"
+    local display_name="$2"
+    local size="$3"
+    
+    print_status "Downloading $display_name ($size)..."
+    
+    # Check if model is already downloaded
+    if ollama list | grep -q "$model_name"; then
+        print_warning "$display_name is already downloaded"
+        return 0
+    fi
+    
+    # Download with progress
+    if ollama pull "$model_name"; then
+        print_success "Downloaded $display_name successfully"
+        return 0
+    else
+        print_error "Failed to download $display_name"
+        return 1
+    fi
+}
+
+# Verify downloaded models
 verify_models() {
     print_status "Verifying downloaded models..."
     
-    MODEL_COUNT=0
-    TOTAL_SIZE=0
+    MODEL_LIST=$(ollama list 2>/dev/null || echo "")
     
-    for gguf_file in *.gguf; do
-        if [ -f "$gguf_file" ]; then
-            SIZE=$(du -m "$gguf_file" | cut -f1)
-            TOTAL_SIZE=$((TOTAL_SIZE + SIZE))
-            MODEL_COUNT=$((MODEL_COUNT + 1))
-            print_success "✓ $gguf_file (${SIZE}MB)"
-        fi
-    done
-    
-    if [ $MODEL_COUNT -eq 0 ]; then
-        print_error "No GGUF models found!"
-        exit 1
+    if [ -z "$MODEL_LIST" ] || [ "$(echo "$MODEL_LIST" | wc -l)" -le 1 ]; then
+        print_error "No models found!"
+        return 1
     fi
     
-    TOTAL_SIZE_GB=$((TOTAL_SIZE / 1024))
-    print_success "Found $MODEL_COUNT model(s), total size: ${TOTAL_SIZE_GB}GB"
+    print_success "Available models:"
+    echo "$MODEL_LIST"
+    
+    return 0
 }
 
-# Test model loading (optional)
-test_model() {
-    print_status "Testing model compatibility..."
+# Test model inference
+test_models() {
+    print_status "Testing model performance..."
     
-    # Check if Python and required packages are available
-    if command -v python3 &> /dev/null; then
-        if python3 -c "import llama_cpp" 2> /dev/null; then
-            print_success "llama-cpp-python is installed and ready"
-            
-            # Quick test of model loading
-            read -p "Test model loading? This will take 30-60 seconds (y/N): " -n 1 -r
-            echo
-            if [[ $REPLY =~ ^[Yy]$ ]]; then
-                python3 -c "
-import sys
-sys.path.append('../../')
-from modules.offline_llm import OptimizedOfflineLLM
-import asyncio
-
-async def test():
-    print('Testing model loading...')
-    llm = OptimizedOfflineLLM()
-    if await llm.initialize():
-        print('✅ Model loading test successful!')
-        stats = llm.get_performance_stats()
-        print(f'Loaded model: {stats[\"model_name\"]}')
-        print(f'RAM usage: {stats[\"model_ram_usage\"]}')
-        await llm.close()
-    else:
-        print('❌ Model loading test failed')
-
-asyncio.run(test())
-"
-            fi
+    # Get list of downloaded models
+    MODELS=$(ollama list | tail -n +2 | awk '{print $1}' | grep -v "^$")
+    
+    if [ -z "$MODELS" ]; then
+        print_warning "No models available for testing"
+        return
+    fi
+    
+    read -p "Test model performance? This will take 1-2 minutes (y/N): " -n 1 -r
+    echo
+    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+        return
+    fi
+    
+    for model in $MODELS; do
+        print_status "Testing $model..."
+        
+        start_time=$(date +%s)
+        
+        # Simple test prompt
+        response=$(echo "Hello! Please respond with exactly: Test successful" | ollama run "$model" --verbose 2>/dev/null || echo "Error")
+        
+        end_time=$(date +%s)
+        duration=$((end_time - start_time))
+        
+        if [[ "$response" == *"test"* ]] && [[ "$response" == *"successful"* ]]; then
+            print_success "$model: Response time ${duration}s ✅"
         else
-            print_warning "llama-cpp-python not installed. Run: pip install llama-cpp-python"
+            print_warning "$model: Test failed or timed out (${duration}s) ❌"
         fi
-    else
-        print_warning "Python3 not found. Please install Python 3.8+"
-    fi
+        
+        echo ""
+    done
 }
 
-# Create model info file
-create_model_info() {
-    print_status "Creating model information file..."
+# Create model configuration for Pascal
+create_model_config() {
+    print_status "Creating Pascal model configuration..."
     
-    cat > model_info.json << EOF
+    # Get script directory and create config
+    SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
+    CONFIG_FILE="$SCRIPT_DIR/data/models/ollama_config.json"
+    
+    # Ensure directory exists
+    mkdir -p "$(dirname "$CONFIG_FILE")"
+    
+    # Get available models
+    MODELS=$(ollama list | tail -n +2 | awk '{print $1}' | grep -v "^$" | head -10)
+    
+    # Create JSON config
+    cat > "$CONFIG_FILE" << EOF
 {
+    "ollama_enabled": true,
+    "ollama_host": "http://localhost:11434",
     "download_date": "$(date -Iseconds)",
     "pi_model": "$(cat /proc/device-tree/model 2>/dev/null || echo 'Unknown')",
-    "total_models": $(ls -1 *.gguf 2>/dev/null | wc -l),
-    "models": [
+    "available_models": [
 EOF
 
+    # Add models to config
     FIRST=true
-    for gguf_file in *.gguf; do
-        if [ -f "$gguf_file" ]; then
-            if [ "$FIRST" = false ]; then
-                echo "        ," >> model_info.json
-            fi
-            SIZE=$(du -h "$gguf_file" | cut -f1)
-            echo "        {" >> model_info.json
-            echo "            \"filename\": \"$gguf_file\"," >> model_info.json
-            echo "            \"size\": \"$SIZE\"" >> model_info.json
-            echo -n "        }" >> model_info.json
-            FIRST=false
+    for model in $MODELS; do
+        if [ "$FIRST" = false ]; then
+            echo "        ," >> "$CONFIG_FILE"
         fi
+        
+        # Get model info
+        MODEL_INFO=$(ollama show "$model" 2>/dev/null || echo "")
+        PARAMS=$(echo "$MODEL_INFO" | grep -i "parameters" | head -1 || echo "Unknown parameters")
+        SIZE=$(ollama list | grep "$model" | awk '{print $2}' || echo "Unknown")
+        
+        echo "        {" >> "$CONFIG_FILE"
+        echo "            \"name\": \"$model\"," >> "$CONFIG_FILE"
+        echo "            \"size\": \"$SIZE\"," >> "$CONFIG_FILE"
+        echo "            \"parameters\": \"$PARAMS\"" >> "$CONFIG_FILE"
+        echo -n "        }" >> "$CONFIG_FILE"
+        FIRST=false
     done
 
-    cat >> model_info.json << EOF
+    cat >> "$CONFIG_FILE" << EOF
 
     ],
-    "recommendations": {
-        "fastest": "Phi-3-mini for quick responses",
-        "balanced": "Qwen2.5-7B for general use",
-        "highest_quality": "Gemma 2-9B for complex tasks"
+    "model_recommendations": {
+        "fastest": "phi3:mini - Optimized for Pi 5, fastest responses",
+        "balanced": "llama3.2:3b - Good balance of speed and quality",
+        "quality": "qwen2.5:7b - Best quality (needs good cooling)",
+        "lightweight": "gemma2:2b - Minimal resource usage"
+    },
+    "performance_profiles": {
+        "speed": {
+            "preferred_models": ["phi3:mini", "gemma2:2b"],
+            "temperature": 0.3,
+            "max_tokens": 100
+        },
+        "balanced": {
+            "preferred_models": ["llama3.2:3b", "phi3:mini"],
+            "temperature": 0.7,
+            "max_tokens": 200
+        },
+        "quality": {
+            "preferred_models": ["qwen2.5:7b", "llama3.2:3b"],
+            "temperature": 0.8,
+            "max_tokens": 300
+        }
     }
 }
 EOF
 
-    print_success "Model info saved to model_info.json"
+    print_success "Pascal configuration saved to $CONFIG_FILE"
+}
+
+# Show usage instructions
+show_completion() {
+    print_success "Ollama setup complete! 🎉"
+    echo "================================"
+    echo ""
+    
+    print_status "Available Commands:"
+    echo "• ollama list                 - Show downloaded models"
+    echo "• ollama run [model]          - Chat with a model"
+    echo "• ollama pull [model]         - Download a new model"
+    echo "• ollama rm [model]           - Remove a model"
+    echo "• systemctl status ollama     - Check Ollama service"
+    echo ""
+    
+    print_status "Pascal Integration:"
+    echo "• Models are automatically detected by Pascal"
+    echo "• Start Pascal with: ./run.sh"
+    echo "• Use 'status' command in Pascal to see available models"
+    echo "• Switch models with 'model [name]' command"
+    echo ""
+    
+    print_status "Performance Tips:"
+    echo "• phi3:mini - Best for quick responses (recommended)"
+    echo "• llama3.2:3b - Good balance of speed and quality"
+    echo "• gemma2:2b - Fastest, minimal resources"
+    echo "• qwen2.5:7b - Highest quality (ensure good cooling)"
+    echo ""
+    
+    print_status "Monitoring:"
+    echo "• Monitor temperature: vcgencmd measure_temp"
+    echo "• Monitor memory: free -h"
+    echo "• Monitor CPU: htop"
+    echo ""
+    
+    print_success "Ready to start Pascal! Run: ./run.sh"
 }
 
 # Cleanup function
 cleanup() {
-    print_status "Cleaning up temporary files..."
-    rm -f *.tmp
+    print_status "Cleaning up..."
+    # Ollama manages its own cleanup
 }
 
 # Main execution
 main() {
-    echo "Starting Pascal model download process..."
+    echo "Starting Pascal Ollama setup process..."
     
     # Trap cleanup on exit
     trap cleanup EXIT
     
-    # Run checks
+    # Run checks and setup
     check_pi
     check_space
     check_ram
     
-    # Setup
-    setup_directory
+    # Install and configure Ollama
+    if ! install_ollama; then
+        print_error "Ollama installation failed"
+        exit 1
+    fi
+    
+    configure_ollama
+    
+    if ! test_ollama; then
+        print_error "Ollama connection test failed"
+        exit 1
+    fi
     
     # Download models
     download_models
     
-    # Verify
-    verify_models
-    
-    # Create info file
-    create_model_info
-    
-    # Optional testing
-    test_model
-    
-    echo ""
-    print_success "Model download complete!"
-    print_status "Models location: $(pwd)"
-    print_status "You can now run Pascal with: ./run.sh"
-    
-    echo ""
-    echo "Model Performance Guide:"
-    echo "• Phi-3-Mini: Fastest responses (1-2s), good for chat"
-    echo "• Qwen2.5-7B: Balanced performance (2-4s), versatile"  
-    echo "• Gemma 2-9B: Best quality (3-6s), complex reasoning"
-    echo ""
-    echo "Use 'personality speed/balanced/quality' in Pascal to optimize!"
+    # Verify and test
+    if verify_models; then
+        test_models
+        create_model_config
+        show_completion
+    else
+        print_error "Model verification failed"
+        exit 1
+    fi
 }
+
+# Handle interruption
+cleanup_interrupt() {
+    print_warning "Setup interrupted"
+    cleanup
+    exit 1
+}
+
+# Set trap for cleanup
+trap cleanup_interrupt SIGINT SIGTERM
 
 # Run main function
 main "$@"
