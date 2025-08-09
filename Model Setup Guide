@@ -1,0 +1,259 @@
+# Pascal AI Assistant - Model Setup Guide for Raspberry Pi 5
+
+## 🚀 Quick Setup for Optimal Performance
+
+### **Step 1: Install Optimized Requirements**
+
+Update your `requirements.txt` with ARM-optimized versions:
+
+```bash
+# Core framework
+fastapi==0.104.1
+uvicorn==0.24.0
+
+# LLM and AI - ARM optimized versions
+requests==2.31.0
+openai==1.3.7
+anthropic==0.7.7
+
+# Local LLM support - ARM optimized build
+llama-cpp-python==0.2.20 --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cpu
+
+# Configuration and utilities
+pydantic==2.5.0
+python-dotenv==1.0.0
+pyyaml==6.0.1
+
+# Memory and data handling
+json5==0.9.14
+
+# Logging and monitoring
+colorama==0.4.6
+rich==13.7.0
+
+# Performance monitoring
+psutil==5.9.6
+
+# Development and testing
+pytest==7.4.3
+pytest-asyncio==0.21.1
+```
+
+### **Step 2: Download Recommended Models**
+
+Create a download script to get the best models for Pi 5:
+
+```bash
+#!/bin/bash
+# download_models.sh
+
+echo "📥 Downloading optimized models for Raspberry Pi 5..."
+
+# Create models directory
+mkdir -p data/models
+cd data/models
+
+# Download Gemma 2-9B (Q4_K_M) - Best balance of quality/speed
+echo "Downloading Gemma 2-9B (Q4_K_M)..."
+wget https://huggingface.co/bartowski/gemma-2-9b-it-GGUF/resolve/main/gemma-2-9b-it-Q4_K_M.gguf
+
+# Download Qwen2.5-7B (Q4_K_M) - Excellent efficiency
+echo "Downloading Qwen2.5-7B (Q4_K_M)..."
+wget https://huggingface.co/Qwen/Qwen2.5-7B-Instruct-GGUF/resolve/main/qwen2.5-7b-instruct-q4_k_m.gguf
+
+# Download Phi-3-Mini (Q5_K_M) - Fastest responses
+echo "Downloading Phi-3-Mini (Q5_K_M)..."
+wget https://huggingface.co/microsoft/Phi-3-mini-4k-instruct-gguf/resolve/main/Phi-3-mini-4k-instruct-q5_k_m.gguf
+
+echo "✅ Model downloads complete!"
+echo "Models are stored in: $(pwd)"
+echo "Total space used: $(du -sh . | cut -f1)"
+```
+
+### **Step 3: Optimize System Settings**
+
+Update your `/boot/config.txt` for optimal performance:
+
+```bash
+# Add these lines to /boot/config.txt for Pi 5 optimization
+gpu_mem=128                    # Allocate minimum GPU memory
+arm_boost=1                    # Enable CPU boost
+over_voltage=2                 # Slight overvolt for stability (safe)
+arm_freq=2400                  # Max CPU frequency
+```
+
+### **Step 4: Install Performance Monitoring**
+
+```bash
+# Install system monitoring tools
+sudo apt install htop iotop stress-ng
+
+# Install ARM-specific optimizations
+sudo apt install libblas3 liblapack3 libatlas-base-dev
+```
+
+## 🔧 **Configuration Updates**
+
+### **Update settings.py for optimal performance:**
+
+```python
+# Add to config/settings.py
+
+# Optimized settings for Pi 5
+self.local_model_context = 1024      # Increased from 512
+self.local_model_threads = 4         # Use all 4 cores
+self.max_response_tokens = 100       # Increased for better responses
+
+# Performance profiles
+self.performance_mode = "balanced"   # Options: speed, balanced, quality
+
+# ARM-specific optimizations
+self.use_arm_optimizations = True
+self.memory_optimization = True
+self.context_caching = True
+```
+
+## ⚡ **Performance Testing Commands**
+
+Add these commands to test your setup:
+
+```bash
+# Test model loading speed
+python3 -c "
+import asyncio
+from modules.offline_llm import OptimizedOfflineLLM
+async def test():
+    llm = OptimizedOfflineLLM()
+    success = await llm.initialize()
+    if success:
+        print('✅ Model loaded successfully')
+        stats = llm.get_performance_stats()
+        print(f'Model: {stats[\"model_name\"]}')
+        print(f'RAM Usage: {stats[\"model_ram_usage\"]}')
+    else:
+        print('❌ Model loading failed')
+asyncio.run(test())
+"
+
+# Benchmark inference speed
+python3 -c "
+import asyncio
+import time
+from modules.offline_llm import OptimizedOfflineLLM
+
+async def benchmark():
+    llm = OptimizedOfflineLLM()
+    await llm.initialize()
+    
+    test_queries = [
+        'Hello, how are you?',
+        'Explain quantum computing in simple terms.',
+        'Write a short Python function to sort a list.'
+    ]
+    
+    for profile in ['speed', 'balanced', 'quality']:
+        llm.set_performance_profile(profile)
+        print(f'\\n🧪 Testing {profile} profile:')
+        
+        for query in test_queries:
+            start = time.time()
+            response = await llm.generate_response(query, '', '')
+            elapsed = time.time() - start
+            print(f'  Query: {query[:30]}...')
+            print(f'  Time: {elapsed:.2f}s')
+            print(f'  Response: {response[:50]}...')
+            
+asyncio.run(benchmark())
+"
+```
+
+## 📊 **Expected Performance Metrics**
+
+| Model | RAM Usage | Speed | Quality | Use Case |
+|-------|-----------|-------|---------|----------|
+| **Gemma 2-9B** | ~5.5GB | 3-5s | ⭐⭐⭐⭐⭐ | Best overall |
+| **Qwen2.5-7B** | ~4.5GB | 2-4s | ⭐⭐⭐⭐ | Balanced |
+| **Phi-3-Mini** | ~3.0GB | 1-2s | ⭐⭐⭐ | Fast responses |
+
+## 🛠️ **Troubleshooting**
+
+### **If model loading fails:**
+```bash
+# Check available RAM
+free -h
+
+# Check model file integrity
+ls -la data/models/
+md5sum data/models/*.gguf
+
+# Install missing dependencies
+pip install --upgrade llama-cpp-python
+```
+
+### **If responses are slow:**
+```bash
+# Check CPU frequency
+cat /sys/devices/system/cpu/cpu0/cpufreq/scaling_cur_freq
+
+# Monitor system resources
+htop
+iotop
+
+# Switch to speed profile
+python3 -c "
+from modules.offline_llm import OptimizedOfflineLLM
+llm = OptimizedOfflineLLM()
+llm.set_performance_profile('speed')
+"
+```
+
+### **Memory optimization:**
+```bash
+# Increase swap if needed (only for heavy models)
+sudo dphys-swapfile swapoff
+sudo nano /etc/dphys-swapfile
+# Set CONF_SWAPSIZE=2048
+sudo dphys-swapfile setup
+sudo dphys-swapfile swapon
+
+# Check memory usage
+sudo cat /proc/meminfo
+```
+
+## 🎯 **Quick Start Commands**
+
+```bash
+# 1. Update requirements
+pip install -r requirements.txt
+
+# 2. Download models (choose one)
+chmod +x download_models.sh
+./download_models.sh
+
+# 3. Test Pascal with optimized offline LLM
+./run.sh
+
+# 4. In Pascal, test different profiles:
+# speed       - For quick responses (1-2s)
+# balanced    - For good balance (2-4s) 
+# quality     - For best responses (3-6s)
+```
+
+## 💡 **Pro Tips for Maximum Performance**
+
+1. **Use Q4_K_M quantization** - Best balance of quality and speed
+2. **Keep context under 1024 tokens** - Faster inference
+3. **Use speed profile for simple queries** - 2x faster responses
+4. **Monitor temperature** - Keep Pi 5 cool for sustained performance
+5. **Use NVMe for models** - Much faster loading than SD card
+
+## 🔄 **Auto-Model Selection**
+
+The optimized system automatically:
+- Detects available models
+- Ranks them by performance for Pi 5
+- Chooses the best model based on available RAM
+- Adjusts context size dynamically
+- Monitors performance and suggests optimizations
+
+Start Pascal and it will automatically use the best available model!
