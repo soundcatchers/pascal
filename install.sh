@@ -1,7 +1,7 @@
 #!/bin/bash
 
-# Pascal AI Assistant Installer - Raspberry Pi 5 Optimized
-# Automated setup script with ARM optimizations and model management
+# Pascal AI Assistant Installer - Raspberry Pi 5 Optimized (Ollama Version)
+# Automated setup script with ARM optimizations and Ollama integration
 
 set -e  # Exit on any error
 
@@ -29,8 +29,8 @@ print_error() {
     echo -e "${RED}[ERROR]${NC} $1"
 }
 
-echo "🤖 Installing Pascal AI Assistant (Pi 5 Optimized)"
-echo "================================================="
+echo "🤖 Installing Pascal AI Assistant (Pi 5 Optimized with Ollama)"
+echo "=============================================================="
 
 # Check if running on Raspberry Pi
 check_hardware() {
@@ -42,10 +42,10 @@ check_hardware() {
             print_success "Detected Raspberry Pi 5 - optimal compatibility"
             PI_VERSION="5"
         elif [[ $PI_MODEL == *"Raspberry Pi 4"* ]]; then
-            print_warning "Detected Raspberry Pi 4 - limited performance expected"
+            print_warning "Detected Raspberry Pi 4 - good compatibility with Ollama"
             PI_VERSION="4"
         elif [[ $PI_MODEL == *"Raspberry Pi"* ]]; then
-            print_warning "Detected older Raspberry Pi - performance may be limited"
+            print_warning "Detected older Raspberry Pi - Ollama should still work"
             PI_VERSION="older"
             read -p "Continue installation? (y/N): " -n 1 -r
             echo
@@ -53,7 +53,7 @@ check_hardware() {
                 exit 1
             fi
         else
-            print_warning "Non-Raspberry Pi hardware detected"
+            print_warning "Non-Raspberry Pi hardware detected - Ollama is cross-platform"
             PI_VERSION="unknown"
         fi
     else
@@ -67,18 +67,18 @@ check_hardware() {
     print_status "System RAM: ${TOTAL_RAM_GB}GB"
     
     if [ $TOTAL_RAM_GB -lt 4 ]; then
-        print_error "Insufficient RAM. Pascal requires at least 4GB RAM."
+        print_error "Insufficient RAM. Pascal with Ollama requires at least 4GB RAM."
         exit 1
     elif [ $TOTAL_RAM_GB -lt 8 ]; then
-        print_warning "Limited RAM detected. Performance may be reduced."
+        print_warning "Limited RAM detected. Consider using smaller models."
     fi
     
     # Check storage space
     AVAILABLE_GB=$(df . | tail -1 | awk '{print int($4/1024/1024)}')
     print_status "Available storage: ${AVAILABLE_GB}GB"
     
-    if [ $AVAILABLE_GB -lt 10 ]; then
-        print_error "Insufficient storage space. Need at least 10GB free."
+    if [ $AVAILABLE_GB -lt 15 ]; then
+        print_error "Insufficient storage space. Need at least 15GB free for Ollama and models."
         exit 1
     fi
 }
@@ -100,12 +100,12 @@ check_python() {
     fi
 }
 
-# Update system packages with Pi 5 optimizations
+# Update system packages
 update_system() {
     print_status "Updating system packages..."
     sudo apt update && sudo apt upgrade -y
     
-    print_status "Installing system dependencies with ARM optimizations..."
+    print_status "Installing system dependencies..."
     sudo apt install -y \
         python3-pip \
         python3-venv \
@@ -116,18 +116,14 @@ update_system() {
         build-essential \
         cmake \
         pkg-config \
-        libblas3 \
-        liblapack3 \
-        libatlas-base-dev \
-        gfortran \
-        libopenblas-dev \
         libasound2-dev \
         portaudio19-dev \
         libffi-dev \
         libssl-dev \
         htop \
         iotop \
-        stress-ng
+        stress-ng \
+        jq
     
     # Pi 5 specific optimizations
     if [ "$PI_VERSION" = "5" ]; then
@@ -148,7 +144,7 @@ update_system() {
     fi
 }
 
-# Create virtual environment with ARM optimizations
+# Create virtual environment
 setup_venv() {
     print_status "Creating Python virtual environment..."
     
@@ -163,25 +159,18 @@ setup_venv() {
     # Upgrade pip
     print_status "Upgrading pip..."
     pip install --upgrade pip wheel setuptools
-
-    # Install ARM-optimized packages first
-    print_status "Installing ARM-optimized base packages..."
-    pip install numpy==1.24.3  # Known stable version for Pi
 }
 
-# Install Python dependencies with ARM optimizations
+# Install Python dependencies (no longer need llama-cpp-python!)
 install_python_deps() {
-    print_status "Installing Python packages with ARM optimizations..."
+    print_status "Installing Python packages (Ollama-optimized)..."
     source venv/bin/activate
     
-    # Install llama-cpp-python with CPU-only ARM optimization
-    print_status "Installing llama-cpp-python (ARM optimized)..."
-    export CMAKE_ARGS="-DLLAMA_BLAS=ON -DLLAMA_BLAS_VENDOR=OpenBLAS"
-    pip install llama-cpp-python==0.2.20 --force-reinstall --no-cache-dir
-    
-    # Install other requirements
-    print_status "Installing remaining Python packages..."
+    # Install requirements (much faster without llama-cpp-python)
+    print_status "Installing Python dependencies..."
     pip install -r requirements.txt
+    
+    print_success "Python dependencies installed (no compilation needed with Ollama!)"
 }
 
 # Create directory structure
@@ -207,6 +196,7 @@ set_permissions() {
     
     chmod +x run.sh
     chmod +x download_models.sh
+    chmod +x test_performance.py
     
     # Make logs directory writable
     chmod 755 logs
@@ -224,33 +214,34 @@ create_config() {
     # Run installer utility
     python3 utils/installer.py
     
-    # Create performance-optimized .env if it doesn't exist
+    # Create Ollama-optimized .env if it doesn't exist
     if [ ! -f ".env" ]; then
-        print_status "Creating optimized .env configuration..."
+        print_status "Creating Ollama-optimized .env configuration..."
         cat > .env << EOF
-# Pascal AI Assistant Environment Variables - Pi 5 Optimized
+# Pascal AI Assistant Environment Variables - Pi 5 Optimized with Ollama
 
-# Performance settings
+# Performance settings (Ollama manages local models)
 PERFORMANCE_MODE=balanced
-LLM_THREADS=4
-LLM_CONTEXT=1024
-MAX_RESPONSE_TOKENS=100
 
 # Debug settings
 DEBUG=false
 LOG_LEVEL=INFO
 PERF_LOG=false
 
-# API Keys (add your keys here)
+# API Keys (add your keys here for online fallback)
 # OPENAI_API_KEY=your_openai_api_key_here
 # ANTHROPIC_API_KEY=your_anthropic_api_key_here
 # GOOGLE_API_KEY=your_google_api_key_here
+
+# Ollama settings
+OLLAMA_HOST=http://localhost:11434
+OLLAMA_TIMEOUT=30
 
 # Advanced settings
 MAX_CONCURRENT_REQUESTS=2
 CACHE_EXPIRY=3600
 EOF
-        print_success "Created optimized .env configuration"
+        print_success "Created Ollama-optimized .env configuration"
     fi
 }
 
@@ -265,10 +256,10 @@ import sys
 print(f'Python version: {sys.version}')
 
 try:
-    import llama_cpp
-    print('✅ llama-cpp-python installed successfully')
+    import aiohttp
+    print('✅ aiohttp installed successfully')
 except ImportError as e:
-    print('❌ llama-cpp-python import failed:', e)
+    print('❌ aiohttp import failed:', e)
     sys.exit(1)
 
 try:
@@ -290,32 +281,33 @@ print('✅ Installation test passed')
     fi
 }
 
-# Offer model download
-offer_model_download() {
+# Offer Ollama installation
+offer_ollama_installation() {
     echo ""
-    print_status "Model Download Options"
-    echo "Pascal needs AI models to work offline. You can:"
-    echo "1. Download recommended models now (5-15GB)"
-    echo "2. Download models later with ./download_models.sh"
-    echo "3. Skip model download (online-only mode)"
+    print_status "Ollama Installation"
+    echo "Pascal uses Ollama for local AI models. You can:"
+    echo "1. Install Ollama and download models now (recommended)"
+    echo "2. Install Ollama later with ./download_models.sh"
+    echo "3. Skip Ollama (online-only mode)"
     echo ""
     
-    read -p "Choose option (1-3): " model_choice
+    read -p "Choose option (1-3): " ollama_choice
     
-    case $model_choice in
+    case $ollama_choice in
         1)
-            print_status "Starting model download..."
+            print_status "Installing Ollama and downloading models..."
             chmod +x download_models.sh
             ./download_models.sh
             ;;
         2)
-            print_status "Models can be downloaded later with: ./download_models.sh"
+            print_status "Ollama can be installed later with: ./download_models.sh"
             ;;
         3)
-            print_warning "Skipping model download. Pascal will work in online-only mode."
+            print_warning "Skipping Ollama. Pascal will work in online-only mode."
+            print_status "You can install Ollama later if needed."
             ;;
         *)
-            print_warning "Invalid choice. Models can be downloaded later."
+            print_warning "Invalid choice. Ollama can be installed later."
             ;;
     esac
 }
@@ -340,17 +332,28 @@ show_completion() {
     echo "1. Start Pascal:"
     echo "   ./run.sh"
     echo ""
-    echo "2. Download models (if not done already):"
+    echo "2. Install Ollama and models (if not done already):"
     echo "   ./download_models.sh"
     echo ""
-    echo "3. Configure API keys in .env file (optional)"
+    echo "3. Configure API keys in .env file (optional for online fallback)"
+    echo ""
+    
+    # Show Ollama advantages
+    print_status "Ollama Advantages:"
+    echo "• ✅ No compilation needed (much faster installation)"
+    echo "• ✅ Better ARM optimization for Pi 5"
+    echo "• ✅ Automatic model management"
+    echo "• ✅ Easy model switching"
+    echo "• ✅ Built-in quantization"
+    echo "• ✅ Reliable downloads"
     echo ""
     
     # Show performance tips
     print_status "Performance Tips:"
-    echo "• Use 'speed' profile for quick responses (1-2s)"
-    echo "• Use 'balanced' profile for general use (2-4s)"
-    echo "• Use 'quality' profile for complex tasks (3-6s)"
+    echo "• Use phi3:mini for fastest responses on Pi 5"
+    echo "• Use llama3.2:3b for balanced performance"
+    echo "• Use gemma2:2b for minimal resource usage"
+    echo "• Monitor temperature: vcgencmd measure_temp"
     echo "• Type 'status' in Pascal to see system information"
     echo ""
     
@@ -368,14 +371,14 @@ main() {
     check_python
     update_system
     setup_venv
-    install_python_deps
+    install_python_deps  # Much faster without llama-cpp-python!
     setup_directories
     set_permissions
     create_config
     
     # Test installation
     if test_installation; then
-        offer_model_download
+        offer_ollama_installation
         show_completion
     else
         print_error "Installation failed during testing"
