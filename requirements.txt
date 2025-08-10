@@ -43,8 +43,6 @@ asyncio-throttle==1.0.2
 pytest==7.4.3
 pytest-asyncio==0.21.1
 
-# Performance profiling
-cProfile
-
+# Note: cProfile is a built-in Python module and doesn't need to be installed
 # Note: Ollama is installed separately via the download_models.sh script
 # This provides better ARM optimization and model management than llama-cpp-python
