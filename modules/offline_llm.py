@@ -1,71 +1,40 @@
 """
-Pascal AI Assistant - Optimized Offline LLM for Raspberry Pi 5 (Ollama Version)
-High-performance local model inference using Ollama with ARM-specific optimizations
+Pascal AI Assistant - Lightning Fast Offline LLM with Streaming
+Optimized for 1-3 second responses on Raspberry Pi 5
 """
 
 import asyncio
 import time
 import json
 import aiohttp
-from typing import Optional, Dict, Any, List
+from typing import Optional, Dict, Any, List, AsyncGenerator
 from pathlib import Path
 
 from config.settings import settings
 
 class ModelInfo:
     """Information about available Ollama models"""
-    def __init__(self, name: str, size: str, parameters: str, modified: str = ""):
+    def __init__(self, name: str, size: str = "Unknown", loaded: bool = False):
         self.name = name
         self.size = size
-        self.parameters = parameters
-        self.modified = modified
+        self.loaded = loaded
         
-        # Estimate performance characteristics
-        self.speed_rating = self._estimate_speed_rating()
-        self.quality_rating = self._estimate_quality_rating()
-        self.ram_usage = self._estimate_ram_usage()
-    
-    def _estimate_speed_rating(self) -> int:
-        """Estimate speed rating 1-10 based on model size"""
-        if "2b" in self.name.lower():
-            return 9
-        elif "3b" in self.name.lower():
-            return 8
-        elif "7b" in self.name.lower():
-            return 6
-        elif "mini" in self.name.lower():
-            return 9
+        # Model priority (1 = highest)
+        if "nemotron-mini" in name.lower():
+            self.priority = 1
+            self.display_name = "Nemotron Mini 4B"
+        elif "qwen3:4b" in name.lower():
+            self.priority = 2
+            self.display_name = "Qwen3 4B"
+        elif "gemma3:4b" in name.lower():
+            self.priority = 3
+            self.display_name = "Gemma3 4B"
         else:
-            return 7
-    
-    def _estimate_quality_rating(self) -> int:
-        """Estimate quality rating 1-10 based on model type"""
-        if "qwen" in self.name.lower():
-            return 9
-        elif "llama" in self.name.lower():
-            return 8
-        elif "phi" in self.name.lower():
-            return 7
-        elif "gemma" in self.name.lower():
-            return 7
-        else:
-            return 6
-    
-    def _estimate_ram_usage(self) -> float:
-        """Estimate RAM usage in GB"""
-        if "2b" in self.name.lower():
-            return 2.0
-        elif "3b" in self.name.lower():
-            return 2.5
-        elif "7b" in self.name.lower():
-            return 4.5
-        elif "mini" in self.name.lower():
-            return 2.3
-        else:
-            return 3.0
+            self.priority = 99
+            self.display_name = name
 
 class OptimizedOfflineLLM:
-    """Ollama-based offline LLM with intelligent model management for Pi 5"""
+    """Lightning-fast Ollama integration with streaming and keep-alive"""
     
     def __init__(self):
         self.ollama_host = "http://localhost:11434"
@@ -73,491 +42,475 @@ class OptimizedOfflineLLM:
         self.current_model = None
         self.available_models = []
         self.model_loaded = False
+        self.keep_alive_task = None
         
-        # Performance tracking
-        self.inference_times = []
-        self.tokens_per_second = []
+        # Primary models in priority order
+        self.priority_models = [
+            "nemotron-mini:4b-instruct-q4_K_M",  # Primary - fastest
+            "qwen3:4b-instruct",                  # Secondary fallback
+            "gemma3:4b-it-q4_K_M"                 # Tertiary fallback
+        ]
         
-        # Performance profiles optimized for Pi 5
-        self.performance_profiles = {
-            'speed': {
-                'temperature': 0.3,
-                'top_p': 0.8,
-                'max_tokens': 100,
-                'preferred_models': ['phi3:mini', 'gemma2:2b'],
-                'stream': False
-            },
-            'balanced': {
-                'temperature': 0.7,
-                'top_p': 0.9,
-                'max_tokens': 200,
-                'preferred_models': ['llama3.2:3b', 'phi3:mini'],
-                'stream': False
-            },
-            'quality': {
-                'temperature': 0.8,
-                'top_p': 0.95,
-                'max_tokens': 300,
-                'preferred_models': ['qwen2.5:7b', 'llama3.2:3b'],
-                'stream': False
-            }
+        # Streaming configuration for speed
+        self.stream_config = {
+            'enabled': True,
+            'chunk_timeout': 0.1,  # 100ms per chunk for responsiveness
+            'first_token_target': 0.5  # Target 500ms to first token
         }
         
-        self.current_profile = 'balanced'
+        # Keep-alive configuration (only for primary model)
+        self.keep_alive_config = {
+            'enabled': True,
+            'interval': 30,  # Ping every 30 seconds
+            'timeout': 300   # Keep model loaded for 5 minutes
+        }
         
-        # Load Ollama configuration if available
-        self._load_ollama_config()
-    
-    def _load_ollama_config(self):
-        """Load Ollama configuration from file"""
-        config_file = settings.models_dir / "ollama_config.json"
-        if config_file.exists():
-            try:
-                with open(config_file, 'r') as f:
-                    config = json.load(f)
-                
-                if config.get('ollama_host'):
-                    self.ollama_host = config['ollama_host']
-                
-                # Update performance profiles from config
-                if 'performance_profiles' in config:
-                    for profile_name, profile_config in config['performance_profiles'].items():
-                        if profile_name in self.performance_profiles:
-                            self.performance_profiles[profile_name].update(profile_config)
-                
-                if settings.debug_mode:
-                    print(f"Loaded Ollama config from {config_file}")
-                    
-            except Exception as e:
-                if settings.debug_mode:
-                    print(f"Failed to load Ollama config: {e}")
+        # Performance tracking
+        self.response_metrics = {
+            'first_token_times': [],
+            'total_times': [],
+            'tokens_per_second': []
+        }
     
     async def initialize(self) -> bool:
-        """Initialize Ollama connection and scan for models"""
+        """Initialize Ollama with focus on speed"""
         try:
-            # Create aiohttp session
-            timeout = aiohttp.ClientTimeout(total=30)
-            self.session = aiohttp.ClientSession(timeout=timeout)
+            # Create aiohttp session with optimized settings
+            timeout = aiohttp.ClientTimeout(
+                total=30,
+                connect=2,
+                sock_read=5
+            )
+            connector = aiohttp.TCPConnector(
+                limit=10,
+                ttl_dns_cache=300,
+                enable_cleanup_closed=True
+            )
+            self.session = aiohttp.ClientSession(
+                timeout=timeout,
+                connector=connector
+            )
             
             # Test Ollama connection
             if not await self._test_ollama_connection():
-                print("❌ Could not connect to Ollama. Is it running?")
-                print("   Start with: sudo systemctl start ollama")
+                print("❌ Ollama not running. Start with: sudo systemctl start ollama")
                 return False
             
-            # Scan for available models
-            await self._scan_available_models()
+            # Check for priority models
+            await self._check_priority_models()
             
             if not self.available_models:
-                print("❌ No models found. Download models first:")
-                print("   ./download_models.sh")
-                return False
+                print("❌ No priority models found. Downloading required models...")
+                await self._download_priority_models()
             
-            # Select best initial model
-            best_model = await self._select_best_model()
-            if best_model:
-                self.current_model = best_model
-                self.model_loaded = True
-                print(f"✅ Ollama initialized with model: {best_model.name}")
+            # Load the primary model and keep it warm
+            if await self._load_primary_model():
+                # Start keep-alive task
+                if self.keep_alive_config['enabled']:
+                    self.keep_alive_task = asyncio.create_task(self._keep_alive_loop())
+                
+                print(f"⚡ Lightning mode activated with {self.current_model.display_name}")
                 return True
-            else:
-                print("❌ No suitable model found")
-                return False
+            
+            return False
                 
         except Exception as e:
-            print(f"❌ Ollama initialization failed: {e}")
+            print(f"❌ Initialization failed: {e}")
             return False
     
     async def _test_ollama_connection(self) -> bool:
-        """Test connection to Ollama service"""
+        """Quick connection test"""
         try:
             async with self.session.get(f"{self.ollama_host}/api/version") as response:
-                if response.status == 200:
-                    version_data = await response.json()
-                    if settings.debug_mode:
-                        print(f"Connected to Ollama version: {version_data.get('version', 'unknown')}")
-                    return True
-                return False
-        except Exception as e:
-            if settings.debug_mode:
-                print(f"Ollama connection test failed: {e}")
+                return response.status == 200
+        except:
             return False
     
-    async def _scan_available_models(self):
-        """Scan for available Ollama models"""
+    async def _check_priority_models(self):
+        """Check which priority models are available"""
         try:
             async with self.session.get(f"{self.ollama_host}/api/tags") as response:
                 if response.status == 200:
                     data = await response.json()
-                    models = data.get('models', [])
+                    available_model_names = [m['name'] for m in data.get('models', [])]
                     
                     self.available_models = []
-                    for model_data in models:
-                        model_info = ModelInfo(
-                            name=model_data.get('name', ''),
-                            size=self._format_size(model_data.get('size', 0)),
-                            parameters=model_data.get('details', {}).get('parameter_size', 'Unknown'),
-                            modified=model_data.get('modified_at', '')
-                        )
-                        self.available_models.append(model_info)
+                    for priority_model in self.priority_models:
+                        if priority_model in available_model_names:
+                            model_info = ModelInfo(priority_model)
+                            self.available_models.append(model_info)
+                            print(f"✅ Found model: {model_info.display_name}")
                     
-                    # Sort by speed rating for Pi 5
-                    self.available_models.sort(key=lambda x: x.speed_rating, reverse=True)
-                    
-                    if settings.debug_mode:
-                        print(f"Found {len(self.available_models)} models")
-                        for model in self.available_models:
-                            print(f"  • {model.name} ({model.size}) - Speed: {model.speed_rating}/10")
+                    if not self.available_models and available_model_names:
+                        # Fallback to any available model
+                        print("⚠️ No priority models found, using available models")
+                        for model_name in available_model_names[:3]:  # Take first 3
+                            self.available_models.append(ModelInfo(model_name))
                 
         except Exception as e:
-            if settings.debug_mode:
-                print(f"Failed to scan models: {e}")
+            print(f"Error checking models: {e}")
     
-    def _format_size(self, size_bytes: int) -> str:
-        """Format size in human readable format"""
-        for unit in ['B', 'KB', 'MB', 'GB', 'TB']:
-            if size_bytes < 1024.0:
-                return f"{size_bytes:.1f}{unit}"
-            size_bytes /= 1024.0
-        return f"{size_bytes:.1f}TB"
+    async def _download_priority_models(self):
+        """Download the primary model if not available"""
+        primary_model = self.priority_models[0]
+        print(f"📥 Downloading {primary_model} for optimal performance...")
+        
+        try:
+            payload = {"name": primary_model, "stream": False}
+            async with self.session.post(f"{self.ollama_host}/api/pull", json=payload) as response:
+                if response.status == 200:
+                    print(f"✅ Downloaded {primary_model}")
+                    # Refresh available models
+                    await self._check_priority_models()
+                    return True
+        except Exception as e:
+            print(f"❌ Download failed: {e}")
+        
+        return False
     
-    async def _select_best_model(self) -> Optional[ModelInfo]:
-        """Select the best model for current profile and Pi 5"""
+    async def _load_primary_model(self) -> bool:
+        """Load and warm up the primary model"""
         if not self.available_models:
-            return None
+            return False
         
-        profile = self.performance_profiles[self.current_profile]
-        preferred_models = profile.get('preferred_models', [])
+        # Select the highest priority model
+        self.current_model = self.available_models[0]
         
-        # Try to find preferred models first
-        for preferred in preferred_models:
-            for model in self.available_models:
-                if preferred in model.name:
-                    return model
+        try:
+            # Warm up the model with a quick test
+            print(f"🔥 Warming up {self.current_model.display_name}...")
+            
+            warmup_payload = {
+                "model": self.current_model.name,
+                "prompt": "Hi",
+                "stream": False,
+                "options": {
+                    "num_predict": 5,
+                    "temperature": 0.1
+                },
+                "keep_alive": "5m"  # Keep model loaded for 5 minutes
+            }
+            
+            start_time = time.time()
+            async with self.session.post(
+                f"{self.ollama_host}/api/generate",
+                json=warmup_payload
+            ) as response:
+                if response.status == 200:
+                    warmup_time = time.time() - start_time
+                    self.model_loaded = True
+                    self.current_model.loaded = True
+                    print(f"⚡ Model ready! Warmup time: {warmup_time:.2f}s")
+                    return True
+                
+        except Exception as e:
+            print(f"❌ Model loading failed: {e}")
         
-        # Fall back to fastest available model
-        return self.available_models[0]  # Already sorted by speed rating
+        return False
+    
+    async def _keep_alive_loop(self):
+        """Keep the primary model loaded in memory"""
+        while self.model_loaded and self.current_model:
+            try:
+                await asyncio.sleep(self.keep_alive_config['interval'])
+                
+                # Send keep-alive request
+                keep_alive_payload = {
+                    "model": self.current_model.name,
+                    "keep_alive": f"{self.keep_alive_config['timeout']}s"
+                }
+                
+                async with self.session.post(
+                    f"{self.ollama_host}/api/generate",
+                    json=keep_alive_payload
+                ) as response:
+                    if response.status != 200:
+                        print(f"⚠️ Keep-alive failed, reloading model...")
+                        await self._load_primary_model()
+                        
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                if settings.debug_mode:
+                    print(f"Keep-alive error: {e}")
+    
+    async def generate_response_stream(self, query: str, personality_context: str, 
+                                     memory_context: str) -> AsyncGenerator[str, None]:
+        """Stream response for perceived speed (1-3 second target)"""
+        if not self.model_loaded or not self.current_model:
+            yield "I'm starting up, just a moment..."
+            if not await self._load_primary_model():
+                yield "\nHaving trouble loading the model. Let me try a fallback..."
+                await self._try_fallback_models()
+                if not self.model_loaded:
+                    yield "\nI'm having technical difficulties. Please try again."
+                    return
+        
+        try:
+            # Build optimized prompt
+            prompt = self._build_fast_prompt(query, personality_context, memory_context)
+            
+            # Streaming request for fast first token
+            payload = {
+                "model": self.current_model.name,
+                "prompt": prompt,
+                "stream": True,
+                "options": {
+                    "num_predict": 150,  # Reasonable response length
+                    "temperature": 0.7,
+                    "top_k": 40,
+                    "top_p": 0.9,
+                    "repeat_penalty": 1.1,
+                    "seed": -1,
+                    "stop": ["User:", "Human:", "Question:", "\n\n\n"]
+                },
+                "keep_alive": "5m"
+            }
+            
+            first_token_time = None
+            start_time = time.time()
+            full_response = []
+            
+            async with self.session.post(
+                f"{self.ollama_host}/api/generate",
+                json=payload
+            ) as response:
+                if response.status == 200:
+                    async for line in response.content:
+                        if line:
+                            try:
+                                chunk = json.loads(line)
+                                if 'response' in chunk:
+                                    token = chunk['response']
+                                    
+                                    # Track first token time
+                                    if first_token_time is None:
+                                        first_token_time = time.time() - start_time
+                                        if settings.debug_mode:
+                                            print(f"⚡ First token: {first_token_time:.3f}s")
+                                    
+                                    full_response.append(token)
+                                    yield token
+                                    
+                                    # Check if response is complete
+                                    if chunk.get('done', False):
+                                        break
+                                        
+                            except json.JSONDecodeError:
+                                continue
+                    
+                    # Track metrics
+                    total_time = time.time() - start_time
+                    self._update_metrics(first_token_time, total_time, len(full_response))
+                    
+                else:
+                    yield "I encountered an error. Let me try again..."
+                    # Try fallback model
+                    await self._try_fallback_models()
+                    if self.model_loaded:
+                        async for token in self.generate_response_stream(query, personality_context, memory_context):
+                            yield token
+                            
+        except Exception as e:
+            if settings.debug_mode:
+                print(f"Stream error: {e}")
+            yield f"I apologize, but I encountered an error: {str(e)}"
     
     async def generate_response(self, query: str, personality_context: str, 
                               memory_context: str, profile: str = None) -> str:
-        """Generate response using Ollama"""
-        if not self.model_loaded or not self.current_model:
-            return await self._fallback_response(query)
-        
-        # Use specified profile or current default
-        profile_name = profile or self.current_profile
-        profile_settings = self.performance_profiles.get(profile_name, 
-                                                       self.performance_profiles['balanced'])
-        
-        try:
-            start_time = time.time()
-            
-            # Build optimized prompt
-            prompt = self._build_optimized_prompt(query, personality_context, memory_context)
-            
-            # Generate response using Ollama API
-            response = await self._call_ollama_generate(prompt, profile_settings)
-            
-            # Track performance
-            inference_time = time.time() - start_time
-            self.inference_times.append(inference_time)
-            
-            # Keep only last 20 measurements
-            if len(self.inference_times) > 20:
-                self.inference_times = self.inference_times[-20:]
-            
-            # Clean response
-            cleaned_response = self._clean_response(response)
-            
-            return cleaned_response
-            
-        except Exception as e:
-            if settings.debug_mode:
-                print(f"Generation error: {e}")
-            return await self._fallback_response(query)
+        """Non-streaming response (fallback method)"""
+        full_response = []
+        async for token in self.generate_response_stream(query, personality_context, memory_context):
+            full_response.append(token)
+        return ''.join(full_response)
     
-    async def _call_ollama_generate(self, prompt: str, profile_settings: Dict[str, Any]) -> str:
-        """Call Ollama generate API"""
-        payload = {
-            "model": self.current_model.name,
-            "prompt": prompt,
-            "options": {
-                "temperature": profile_settings.get('temperature', 0.7),
-                "top_p": profile_settings.get('top_p', 0.9),
-                "num_predict": profile_settings.get('max_tokens', 200),
-                "stop": ["</s>", "<|end|>", "<|eot_id|>", "Human:", "User:"]
-            },
-            "stream": profile_settings.get('stream', False)
-        }
+    async def _try_fallback_models(self):
+        """Try fallback models if primary fails"""
+        for i, model_name in enumerate(self.priority_models[1:], start=2):
+            print(f"🔄 Trying fallback model {i}: {model_name}")
+            
+            # Check if model exists
+            model_exists = False
+            for available_model in self.available_models:
+                if available_model.name == model_name:
+                    model_exists = True
+                    self.current_model = available_model
+                    break
+            
+            if not model_exists:
+                # Try to download it
+                print(f"📥 Downloading fallback model: {model_name}")
+                try:
+                    payload = {"name": model_name, "stream": False}
+                    async with self.session.post(f"{self.ollama_host}/api/pull", json=payload) as response:
+                        if response.status == 200:
+                            self.current_model = ModelInfo(model_name)
+                            self.available_models.append(self.current_model)
+                        else:
+                            continue
+                except:
+                    continue
+            
+            # Try to load the fallback model
+            if await self._load_primary_model():
+                print(f"✅ Fallback model loaded: {self.current_model.display_name}")
+                return
         
-        async with self.session.post(
-            f"{self.ollama_host}/api/generate", 
-            json=payload
-        ) as response:
-            if response.status == 200:
-                data = await response.json()
-                return data.get('response', '')
-            else:
-                error_text = await response.text()
-                raise Exception(f"Ollama API error {response.status}: {error_text}")
+        print("❌ All fallback models failed")
     
-    def _build_optimized_prompt(self, query: str, personality_context: str, 
-                               memory_context: str) -> str:
-        """Build optimized prompt based on model type"""
-        if not self.current_model:
-            return query
+    def _build_fast_prompt(self, query: str, personality_context: str, memory_context: str) -> str:
+        """Build minimal, fast prompt optimized for speed"""
+        # Keep prompts short for faster processing
+        if not personality_context:
+            personality_context = "You are Pascal, a helpful and fast AI assistant."
         
-        model_name = self.current_model.name.lower()
+        # Truncate context for speed
+        if len(personality_context) > 150:
+            personality_context = personality_context[:150]
         
-        # Different prompt formats for different models
-        if 'phi' in model_name:
-            return self._build_phi_prompt(query, personality_context, memory_context)
-        elif 'llama' in model_name:
-            return self._build_llama_prompt(query, personality_context, memory_context)
-        elif 'gemma' in model_name:
-            return self._build_gemma_prompt(query, personality_context, memory_context)
-        elif 'qwen' in model_name:
-            return self._build_qwen_prompt(query, personality_context, memory_context)
+        if memory_context and len(memory_context) > 100:
+            memory_context = memory_context[:100]
+        
+        # Model-specific formatting (minimal for speed)
+        if self.current_model and "nemotron" in self.current_model.name.lower():
+            # Nemotron format
+            prompt = f"System: {personality_context}\nUser: {query}\nAssistant:"
+        elif self.current_model and "qwen" in self.current_model.name.lower():
+            # Qwen format
+            prompt = f"<|im_start|>system\n{personality_context}<|im_end|>\n<|im_start|>user\n{query}<|im_end|>\n<|im_start|>assistant\n"
+        elif self.current_model and "gemma" in self.current_model.name.lower():
+            # Gemma format
+            prompt = f"<start_of_turn>user\n{query}<end_of_turn>\n<start_of_turn>model\n"
         else:
-            return self._build_generic_prompt(query, personality_context, memory_context)
+            # Generic format
+            prompt = f"{personality_context}\n\nUser: {query}\nAssistant:"
+        
+        return prompt
     
-    def _build_phi_prompt(self, query: str, personality_context: str, memory_context: str) -> str:
-        """Optimized prompt for Phi models"""
-        if personality_context:
-            return f"<|system|>\n{personality_context}<|end|>\n<|user|>\n{query}<|end|>\n<|assistant|>\n"
-        else:
-            return f"<|user|>\n{query}<|end|>\n<|assistant|>\n"
-    
-    def _build_llama_prompt(self, query: str, personality_context: str, memory_context: str) -> str:
-        """Optimized prompt for Llama models"""
-        system_content = personality_context if personality_context else "You are Pascal, a helpful AI assistant."
+    def _update_metrics(self, first_token_time: float, total_time: float, token_count: int):
+        """Track performance metrics"""
+        if first_token_time:
+            self.response_metrics['first_token_times'].append(first_token_time)
+            if len(self.response_metrics['first_token_times']) > 20:
+                self.response_metrics['first_token_times'] = self.response_metrics['first_token_times'][-20:]
         
-        return f"<|begin_of_text|><|start_header_id|>system<|end_header_id|>\n{system_content}<|eot_id|><|start_header_id|>user<|end_header_id|>\n{query}<|eot_id|><|start_header_id|>assistant<|end_header_id|>\n"
-    
-    def _build_gemma_prompt(self, query: str, personality_context: str, memory_context: str) -> str:
-        """Optimized prompt for Gemma models"""
-        prompt_parts = ["<bos>"]
+        self.response_metrics['total_times'].append(total_time)
+        if len(self.response_metrics['total_times']) > 20:
+            self.response_metrics['total_times'] = self.response_metrics['total_times'][-20:]
         
-        if personality_context:
-            prompt_parts.extend([
-                "<start_of_turn>user",
-                f"You are Pascal. {personality_context[:200]}",
-                "<end_of_turn>",
-                "<start_of_turn>model",
-                "I understand. I'm Pascal, ready to help!",
-                "<end_of_turn>"
-            ])
-        
-        prompt_parts.extend([
-            "<start_of_turn>user",
-            query,
-            "<end_of_turn>",
-            "<start_of_turn>model"
-        ])
-        
-        return "\n".join(prompt_parts)
-    
-    def _build_qwen_prompt(self, query: str, personality_context: str, memory_context: str) -> str:
-        """Optimized prompt for Qwen models"""
-        system_content = personality_context if personality_context else "You are Pascal, a helpful AI assistant."
-        
-        return f"<|im_start|>system\n{system_content}<|im_end|>\n<|im_start|>user\n{query}<|im_end|>\n<|im_start|>assistant\n"
-    
-    def _build_generic_prompt(self, query: str, personality_context: str, memory_context: str) -> str:
-        """Generic prompt format"""
-        prompt_parts = []
-        
-        if personality_context:
-            prompt_parts.append(f"System: {personality_context}")
-        
-        prompt_parts.append(f"User: {query}")
-        prompt_parts.append("Assistant:")
-        
-        return "\n\n".join(prompt_parts)
-    
-    def _clean_response(self, response: str) -> str:
-        """Clean and format response"""
-        # Remove common artifacts
-        artifacts = ['</s>', '<|end|>', '<|eot_id|>', '<|endoftext|>', '<|im_end|>', '<|end_of_turn|>']
-        for artifact in artifacts:
-            response = response.replace(artifact, '')
-        
-        # Clean up whitespace
-        response = response.strip()
-        
-        # Remove incomplete sentences at the end
-        if response and not response[-1] in '.!?':
-            sentences = response.split('.')
-            if len(sentences) > 1 and len(sentences[-1].strip()) < 10:
-                response = '.'.join(sentences[:-1]) + '.'
-        
-        return response
-    
-    async def _fallback_response(self, query: str) -> str:
-        """Provide fallback response when model unavailable"""
-        fallback_map = {
-            'greeting': "Hello! I'm Pascal, but I'm currently running in limited mode.",
-            'question': "I'd like to help with that question, but my language model isn't fully loaded right now.",
-            'default': "I'm running in limited mode right now. Please try again in a moment."
-        }
-        
-        query_lower = query.lower()
-        if any(word in query_lower for word in ['hello', 'hi', 'hey']):
-            return fallback_map['greeting']
-        elif '?' in query:
-            return fallback_map['question']
-        else:
-            return fallback_map['default']
-    
-    def set_performance_profile(self, profile: str):
-        """Set performance profile and switch to optimal model if needed"""
-        if profile in self.performance_profiles:
-            old_profile = self.current_profile
-            self.current_profile = profile
-            
-            # Check if we should switch models for this profile
-            asyncio.create_task(self._switch_to_optimal_model_async(profile))
-            
-            if settings.debug_mode:
-                print(f"Set performance profile: {old_profile} → {profile}")
-    
-    async def _switch_to_optimal_model_async(self, profile: str):
-        """Switch to optimal model for profile (async)"""
-        profile_settings = self.performance_profiles[profile]
-        preferred_models = profile_settings.get('preferred_models', [])
-        
-        # Find best available model for this profile
-        for preferred in preferred_models:
-            for model in self.available_models:
-                if preferred in model.name and model != self.current_model:
-                    if await self.switch_model(model.name):
-                        if settings.debug_mode:
-                            print(f"Switched to {model.name} for {profile} profile")
-                        return
-    
-    async def switch_model(self, model_name: str) -> bool:
-        """Switch to a different available model"""
-        target_model = next((m for m in self.available_models if model_name in m.name), None)
-        
-        if not target_model:
-            return False
-        
-        try:
-            # Test the model by making a simple request
-            test_payload = {
-                "model": target_model.name,
-                "prompt": "Hello",
-                "options": {"num_predict": 5}
-            }
-            
-            async with self.session.post(
-                f"{self.ollama_host}/api/generate", 
-                json=test_payload
-            ) as response:
-                if response.status == 200:
-                    self.current_model = target_model
-                    if settings.debug_mode:
-                        print(f"Switched to model: {target_model.name}")
-                    return True
-                else:
-                    if settings.debug_mode:
-                        print(f"Model switch failed: {response.status}")
-                    return False
-                    
-        except Exception as e:
-            if settings.debug_mode:
-                print(f"Model switch error: {e}")
-            return False
+        if total_time > 0:
+            tps = token_count / total_time
+            self.response_metrics['tokens_per_second'].append(tps)
+            if len(self.response_metrics['tokens_per_second']) > 20:
+                self.response_metrics['tokens_per_second'] = self.response_metrics['tokens_per_second'][-20:]
     
     def get_performance_stats(self) -> Dict[str, Any]:
-        """Get detailed performance statistics"""
-        if not self.inference_times:
-            return {"status": "No inference data available"}
-        
-        avg_time = sum(self.inference_times) / len(self.inference_times)
-        min_time = min(self.inference_times)
-        max_time = max(self.inference_times)
-        
-        return {
+        """Get performance statistics"""
+        stats = {
             "ollama_enabled": True,
             "model_loaded": self.model_loaded,
             "current_model": self.current_model.name if self.current_model else None,
-            "model_size": self.current_model.size if self.current_model else None,
-            "model_ram_usage": f"{self.current_model.ram_usage:.1f}GB" if self.current_model else None,
-            "performance_profile": self.current_profile,
-            "avg_inference_time": f"{avg_time:.2f}s",
-            "min_inference_time": f"{min_time:.2f}s",
-            "max_inference_time": f"{max_time:.2f}s",
-            "total_inferences": len(self.inference_times),
+            "model_display_name": self.current_model.display_name if self.current_model else None,
+            "streaming_enabled": self.stream_config['enabled'],
+            "keep_alive_enabled": self.keep_alive_config['enabled'],
             "available_models": len(self.available_models),
             "ollama_host": self.ollama_host
         }
+        
+        # Add performance metrics
+        if self.response_metrics['first_token_times']:
+            stats['avg_first_token_time'] = f"{sum(self.response_metrics['first_token_times']) / len(self.response_metrics['first_token_times']):.3f}s"
+        
+        if self.response_metrics['total_times']:
+            stats['avg_total_time'] = f"{sum(self.response_metrics['total_times']) / len(self.response_metrics['total_times']):.2f}s"
+        
+        if self.response_metrics['tokens_per_second']:
+            stats['avg_tokens_per_second'] = f"{sum(self.response_metrics['tokens_per_second']) / len(self.response_metrics['tokens_per_second']):.1f}"
+        
+        return stats
     
     def list_available_models(self) -> List[Dict[str, Any]]:
-        """List all available models with their stats"""
+        """List available models"""
         return [
             {
                 "name": model.name,
-                "size": model.size,
-                "speed_rating": f"{model.speed_rating}/10",
-                "quality_rating": f"{model.quality_rating}/10",
-                "ram_usage": f"{model.ram_usage:.1f}GB",
-                "loaded": model == self.current_model
+                "display_name": model.display_name,
+                "priority": model.priority,
+                "loaded": model.loaded,
+                "size": model.size
             }
-            for model in self.available_models
+            for model in sorted(self.available_models, key=lambda x: x.priority)
         ]
     
-    async def pull_model(self, model_name: str) -> bool:
-        """Download a new model using Ollama"""
-        try:
-            payload = {"name": model_name}
-            
-            async with self.session.post(
-                f"{self.ollama_host}/api/pull", 
-                json=payload
-            ) as response:
-                if response.status == 200:
-                    # Refresh available models
-                    await self._scan_available_models()
-                    print(f"✅ Downloaded model: {model_name}")
+    async def switch_model(self, model_name: str) -> bool:
+        """Switch to a different model"""
+        for model in self.available_models:
+            if model_name in model.name:
+                old_model = self.current_model
+                self.current_model = model
+                if await self._load_primary_model():
+                    print(f"✅ Switched from {old_model.display_name if old_model else 'None'} to {model.display_name}")
                     return True
                 else:
-                    print(f"❌ Failed to download model: {model_name}")
+                    self.current_model = old_model
                     return False
-                    
+        return False
+    
+    async def pull_model(self, model_name: str) -> bool:
+        """Download a new model"""
+        try:
+            print(f"📥 Downloading {model_name}...")
+            payload = {"name": model_name, "stream": False}
+            
+            async with self.session.post(f"{self.ollama_host}/api/pull", json=payload) as response:
+                if response.status == 200:
+                    await self._check_priority_models()
+                    print(f"✅ Downloaded {model_name}")
+                    return True
         except Exception as e:
-            print(f"❌ Download error: {e}")
-            return False
+            print(f"❌ Download failed: {e}")
+        return False
     
     async def remove_model(self, model_name: str) -> bool:
-        """Remove a model using Ollama"""
+        """Remove a model"""
+        # Don't remove current model
+        if self.current_model and model_name in self.current_model.name:
+            print("❌ Cannot remove currently loaded model")
+            return False
+        
         try:
             payload = {"name": model_name}
-            
-            async with self.session.delete(
-                f"{self.ollama_host}/api/delete", 
-                json=payload
-            ) as response:
+            async with self.session.delete(f"{self.ollama_host}/api/delete", json=payload) as response:
                 if response.status == 200:
-                    # Refresh available models
-                    await self._scan_available_models()
-                    print(f"✅ Removed model: {model_name}")
+                    # Update available models
+                    self.available_models = [m for m in self.available_models if model_name not in m.name]
+                    print(f"✅ Removed {model_name}")
                     return True
-                else:
-                    print(f"❌ Failed to remove model: {model_name}")
-                    return False
-                    
         except Exception as e:
-            print(f"❌ Remove error: {e}")
-            return False
+            print(f"❌ Remove failed: {e}")
+        return False
     
     def is_available(self) -> bool:
-        """Check if offline LLM is ready"""
+        """Check if ready for lightning-fast responses"""
         return self.model_loaded and self.current_model is not None
+    
+    def set_performance_profile(self, profile: str):
+        """Compatibility method - all profiles optimized for speed"""
+        # In lightning mode, we always optimize for speed
+        if settings.debug_mode:
+            print(f"⚡ Lightning mode active - all profiles optimized for 1-3s responses")
     
     async def close(self):
         """Clean shutdown"""
+        if self.keep_alive_task:
+            self.keep_alive_task.cancel()
+            try:
+                await self.keep_alive_task
+            except asyncio.CancelledError:
+                pass
+        
         if self.session:
             await self.session.close()
+        
         self.model_loaded = False
         self.current_model = None
