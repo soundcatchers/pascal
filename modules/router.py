@@ -1,11 +1,11 @@
 """
-Pascal AI Assistant - Smart Router with Performance Optimization
-Intelligently routes requests between offline and online LLMs with Pi 5 optimizations
+Pascal AI Assistant - Lightning-Fast Router with Streaming
+Intelligently routes requests between offline and online LLMs with streaming support
 """
 
 import asyncio
 import time
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, AsyncGenerator
 from enum import Enum
 
 from config.settings import settings
@@ -19,22 +19,20 @@ class RouteMode(Enum):
     ONLINE_PREFERRED = "online_preferred"
 
 class RouteDecision:
-    """Represents a routing decision with performance optimization"""
+    """Represents a routing decision for lightning-fast responses"""
     
-    def __init__(self, use_offline: bool, reason: str, confidence: float = 1.0, 
-                 suggested_profile: str = "balanced"):
+    def __init__(self, use_offline: bool, reason: str, confidence: float = 1.0):
         self.use_offline = use_offline
         self.reason = reason
         self.confidence = confidence
-        self.suggested_profile = suggested_profile  # speed, balanced, quality
         self.timestamp = time.time()
     
     @property
     def use_online(self) -> bool:
         return not self.use_offline
 
-class Router:
-    """Smart router for offline/online LLM selection with Pi 5 optimizations"""
+class LightningRouter:
+    """Lightning-fast router for offline/online LLM selection with streaming"""
     
     def __init__(self, personality_manager, memory_manager):
         self.personality_manager = personality_manager
@@ -45,402 +43,270 @@ class Router:
         self.online_llm = None
         
         # Router state
-        self.mode = RouteMode.AUTO
+        self.mode = RouteMode.OFFLINE_PREFERRED  # Default to offline for speed
         self.last_decision = None
         self.offline_available = False
         self.online_available = False
         
-        # Performance tracking with profiles
-        self.performance_stats = {
-            'speed': {'offline_times': [], 'online_times': [], 'failures': 0},
-            'balanced': {'offline_times': [], 'online_times': [], 'failures': 0},
-            'quality': {'offline_times': [], 'online_times': [], 'failures': 0}
-        }
+        # Performance tracking
+        self.response_times = {'offline': [], 'online': []}
+        self.first_token_times = {'offline': [], 'online': []}
         
-        # Pi 5 specific optimizations
-        self.pi5_optimizations = {
-            'adaptive_profiling': True,
-            'thermal_aware': True,
-            'memory_aware': True,
-            'context_switching': True
-        }
-        
-        # Query complexity patterns for Pi 5
+        # Query complexity patterns for fast routing
         self.complexity_patterns = {
-            'simple_greetings': ['hi', 'hello', 'hey', 'thanks', 'bye', 'yes', 'no', 'ok'],
-            'quick_questions': ['what is', 'who is', 'when is', 'where is'],
-            'code_requests': ['code', 'function', 'script', 'program', 'debug'],
-            'analysis_requests': ['analyze', 'compare', 'evaluate', 'research', 'detailed'],
-            'creative_requests': ['write', 'create', 'story', 'poem', 'creative', 'generate'],
-            'current_info': ['current', 'latest', 'recent', 'today', 'now', 'news', 'update']
+            'needs_current_info': ['current', 'latest', 'recent', 'today', 'now', 'news', 'update', 'weather'],
+            'simple_queries': ['hi', 'hello', 'hey', 'thanks', 'bye', 'yes', 'no', 'ok', 'what is', 'who is'],
+            'complex_queries': ['analyze', 'compare', 'evaluate', 'research', 'detailed', 'comprehensive', 'explain']
         }
     
     async def _check_llm_availability(self):
-        """Check which LLM options are available with Pi 5 optimizations"""
+        """Check which LLM options are available"""
         try:
-            print("DEBUG: Router checking LLM availability with Pi 5 optimizations...")
+            if settings.debug_mode:
+                print("⚡ Lightning Router checking LLM availability...")
             
-            # Check offline LLM with optimized module
+            # Check offline LLM with lightning module
             if settings.is_local_model_available():
                 try:
-                    print("DEBUG: Importing OptimizedOfflineLLM...")
-                    from modules.offline_llm import OptimizedOfflineLLM
-                    print("DEBUG: Creating OptimizedOfflineLLM instance...")
-                    self.offline_llm = OptimizedOfflineLLM()
-                    print("DEBUG: Initializing OptimizedOfflineLLM...")
-                    init_result = await self.offline_llm.initialize()
-                    print(f"DEBUG: OptimizedOfflineLLM initialize returned: {init_result}")
-                    self.offline_available = init_result and self.offline_llm.is_available()
-                    print(f"DEBUG: Final offline_available: {self.offline_available}")
+                    from modules.offline_llm import LightningOfflineLLM
+                    self.offline_llm = LightningOfflineLLM()
+                    self.offline_available = await self.offline_llm.initialize()
                     
                     if self.offline_available:
-                        # Set initial performance profile based on hardware
-                        self._set_optimal_initial_profile()
+                        print("⚡ Offline LLM ready with lightning speed")
                         
                 except Exception as e:
-                    print(f"DEBUG: OptimizedOfflineLLM initialization failed: {e}")
+                    print(f"❌ Offline LLM initialization failed: {e}")
                     self.offline_available = False
             
-            # Check online LLM
+            # Check online LLM (Grok priority)
             if settings.is_online_available():
                 try:
-                    print("DEBUG: Importing OnlineLLM...")
                     from modules.online_llm import OnlineLLM
-                    print("DEBUG: Creating OnlineLLM instance...")
                     self.online_llm = OnlineLLM()
-                    print("DEBUG: Initializing OnlineLLM...")
-                    init_result = await self.online_llm.initialize()
-                    self.online_available = init_result
-                    print(f"DEBUG: Final online_available: {self.online_available}")
+                    self.online_available = await self.online_llm.initialize()
+                    
+                    if self.online_available:
+                        print("✅ Online LLM ready (Grok/OpenAI/Anthropic)")
+                        
                 except Exception as e:
-                    print(f"DEBUG: OnlineLLM initialization failed: {e}")
+                    print(f"❌ Online LLM initialization failed: {e}")
                     self.online_available = False
             
-            print(f"DEBUG: Final availability - Offline: {self.offline_available}, Online: {self.online_available}")
+            if settings.debug_mode:
+                print(f"Final availability - Offline: {self.offline_available}, Online: {self.online_available}")
             
         except Exception as e:
-            print(f"DEBUG: Error in _check_llm_availability: {e}")
+            print(f"❌ Error in LLM availability check: {e}")
     
-    def _set_optimal_initial_profile(self):
-        """Set optimal initial performance profile based on Pi 5 hardware"""
-        if not self.offline_llm:
-            return
-        
-        # Get hardware info
-        hw_info = settings.get_hardware_info()
-        
-        # Set profile based on available RAM and performance mode
-        if hw_info['available_ram_gb'] >= 12:
-            # Plenty of RAM - can use quality profile
-            initial_profile = settings.performance_mode
-        elif hw_info['available_ram_gb'] >= 8:
-            # Moderate RAM - balanced is best
-            initial_profile = 'balanced'
-        else:
-            # Limited RAM - prioritize speed
-            initial_profile = 'speed'
-        
-        self.offline_llm.set_performance_profile(initial_profile)
-        print(f"Set initial performance profile: {initial_profile}")
-    
-    def _analyze_query_complexity(self, query: str) -> Dict[str, Any]:
-        """Enhanced query analysis with Pi 5 specific optimizations"""
+    def _analyze_query_speed(self, query: str) -> Dict[str, Any]:
+        """Fast query analysis for immediate routing decision"""
         query_lower = query.lower()
         
-        # Analyze against complexity patterns
-        complexity_scores = {}
-        for category, patterns in self.complexity_patterns.items():
-            score = sum(1 for pattern in patterns if pattern in query_lower)
-            complexity_scores[category] = score
+        # Quick checks for routing decision
+        needs_current = any(pattern in query_lower for pattern in self.complexity_patterns['needs_current_info'])
+        is_simple = any(pattern in query_lower for pattern in self.complexity_patterns['simple_queries'])
+        is_complex = any(pattern in query_lower for pattern in self.complexity_patterns['complex_queries'])
         
-        # Calculate metrics
         word_count = len(query.split())
-        char_count = len(query)
-        question_marks = query.count('?')
-        
-        # Determine complexity level
-        complexity_level = self._calculate_complexity_level(complexity_scores, word_count)
-        
-        # Determine optimal profile
-        optimal_profile = self._determine_optimal_profile(complexity_scores, complexity_level, word_count)
         
         return {
+            'needs_current_info': needs_current,
+            'is_simple': is_simple,
+            'is_complex': is_complex,
             'word_count': word_count,
-            'char_count': char_count,
-            'question_marks': question_marks,
-            'complexity_scores': complexity_scores,
-            'complexity_level': complexity_level,
-            'optimal_profile': optimal_profile,
-            'needs_current_info': complexity_scores.get('current_info', 0) > 0,
-            'is_creative': complexity_scores.get('creative_requests', 0) > 0,
-            'is_code_related': complexity_scores.get('code_requests', 0) > 0,
-            'is_analysis': complexity_scores.get('analysis_requests', 0) > 0,
-            'estimated_response_time': self._estimate_response_time(complexity_level, optimal_profile)
+            'estimated_offline_time': self._estimate_response_time(is_simple, is_complex, word_count)
         }
     
-    def _calculate_complexity_level(self, scores: Dict[str, int], word_count: int) -> str:
-        """Calculate complexity level with Pi 5 optimizations"""
-        # Simple patterns
-        if scores.get('simple_greetings', 0) > 0 and word_count <= 5:
-            return 'simple'
-        
-        # Quick questions
-        if scores.get('quick_questions', 0) > 0 and word_count <= 15:
-            return 'simple'
-        
-        # Complex analysis
-        if scores.get('analysis_requests', 0) > 0 or word_count > 50:
-            return 'complex'
-        
-        # Code requests are medium complexity
-        if scores.get('code_requests', 0) > 0:
-            return 'medium'
-        
-        # Creative requests can be medium to complex
-        if scores.get('creative_requests', 0) > 0:
-            return 'medium' if word_count <= 30 else 'complex'
-        
-        # Default based on length
-        if word_count <= 10:
-            return 'simple'
+    def _estimate_response_time(self, is_simple: bool, is_complex: bool, word_count: int) -> float:
+        """Estimate response time for offline processing"""
+        if is_simple:
+            return 1.0  # 1 second for simple queries
+        elif is_complex:
+            return 3.0  # 3 seconds for complex
+        elif word_count <= 10:
+            return 1.5  # Quick for short queries
         elif word_count <= 30:
-            return 'medium'
+            return 2.0  # Medium queries
         else:
-            return 'complex'
+            return 2.5  # Longer queries
     
-    def _determine_optimal_profile(self, scores: Dict[str, int], complexity: str, word_count: int) -> str:
-        """Determine optimal performance profile for Pi 5"""
-        # Current info always needs online (no profile optimization needed)
-        if scores.get('current_info', 0) > 0:
-            return 'balanced'  # Will use online anyway
-        
-        # Simple queries - optimize for speed
-        if complexity == 'simple':
-            return 'speed'
-        
-        # Code requests - balanced is usually best
-        if scores.get('code_requests', 0) > 0:
-            return 'balanced'
-        
-        # Analysis requests - use quality for better reasoning
-        if scores.get('analysis_requests', 0) > 0:
-            return 'quality'
-        
-        # Creative requests - quality for better creativity
-        if scores.get('creative_requests', 0) > 0:
-            return 'quality' if word_count > 20 else 'balanced'
-        
-        # Default based on complexity
-        profile_map = {
-            'simple': 'speed',
-            'medium': 'balanced', 
-            'complex': 'quality'
-        }
-        
-        return profile_map.get(complexity, 'balanced')
-    
-    def _estimate_response_time(self, complexity: str, profile: str) -> float:
-        """Estimate response time for Pi 5"""
-        base_times = {
-            'speed': {'simple': 1.5, 'medium': 2.0, 'complex': 3.0},
-            'balanced': {'simple': 2.0, 'medium': 3.0, 'complex': 4.5},
-            'quality': {'simple': 3.0, 'medium': 4.5, 'complex': 6.0}
-        }
-        
-        return base_times.get(profile, base_times['balanced']).get(complexity, 3.0)
-    
-    def _make_routing_decision(self, query: str, analysis: Dict[str, Any]) -> RouteDecision:
-        """Make intelligent routing decision with performance optimization"""
+    def _make_lightning_decision(self, query: str, analysis: Dict[str, Any]) -> RouteDecision:
+        """Make ultra-fast routing decision"""
         
         # Force modes
         if self.mode == RouteMode.OFFLINE_ONLY:
-            return RouteDecision(True, "Forced offline mode", 1.0, analysis['optimal_profile'])
+            return RouteDecision(True, "Forced offline mode", 1.0)
         elif self.mode == RouteMode.ONLINE_ONLY:
-            return RouteDecision(False, "Forced online mode", 1.0, 'balanced')
+            return RouteDecision(False, "Forced online mode", 1.0)
         
         # Check availability
         if not self.offline_available and not self.online_available:
-            return RouteDecision(True, "No LLMs available (fallback)", 0.1, 'speed')
+            return RouteDecision(True, "No LLMs available (fallback)", 0.1)
         elif not self.offline_available:
-            return RouteDecision(False, "Offline LLM not available", 0.9, 'balanced')
+            return RouteDecision(False, "Offline LLM not available", 0.9)
         elif not self.online_available:
-            return RouteDecision(True, "Online LLM not available", 0.9, analysis['optimal_profile'])
+            return RouteDecision(True, "Online LLM not available", 0.9)
         
-        # Decision factors
-        needs_current = analysis['needs_current_info']
-        complexity_level = analysis['complexity_level']
-        optimal_profile = analysis['optimal_profile']
+        # Lightning routing logic
         
-        # High confidence decisions
-        if needs_current:
-            return RouteDecision(False, "Query requires current information", 0.95, 'balanced')
+        # Always use online for current information
+        if analysis['needs_current_info']:
+            return RouteDecision(False, "Query requires current information", 0.95)
         
-        # Pi 5 optimized decisions
-        if complexity_level == 'simple' and settings.prefer_offline:
-            return RouteDecision(True, "Simple query - offline speed optimized", 0.9, 'speed')
+        # Prefer offline for everything else (speed priority)
+        if self.mode == RouteMode.OFFLINE_PREFERRED or settings.prefer_offline:
+            return RouteDecision(True, "Offline preferred for speed", 0.9)
         
-        if complexity_level == 'complex' and analysis['is_analysis']:
-            # For complex analysis, consider both options
-            offline_perf = self._get_offline_performance_score(optimal_profile)
-            if offline_perf > 0.7:  # Good offline performance
-                return RouteDecision(True, "Complex analysis - offline capable", 0.8, 'quality')
-            else:
-                return RouteDecision(False, "Complex analysis - online preferred", 0.8, 'balanced')
+        # Simple queries always offline for speed
+        if analysis['is_simple']:
+            return RouteDecision(True, "Simple query - lightning offline", 0.95)
         
-        # Code requests - often better offline for privacy
-        if analysis['is_code_related'] and settings.prefer_offline:
-            return RouteDecision(True, "Code request - offline for privacy", 0.8, 'balanced')
+        # Complex queries - still prefer offline unless estimated time > 3s
+        if analysis['estimated_offline_time'] <= settings.target_response_time:
+            return RouteDecision(True, "Within target response time", 0.8)
         
-        # Creative requests - depends on quality needs
-        if analysis['is_creative']:
-            if optimal_profile == 'quality' and self.offline_available:
-                return RouteDecision(True, "Creative request - offline quality mode", 0.7, 'quality')
-            else:
-                return RouteDecision(False, "Creative request - online variety", 0.7, 'balanced')
-        
-        # Default decision based on preferences and performance
-        if settings.prefer_offline:
-            offline_perf = self._get_offline_performance_score(optimal_profile)
-            if offline_perf > 0.6:
-                return RouteDecision(True, f"Offline preferred - {optimal_profile} profile", 0.7, optimal_profile)
-        
-        # Fallback to online for uncertain cases
-        return RouteDecision(False, "Default online for reliability", 0.6, 'balanced')
+        # Fallback to online for very complex queries
+        return RouteDecision(False, "Complex query exceeding time target", 0.7)
     
-    def _get_offline_performance_score(self, profile: str) -> float:
-        """Get performance score for offline LLM with specific profile"""
-        if not self.offline_llm:
-            return 0.0
-        
-        stats = self.performance_stats.get(profile, {})
-        offline_times = stats.get('offline_times', [])
-        failures = stats.get('failures', 0)
-        
-        if not offline_times:
-            return 0.8  # Default optimistic score
-        
-        # Calculate score based on average response time and failure rate
-        avg_time = sum(offline_times[-10:]) / len(offline_times[-10:])  # Last 10 responses
-        total_attempts = len(offline_times) + failures
-        failure_rate = failures / total_attempts if total_attempts > 0 else 0
-        
-        # Good performance: < 5s response time, < 10% failure rate
-        time_score = max(0, 1 - (avg_time - 2) / 8)  # Score decreases after 2s
-        reliability_score = max(0, 1 - failure_rate * 10)  # Penalty for failures
-        
-        return (time_score + reliability_score) / 2
-    
-    async def get_response(self, query: str) -> str:
-        """Get response from appropriate LLM with performance optimization"""
+    async def get_streaming_response(self, query: str) -> AsyncGenerator[str, None]:
+        """Get streaming response for instant feedback"""
         start_time = time.time()
+        first_token_time = None
         
         try:
-            # Analyze query with Pi 5 optimizations
-            analysis = self._analyze_query_complexity(query)
+            # Fast query analysis
+            analysis = self._analyze_query_speed(query)
             
             # Make routing decision
-            decision = self._make_routing_decision(query, analysis)
+            decision = self._make_lightning_decision(query, analysis)
             self.last_decision = decision
             
             if settings.debug_mode:
-                print(f"Routing decision: {'Offline' if decision.use_offline else 'Online'}")
-                print(f"Reason: {decision.reason}")
-                print(f"Suggested profile: {decision.suggested_profile}")
-                print(f"Estimated time: {analysis['estimated_response_time']:.1f}s")
+                print(f"⚡ Routing: {'Offline' if decision.use_offline else 'Online'} - {decision.reason}")
             
-            # Get personality and memory context
+            # Get personality and memory context (minimal for speed)
             personality_context = await self.personality_manager.get_system_prompt()
-            memory_context = await self.memory_manager.get_context()
+            memory_context = ""  # Skip memory for speed unless necessary
             
-            # Route to appropriate LLM with profile optimization
-            response = None
+            if not analysis['is_simple']:
+                memory_context = await self.memory_manager.get_context()
+            
+            # Stream from appropriate source
+            streamed_any = False
+            
             if decision.use_offline and self.offline_available:
-                response = await self._get_offline_response(
-                    query, personality_context, memory_context, decision.suggested_profile
-                )
-                
-                # Track performance
-                response_time = time.time() - start_time
-                profile_stats = self.performance_stats.get(decision.suggested_profile, {})
-                if 'offline_times' not in profile_stats:
-                    profile_stats['offline_times'] = []
-                profile_stats['offline_times'].append(response_time)
-                
-                # Keep only last 20 measurements
-                if len(profile_stats['offline_times']) > 20:
-                    profile_stats['offline_times'] = profile_stats['offline_times'][-20:]
-                
-                self.performance_stats[decision.suggested_profile] = profile_stats
+                async for chunk in self.offline_llm.generate_response_stream(
+                    query, personality_context, memory_context
+                ):
+                    if not first_token_time:
+                        first_token_time = time.time() - start_time
+                        self.first_token_times['offline'].append(first_token_time)
+                    yield chunk
+                    streamed_any = True
             
             elif decision.use_online and self.online_available:
-                response = await self._get_online_response(query, personality_context, memory_context)
-                
-                # Track online performance
-                response_time = time.time() - start_time
-                profile_stats = self.performance_stats.get('balanced', {})
-                if 'online_times' not in profile_stats:
-                    profile_stats['online_times'] = []
-                profile_stats['online_times'].append(response_time)
-                
-                if len(profile_stats['online_times']) > 20:
-                    profile_stats['online_times'] = profile_stats['online_times'][-20:]
-                
-                self.performance_stats['balanced'] = profile_stats
+                async for chunk in self.online_llm.generate_response_stream(
+                    query, personality_context, memory_context
+                ):
+                    if not first_token_time:
+                        first_token_time = time.time() - start_time
+                        self.first_token_times['online'].append(first_token_time)
+                    yield chunk
+                    streamed_any = True
             
             else:
-                # Fallback logic
+                # Fallback
                 if self.offline_available:
-                    response = await self._get_offline_response(
-                        query, personality_context, memory_context, 'speed'
-                    )
+                    async for chunk in self.offline_llm.generate_response_stream(
+                        query, personality_context, memory_context
+                    ):
+                        yield chunk
+                        streamed_any = True
                 elif self.online_available:
-                    response = await self._get_online_response(query, personality_context, memory_context)
+                    async for chunk in self.online_llm.generate_response_stream(
+                        query, personality_context, memory_context
+                    ):
+                        yield chunk
+                        streamed_any = True
                 else:
-                    response = "I'm sorry, but I'm currently unable to process your request. Please check my configuration."
+                    yield "I'm sorry, but I'm currently unable to process your request. Please check my configuration."
+            
+            # Track total response time
+            total_time = time.time() - start_time
+            source = 'offline' if decision.use_offline else 'online'
+            self.response_times[source].append(total_time)
+            
+            # Keep only last 20 measurements
+            if len(self.response_times[source]) > 20:
+                self.response_times[source] = self.response_times[source][-20:]
+            if len(self.first_token_times[source]) > 20:
+                self.first_token_times[source] = self.first_token_times[source][-20:]
+            
+            if settings.debug_mode and first_token_time:
+                print(f"⚡ First token: {first_token_time:.2f}s, Total: {total_time:.2f}s")
+            
+        except Exception as e:
+            if settings.debug_mode:
+                print(f"❌ Streaming error: {e}")
+            yield f"I encountered an error: {str(e)}"
+    
+    async def get_response(self, query: str) -> str:
+        """Get complete response (non-streaming fallback)"""
+        start_time = time.time()
+        
+        try:
+            # Collect streaming response
+            response_parts = []
+            async for chunk in self.get_streaming_response(query):
+                response_parts.append(chunk)
+            
+            response = ''.join(response_parts)
             
             # Store in memory
             if response:
                 await self.memory_manager.add_interaction(query, response)
             
-            return response or "I apologize, but I couldn't generate a response."
+            return response
             
         except Exception as e:
-            # Track failures
-            if self.last_decision and self.last_decision.use_offline:
-                profile = self.last_decision.suggested_profile
-                if profile not in self.performance_stats:
-                    self.performance_stats[profile] = {}
-                self.performance_stats[profile]['failures'] = self.performance_stats[profile].get('failures', 0) + 1
-            
             if settings.debug_mode:
                 print(f"Router error: {e}")
             
-            return f"I encountered an error processing your request: {e}"
-    
-    async def _get_offline_response(self, query: str, personality_context: str, 
-                                  memory_context: str, profile: str = 'balanced') -> str:
-        """Get response from offline LLM with performance profile"""
-        if not self.offline_llm:
-            raise Exception("Offline LLM not initialized")
-        
-        # Set the performance profile
-        self.offline_llm.set_performance_profile(profile)
-        
-        return await self.offline_llm.generate_response(query, personality_context, memory_context, profile)
-    
-    async def _get_online_response(self, query: str, personality_context: str, memory_context: str) -> str:
-        """Get response from online LLM"""
-        if not self.online_llm:
-            raise Exception("Online LLM not initialized")
-        
-        return await self.online_llm.generate_response(query, personality_context, memory_context)
+            # Try non-streaming fallback
+            try:
+                analysis = self._analyze_query_speed(query)
+                decision = self._make_lightning_decision(query, analysis)
+                
+                personality_context = await self.personality_manager.get_system_prompt()
+                memory_context = await self.memory_manager.get_context()
+                
+                if decision.use_offline and self.offline_available:
+                    response = await self.offline_llm.generate_response(
+                        query, personality_context, memory_context
+                    )
+                elif decision.use_online and self.online_available:
+                    response = await self.online_llm.generate_response(
+                        query, personality_context, memory_context
+                    )
+                else:
+                    response = "I'm having trouble processing your request."
+                
+                if response:
+                    await self.memory_manager.add_interaction(query, response)
+                
+                return response
+                
+            except Exception as fallback_error:
+                return f"I encountered an error processing your request: {fallback_error}"
     
     def set_mode(self, mode: RouteMode):
         """Set routing mode"""
         self.mode = mode
+        print(f"Routing mode set to: {mode.value}")
     
     def set_performance_preference(self, preference: str):
-        """Set performance preference (speed/balanced/quality)"""
+        """Set performance preference"""
         if preference in ['speed', 'balanced', 'quality']:
             settings.set_performance_mode(preference)
             if self.offline_llm:
@@ -448,39 +314,38 @@ class Router:
             print(f"Performance preference set to: {preference}")
     
     def get_status(self) -> Dict[str, Any]:
-        """Get comprehensive router status with Pi 5 specific info"""
-        return {
+        """Get router status with performance metrics"""
+        status = {
             'mode': self.mode.value,
             'offline_available': self.offline_available,
             'online_available': self.online_available,
             'hardware_info': settings.get_hardware_info(),
             'performance_mode': settings.performance_mode,
-            'last_decision': {
-                'use_offline': self.last_decision.use_offline if self.last_decision else None,
-                'reason': self.last_decision.reason if self.last_decision else None,
-                'confidence': self.last_decision.confidence if self.last_decision else None,
-                'suggested_profile': self.last_decision.suggested_profile if self.last_decision else None
-            } if self.last_decision else None,
-            'performance_stats': self._get_performance_summary(),
-            'offline_model_info': self.offline_llm.get_performance_stats() if self.offline_llm else None
+            'streaming_enabled': settings.streaming_enabled
         }
-    
-    def _get_performance_summary(self) -> Dict[str, Any]:
-        """Get summary of performance across all profiles"""
-        summary = {}
         
-        for profile, stats in self.performance_stats.items():
-            offline_times = stats.get('offline_times', [])
-            online_times = stats.get('online_times', [])
-            failures = stats.get('failures', 0)
-            
-            summary[profile] = {
-                'avg_offline_time': sum(offline_times[-10:]) / len(offline_times[-10:]) if offline_times else 0,
-                'avg_online_time': sum(online_times[-10:]) / len(online_times[-10:]) if online_times else 0,
-                'total_offline_responses': len(offline_times),
-                'total_online_responses': len(online_times),
-                'failures': failures,
-                'reliability_score': self._get_offline_performance_score(profile)
+        # Add performance metrics
+        if self.response_times['offline']:
+            status['avg_offline_time'] = sum(self.response_times['offline']) / len(self.response_times['offline'])
+        if self.response_times['online']:
+            status['avg_online_time'] = sum(self.response_times['online']) / len(self.response_times['online'])
+        
+        if self.first_token_times['offline']:
+            status['avg_offline_first_token'] = sum(self.first_token_times['offline']) / len(self.first_token_times['offline'])
+        if self.first_token_times['online']:
+            status['avg_online_first_token'] = sum(self.first_token_times['online']) / len(self.first_token_times['online'])
+        
+        if self.last_decision:
+            status['last_decision'] = {
+                'use_offline': self.last_decision.use_offline,
+                'reason': self.last_decision.reason,
+                'confidence': self.last_decision.confidence
             }
         
-        return summary
+        if self.offline_llm:
+            status['offline_model_info'] = self.offline_llm.get_performance_stats()
+        
+        return status
+
+# For backwards compatibility
+Router = LightningRouter
