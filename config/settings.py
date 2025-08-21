@@ -1,6 +1,6 @@
 """
 Pascal AI Assistant - Global Configuration
-Manages all system settings and environment variables - Optimized for Pi 5
+Manages all system settings and environment variables - Lightning-fast for Pi 5
 """
 
 import os
@@ -13,7 +13,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 class Settings:
-    """Global settings for Pascal - Optimized for Raspberry Pi 5"""
+    """Global settings for Pascal - Optimized for sub-3-second responses"""
     
     def __init__(self):
         self.base_dir = Path(__file__).parent.parent
@@ -28,25 +28,32 @@ class Settings:
         
         # Pascal identity
         self.name = "Pascal"
-        self.version = "1.1.0"  # Updated version with Pi 5 optimizations
+        self.version = "2.0.0"  # Lightning version with Grok
         
-        # LLM Configuration - Optimized for Pi 5
+        # LLM Configuration - Optimized for speed
         self.default_personality = "default"
-        self.max_context_length = 2048  # Increased from 4096 for better performance
-        self.max_response_tokens = 100  # Increased from 75 for better responses
+        self.max_context_length = 2048
+        self.max_response_tokens = 150  # Limited for faster responses
         
-        # Online LLM APIs
+        # Online LLM APIs - Grok as primary
+        self.grok_api_key = os.getenv("GROK_API_KEY")
         self.openai_api_key = os.getenv("OPENAI_API_KEY")
         self.anthropic_api_key = os.getenv("ANTHROPIC_API_KEY")
-        self.google_api_key = os.getenv("GOOGLE_API_KEY")
         
-        # Local LLM Settings - Pi 5 Optimized
+        # Local LLM Settings - Lightning optimized
         self.local_model_path = self.models_dir / "local_model.gguf"
         self.local_model_threads = 4  # Use all Pi 5 cores
-        self.local_model_context = 1024  # Optimized for Pi 5 memory
+        self.local_model_context = 2048
+        self.streaming_enabled = True  # Enable streaming for perceived speed
+        self.keep_alive_enabled = True  # Keep models loaded
+        
+        # Lightning Performance Settings
+        self.target_response_time = 3.0  # Target max 3 seconds
+        self.enable_streaming = True
+        self.first_token_target = 1.0  # Target 1 second to first token
         
         # Performance Settings - Pi 5 Specific
-        self.performance_mode = os.getenv("PERFORMANCE_MODE", "balanced")  # speed, balanced, quality
+        self.performance_mode = os.getenv("PERFORMANCE_MODE", "speed")  # Default to speed
         self.use_arm_optimizations = True
         self.memory_optimization = True
         self.context_caching = True
@@ -57,32 +64,36 @@ class Settings:
         self.available_ram_gb = self._get_available_ram()
         
         # Router Settings
-        self.prefer_offline = True  # Default to offline when possible
+        self.prefer_offline = True  # Default to offline for speed
         self.online_timeout = 10.0  # Seconds
         self.fallback_to_offline = True
-        self.smart_routing = True  # Enable intelligent routing based on query complexity
+        self.smart_routing = True
         
         # Memory Settings
-        self.short_term_memory_limit = 3  # Increased from 1 for better context
+        self.short_term_memory_limit = 5  # Keep recent context
         self.long_term_memory_enabled = True
         self.memory_save_interval = 300  # Seconds
         
         # Performance Settings
         self.enable_caching = True
         self.cache_expiry = 3600  # Seconds
-        self.max_concurrent_requests = 2  # Reduced for Pi 5 stability
+        self.max_concurrent_requests = 2  # Limited for Pi 5
         
         # ARM-specific optimizations
         self.arm_cpu_optimization = {
-            'enable_neon': True,  # ARM NEON SIMD instructions
-            'thread_affinity': True,  # Pin threads to specific cores
-            'cache_line_size': 64,  # ARM cache line size
-            'prefetch_distance': 16,  # Memory prefetch optimization
+            'enable_neon': True,
+            'thread_affinity': True,
+            'cache_line_size': 64,
+            'prefetch_distance': 16,
         }
         
-        # Model Selection Preferences
-        self.preferred_model_types = ["q4_k_m", "q5_k_m", "q4_k_s"]  # Quantization preferences
-        self.max_model_ram_usage = 8.0  # Max GB for model (leaves 8GB for system)
+        # Model Selection Preferences - Updated for new models
+        self.preferred_models = [
+            "nemotron-mini:4b-instruct-q4_K_M",
+            "qwen3:4b-instruct",
+            "gemma3:4b-it-q4_K_M"
+        ]
+        self.max_model_ram_usage = 6.0  # Max GB for model
         self.auto_model_selection = True
         
         # Debug Settings
@@ -93,13 +104,13 @@ class Settings:
         
         # Voice Settings (for future phases)
         self.voice_enabled = False
-        self.voice_model = "whisper-tiny"  # Optimized for Pi 5
+        self.voice_model = "whisper-tiny"
         self.tts_model = "coqui-tts"
         self.voice_activation_threshold = 0.7
         
         # Display Settings (for future visual phase)
         self.visual_display_enabled = False
-        self.display_fps = 30  # Conservative for Pi 5
+        self.display_fps = 30
         self.display_resolution = (1920, 1080)
     
     def _create_directories(self):
@@ -162,9 +173,9 @@ class Settings:
     def is_online_available(self) -> bool:
         """Check if any online API keys are configured"""
         return any([
+            self.grok_api_key,
             self.openai_api_key,
-            self.anthropic_api_key,
-            self.google_api_key
+            self.anthropic_api_key
         ])
     
     def is_local_model_available(self) -> bool:
@@ -178,41 +189,44 @@ class Settings:
     
     def get_optimal_context_size(self, model_ram_usage: float) -> int:
         """Calculate optimal context size based on available RAM"""
-        available_for_context = self.available_ram_gb - model_ram_usage - 4  # Reserve 4GB for system
+        available_for_context = self.available_ram_gb - model_ram_usage - 2  # Reserve 2GB for system
         
         if available_for_context <= 2:
-            return 512
-        elif available_for_context <= 4:
             return 1024
-        elif available_for_context <= 6:
+        elif available_for_context <= 4:
             return 2048
+        elif available_for_context <= 6:
+            return 3072
         else:
             return 4096
     
     def get_performance_profile(self) -> Dict[str, Any]:
-        """Get current performance profile settings"""
+        """Get current performance profile settings optimized for speed"""
         profiles = {
             'speed': {
-                'max_tokens': 50,
-                'context_size': 512,
-                'temperature': 0.3,
-                'priority': 'response_time'
-            },
-            'balanced': {
                 'max_tokens': 100,
                 'context_size': 1024,
+                'temperature': 0.5,
+                'priority': 'response_time',
+                'streaming': True
+            },
+            'balanced': {
+                'max_tokens': 150,
+                'context_size': 2048,
                 'temperature': 0.7,
-                'priority': 'balanced'
+                'priority': 'balanced',
+                'streaming': True
             },
             'quality': {
                 'max_tokens': 200,
                 'context_size': 2048,
                 'temperature': 0.8,
-                'priority': 'output_quality'
+                'priority': 'output_quality',
+                'streaming': False
             }
         }
         
-        return profiles.get(self.performance_mode, profiles['balanced'])
+        return profiles.get(self.performance_mode, profiles['speed'])
     
     def set_performance_mode(self, mode: str):
         """Set performance mode (speed/balanced/quality)"""
@@ -229,7 +243,9 @@ class Settings:
             'available_ram_gb': self.available_ram_gb,
             'cpu_cores': self.local_model_threads,
             'arm_optimizations_enabled': self.use_arm_optimizations,
-            'performance_mode': self.performance_mode
+            'performance_mode': self.performance_mode,
+            'streaming_enabled': self.streaming_enabled,
+            'keep_alive_enabled': self.keep_alive_enabled
         }
     
     def get_config_summary(self) -> Dict[str, Any]:
@@ -239,6 +255,7 @@ class Settings:
             "base_directory": str(self.base_dir),
             "personality": self.default_personality,
             "online_apis_configured": self.is_online_available(),
+            "grok_configured": bool(self.grok_api_key),
             "local_model_available": self.is_local_model_available(),
             "prefer_offline": self.prefer_offline,
             "debug_mode": self.debug_mode,
@@ -246,6 +263,9 @@ class Settings:
             "performance_mode": self.performance_mode,
             "hardware_info": self.get_hardware_info(),
             "arm_optimizations": self.use_arm_optimizations,
+            "streaming_enabled": self.streaming_enabled,
+            "target_response_time": self.target_response_time,
+            "preferred_models": self.preferred_models,
             "available_models": len(list(self.models_dir.glob("*.gguf"))) if self.models_dir.exists() else 0
         }
     
@@ -270,6 +290,16 @@ class Settings:
         env_max_tokens = os.getenv("MAX_RESPONSE_TOKENS")
         if env_max_tokens and env_max_tokens.isdigit():
             self.max_response_tokens = int(env_max_tokens)
+        
+        # Streaming
+        env_streaming = os.getenv("STREAMING_ENABLED")
+        if env_streaming:
+            self.streaming_enabled = env_streaming.lower() == "true"
+        
+        # Keep alive
+        env_keep_alive = os.getenv("KEEP_ALIVE_ENABLED")
+        if env_keep_alive:
+            self.keep_alive_enabled = env_keep_alive.lower() == "true"
     
     def save_performance_settings(self):
         """Save current performance settings to file"""
@@ -280,6 +310,10 @@ class Settings:
             'local_model_context': self.local_model_context,
             'max_response_tokens': self.max_response_tokens,
             'use_arm_optimizations': self.use_arm_optimizations,
+            'streaming_enabled': self.streaming_enabled,
+            'keep_alive_enabled': self.keep_alive_enabled,
+            'target_response_time': self.target_response_time,
+            'preferred_models': self.preferred_models,
             'updated_timestamp': os.time.time() if hasattr(os, 'time') else 0
         }
         
@@ -306,6 +340,10 @@ class Settings:
             self.local_model_context = settings_data.get('local_model_context', self.local_model_context)
             self.max_response_tokens = settings_data.get('max_response_tokens', self.max_response_tokens)
             self.use_arm_optimizations = settings_data.get('use_arm_optimizations', self.use_arm_optimizations)
+            self.streaming_enabled = settings_data.get('streaming_enabled', self.streaming_enabled)
+            self.keep_alive_enabled = settings_data.get('keep_alive_enabled', self.keep_alive_enabled)
+            self.target_response_time = settings_data.get('target_response_time', self.target_response_time)
+            self.preferred_models = settings_data.get('preferred_models', self.preferred_models)
             
         except Exception as e:
             if self.debug_mode:
