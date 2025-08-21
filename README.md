@@ -133,21 +133,54 @@ ollama rm old-model      # Remove model
 
 ### Module Structure
 ```
-pascal/
-├── main.py                    # Entry point with Ollama integration
+├── main.py                    # Entry point & orchestration (~50 lines)
+├── requirements.txt           # Python dependencies
+├── install.sh                # One-command installer with venv setup
+├── run.sh                    # Activation script for easy startup
+├── README.md                 # Auto-updating documentation
+├── .env.example              # Environment variables template
+├── .gitignore                # Git ignore (includes venv/)
+├── venv/                     # Virtual environment (git ignored)
 ├── config/
 │   ├── settings.py           # Global configuration
-│   └── personalities/        # Personality definitions
+│   ├── personalities/        # JSON personality definitions
+│   │   ├── default.json
+│   │   ├── assistant.json
+│   │   └── custom.json
+│   └── skills_config.json    # Skills settings & API keys
 ├── modules/
-│   ├── router.py             # Smart LLM routing
-│   ├── personality.py        # Personality management
-│   ├── memory.py             # Memory system
-│   ├── offline_llm.py        # Ollama integration
-│   ├── online_llm.py         # API integration
-│   └── ...                   # Additional modules
-├── download_models.sh        # Ollama model installer
-├── install.sh               # System installer
-└── data/                    # Models, memory, cache
+│   ├── personality.py        # Pascal's personality management & switching
+│   ├── offline_llm.py        # Local model handling (llama.cpp/Ollama)
+│   ├── online_llm.py         # API calls (OpenAI, Anthropic, Gemini)
+│   ├── router.py             # Smart offline/online routing
+│   ├── memory.py             # Pascal's short/long-term memory system
+│   ├── voice_input.py        # Speech-to-text (Whisper)
+│   ├── voice_output.py       # Pascal's text-to-speech (Coqui TTS)
+│   ├── visual_display.py     # Pascal's MI-style reactive graphics
+│   ├── skills_manager.py     # Pascal's skills orchestration
+│   ├── interrupt_manager.py  # Interrupt detection & handling
+│   ├── audio_processor.py    # VAD & noise cancellation
+│   └── threading_manager.py  # Thread coordination & management
+├── skills/
+│   ├── maps.py               # Google Maps integration
+│   ├── messaging.py          # SMS/WhatsApp APIs
+│   ├── music.py              # Spotify/local music control
+│   ├── weather.py            # Weather data
+│   ├── smart_home.py         # IoT device control
+│   └── custom_skills/        # User-added skills directory
+├── utils/
+│   ├── installer.py          # Auto-setup functions
+│   ├── helpers.py            # Common utility functions
+│   └── audio_analysis.py     # FFT & audio processing for visuals
+├── data/
+│   ├── models/               # Local LLM storage
+│   ├── memory/               # Pascal's conversation history & learning
+│   ├── personalities/        # Pascal's personality-specific data
+│   └── cache/                # API response caching
+└── tests/
+    ├── test_modules.py       # Unit tests for each module
+    └── integration_tests.py  # Full system tests
+
 ```
 
 ### Smart Routing Logic
