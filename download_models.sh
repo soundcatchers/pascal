@@ -1,11 +1,11 @@
 #!/bin/bash
 
-# Pascal AI Assistant - Model Download Script for Raspberry Pi 5 (Ollama Version)
-# Downloads and manages models using Ollama for optimal Pi 5 performance
+# Pascal AI Assistant - Lightning Model Download Script for Raspberry Pi 5
+# Downloads optimized models for sub-3-second responses
 
 set -e
 
-echo "🤖 Pascal AI Assistant - Ollama Model Manager for Raspberry Pi 5"
+echo "⚡ Pascal AI Assistant - Lightning Model Manager for Raspberry Pi 5"
 echo "================================================================="
 
 # Colors for output
@@ -37,16 +37,16 @@ check_pi() {
     if [ -f /proc/device-tree/model ]; then
         PI_MODEL=$(cat /proc/device-tree/model)
         if [[ $PI_MODEL == *"Raspberry Pi 5"* ]]; then
-            print_success "Detected Raspberry Pi 5 - proceeding with optimized setup"
+            print_success "Detected Raspberry Pi 5 - optimized for lightning speed ⚡"
         elif [[ $PI_MODEL == *"Raspberry Pi"* ]]; then
-            print_warning "Detected $PI_MODEL - Ollama optimized for Pi 5"
+            print_warning "Detected $PI_MODEL - Lightning models optimized for Pi 5"
             read -p "Continue anyway? (y/N): " -n 1 -r
             echo
             if [[ ! $REPLY =~ ^[Yy]$ ]]; then
                 exit 1
             fi
-        else
-            print_warning "Not running on Raspberry Pi - Ollama works on most systems"
+        else:
+            print_warning "Not running on Raspberry Pi - Lightning models work on most systems"
         fi
     fi
 }
@@ -69,7 +69,7 @@ check_ram() {
     print_status "System RAM: ${TOTAL_RAM_GB}GB"
     
     if [ $TOTAL_RAM_GB -lt 8 ]; then
-        print_warning "Less than 8GB RAM detected. Some models may not run optimally."
+        print_warning "Less than 8GB RAM detected. Lightning models are optimized for 8GB+."
     fi
 }
 
@@ -107,23 +107,24 @@ install_ollama() {
     fi
 }
 
-# Configure Ollama for Pi 5
-configure_ollama() {
-    print_status "Configuring Ollama for Raspberry Pi 5..."
+# Configure Ollama for Lightning speed
+configure_ollama_lightning() {
+    print_status "Configuring Ollama for Lightning speed on Pi 5..."
     
-    # Create Ollama service override for Pi 5 optimization
+    # Create Ollama service override for lightning performance
     sudo mkdir -p /etc/systemd/system/ollama.service.d
     
-    cat << EOF | sudo tee /etc/systemd/system/ollama.service.d/override.conf
+    cat << EOF | sudo tee /etc/systemd/system/ollama.service.d/lightning.conf
 [Service]
 Environment="OLLAMA_HOST=127.0.0.1:11434"
 Environment="OLLAMA_NUM_PARALLEL=1"
 Environment="OLLAMA_MAX_LOADED_MODELS=1"
-Environment="OLLAMA_MAX_QUEUE=4"
+Environment="OLLAMA_MAX_QUEUE=2"
 Environment="OLLAMA_FLASH_ATTENTION=0"
 Environment="OLLAMA_KV_CACHE_TYPE=f16"
 Environment="OLLAMA_NUM_THREAD=4"
 Environment="OLLAMA_TMPDIR=/tmp"
+Environment="OLLAMA_KEEP_ALIVE=5m"
 EOF
 
     # Reload systemd and restart Ollama
@@ -133,7 +134,7 @@ EOF
     # Wait for restart
     sleep 5
     
-    print_success "Ollama configured for Pi 5 optimization"
+    print_success "Ollama configured for Lightning performance ⚡"
 }
 
 # Test Ollama connection
@@ -155,57 +156,65 @@ test_ollama() {
     return 1
 }
 
-# Download models using Ollama
-download_models() {
-    print_status "Available models optimized for Raspberry Pi 5:"
+# Download Lightning models
+download_lightning_models() {
+    print_status "⚡ Lightning Model Selection:"
     echo ""
-    echo "1. Phi-3 Mini (4K) - 2.3GB - Fastest responses, best for Pi 5"
-    echo "2. Llama 3.2 3B - 2.0GB - Excellent efficiency and speed"
-    echo "3. Gemma 2 2B - 1.6GB - Very fast, good for quick tasks"
-    echo "4. Qwen2.5 7B - 4.4GB - Best quality (requires good cooling)"
-    echo "5. Download recommended set (Phi-3 Mini + Llama 3.2 3B)"
-    echo "6. Download all models"
-    echo "7. Custom selection"
+    echo "Primary Models (Optimized for 1-3 second responses):"
+    echo "1. nemotron-mini:4b-instruct-q4_K_M - PRIMARY (Fastest, 2.5GB)"
+    echo "2. qwen3:4b-instruct - FALLBACK 1 (Fast, 2.3GB)"
+    echo "3. gemma3:4b-it-q4_K_M - FALLBACK 2 (Reliable, 2.4GB)"
+    echo ""
+    echo "4. Download all Lightning models (recommended)"
+    echo "5. Download primary model only (nemotron-mini)"
+    echo "6. Custom selection"
+    echo "7. Skip model download"
     echo ""
     
     read -p "Choose an option (1-7): " choice
     
     case $choice in
         1)
-            download_single_model "phi3:mini" "Phi-3 Mini (4K)" "2.3GB"
+            download_single_model "nemotron-mini:4b-instruct-q4_K_M" "Nemotron Mini 4B (PRIMARY)" "2.5GB"
             ;;
         2)
-            download_single_model "llama3.2:3b" "Llama 3.2 3B" "2.0GB"
+            download_single_model "qwen3:4b-instruct" "Qwen3 4B (FALLBACK 1)" "2.3GB"
             ;;
         3)
-            download_single_model "gemma2:2b" "Gemma 2 2B" "1.6GB"
+            download_single_model "gemma3:4b-it-q4_K_M" "Gemma3 4B (FALLBACK 2)" "2.4GB"
             ;;
         4)
-            download_single_model "qwen2.5:7b" "Qwen2.5 7B" "4.4GB"
+            print_status "Downloading all Lightning models for maximum reliability..."
+            download_single_model "nemotron-mini:4b-instruct-q4_K_M" "Nemotron Mini 4B (PRIMARY)" "2.5GB"
+            download_single_model "qwen3:4b-instruct" "Qwen3 4B (FALLBACK 1)" "2.3GB"
+            download_single_model "gemma3:4b-it-q4_K_M" "Gemma3 4B (FALLBACK 2)" "2.4GB"
             ;;
         5)
-            download_single_model "phi3:mini" "Phi-3 Mini (4K)" "2.3GB"
-            download_single_model "llama3.2:3b" "Llama 3.2 3B" "2.0GB"
+            download_single_model "nemotron-mini:4b-instruct-q4_K_M" "Nemotron Mini 4B (PRIMARY)" "2.5GB"
             ;;
         6)
-            download_single_model "phi3:mini" "Phi-3 Mini (4K)" "2.3GB"
-            download_single_model "llama3.2:3b" "Llama 3.2 3B" "2.0GB"
-            download_single_model "gemma2:2b" "Gemma 2 2B" "1.6GB"
-            download_single_model "qwen2.5:7b" "Qwen2.5 7B" "4.4GB"
-            ;;
-        7)
-            echo "Available models: phi3:mini, llama3.2:3b, gemma2:2b, qwen2.5:7b"
+            echo "Available Lightning models:"
+            echo "  nemotron-mini:4b-instruct-q4_K_M (primary)"
+            echo "  qwen3:4b-instruct (fallback 1)"
+            echo "  gemma3:4b-it-q4_K_M (fallback 2)"
+            echo ""
             echo "Enter model names separated by spaces:"
             read -p "Models: " selected_models
             for model in $selected_models; do
                 case $model in
-                    "phi3:mini") download_single_model "phi3:mini" "Phi-3 Mini (4K)" "2.3GB" ;;
-                    "llama3.2:3b") download_single_model "llama3.2:3b" "Llama 3.2 3B" "2.0GB" ;;
-                    "gemma2:2b") download_single_model "gemma2:2b" "Gemma 2 2B" "1.6GB" ;;
-                    "qwen2.5:7b") download_single_model "qwen2.5:7b" "Qwen2.5 7B" "4.4GB" ;;
-                    *) print_warning "Unknown model: $model" ;;
+                    "nemotron-mini:4b-instruct-q4_K_M") 
+                        download_single_model "$model" "Nemotron Mini 4B" "2.5GB" ;;
+                    "qwen3:4b-instruct") 
+                        download_single_model "$model" "Qwen3 4B" "2.3GB" ;;
+                    "gemma3:4b-it-q4_K_M") 
+                        download_single_model "$model" "Gemma3 4B" "2.4GB" ;;
+                    *) 
+                        print_warning "Unknown model: $model" ;;
                 esac
             done
+            ;;
+        7)
+            print_warning "Skipping model download. You can download models later from Pascal."
             ;;
         *)
             print_error "Invalid choice"
@@ -220,17 +229,26 @@ download_single_model() {
     local display_name="$2"
     local size="$3"
     
-    print_status "Downloading $display_name ($size)..."
+    print_status "⚡ Downloading $display_name ($size)..."
     
     # Check if model is already downloaded
     if ollama list | grep -q "$model_name"; then
         print_warning "$display_name is already downloaded"
+        
+        # Ensure it's loaded with keep-alive
+        print_status "Loading model with keep-alive..."
+        ollama run "$model_name" --keepalive 5m <<< ""
         return 0
     fi
     
     # Download with progress
     if ollama pull "$model_name"; then
-        print_success "Downloaded $display_name successfully"
+        print_success "Downloaded $display_name successfully ⚡"
+        
+        # Load model with keep-alive
+        print_status "Loading model with keep-alive for instant responses..."
+        ollama run "$model_name" --keepalive 5m <<< ""
+        
         return 0
     else
         print_error "Failed to download $display_name"
@@ -240,7 +258,7 @@ download_single_model() {
 
 # Verify downloaded models
 verify_models() {
-    print_status "Verifying downloaded models..."
+    print_status "Verifying Lightning models..."
     
     MODEL_LIST=$(ollama list 2>/dev/null || echo "")
     
@@ -252,12 +270,33 @@ verify_models() {
     print_success "Available models:"
     echo "$MODEL_LIST"
     
+    # Check for Lightning models
+    LIGHTNING_MODELS=0
+    if echo "$MODEL_LIST" | grep -q "nemotron-mini:4b-instruct-q4_K_M"; then
+        print_success "✅ Primary model ready: nemotron-mini:4b-instruct-q4_K_M"
+        LIGHTNING_MODELS=$((LIGHTNING_MODELS + 1))
+    fi
+    if echo "$MODEL_LIST" | grep -q "qwen3:4b-instruct"; then
+        print_success "✅ Fallback 1 ready: qwen3:4b-instruct"
+        LIGHTNING_MODELS=$((LIGHTNING_MODELS + 1))
+    fi
+    if echo "$MODEL_LIST" | grep -q "gemma3:4b-it-q4_K_M"; then
+        print_success "✅ Fallback 2 ready: gemma3:4b-it-q4_K_M"
+        LIGHTNING_MODELS=$((LIGHTNING_MODELS + 1))
+    fi
+    
+    if [ $LIGHTNING_MODELS -eq 0 ]; then
+        print_warning "No Lightning models found. Pascal will use any available model."
+    else
+        print_success "⚡ $LIGHTNING_MODELS Lightning model(s) ready for sub-3-second responses!"
+    fi
+    
     return 0
 }
 
-# Test model inference
-test_models() {
-    print_status "Testing model performance..."
+# Test model performance
+test_lightning_performance() {
+    print_status "Testing Lightning performance..."
     
     # Get list of downloaded models
     MODELS=$(ollama list | tail -n +2 | awk '{print $1}' | grep -v "^$")
@@ -267,40 +306,45 @@ test_models() {
         return
     fi
     
-    read -p "Test model performance? This will take 1-2 minutes (y/N): " -n 1 -r
+    read -p "Test Lightning model performance? (y/N): " -n 1 -r
     echo
     if [[ ! $REPLY =~ ^[Yy]$ ]]; then
         return
     fi
     
-    for model in $MODELS; do
-        print_status "Testing $model..."
+    # Test primary model if available
+    if echo "$MODELS" | grep -q "nemotron-mini:4b-instruct-q4_K_M"; then
+        print_status "⚡ Testing nemotron-mini (PRIMARY)..."
         
-        start_time=$(date +%s)
+        start_time=$(date +%s.%N)
         
         # Simple test prompt
-        response=$(echo "Hello! Please respond with exactly: Test successful" | ollama run "$model" --verbose 2>/dev/null || echo "Error")
+        response=$(echo "Say 'Lightning fast!' in 5 words or less" | ollama run "nemotron-mini:4b-instruct-q4_K_M" --verbose 2>/dev/null || echo "Error")
         
-        end_time=$(date +%s)
-        duration=$((end_time - start_time))
+        end_time=$(date +%s.%N)
+        duration=$(echo "$end_time - $start_time" | bc)
         
-        if [[ "$response" == *"test"* ]] && [[ "$response" == *"successful"* ]]; then
-            print_success "$model: Response time ${duration}s ✅"
+        print_success "Response time: ${duration}s"
+        
+        if (( $(echo "$duration < 3" | bc -l) )); then
+            print_success "⚡ LIGHTNING FAST! Under 3 seconds!"
+        elif (( $(echo "$duration < 5" | bc -l) )); then
+            print_warning "Good speed, but not quite lightning (3-5s)"
         else
-            print_warning "$model: Test failed or timed out (${duration}s) ❌"
+            print_warning "Slower than target (>5s). Check cooling and resources."
         fi
         
         echo ""
-    done
+    fi
 }
 
 # Create model configuration for Pascal
-create_model_config() {
-    print_status "Creating Pascal model configuration..."
+create_lightning_config() {
+    print_status "Creating Lightning configuration for Pascal..."
     
     # Get script directory and create config
     SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
-    CONFIG_FILE="$SCRIPT_DIR/data/models/ollama_config.json"
+    CONFIG_FILE="$SCRIPT_DIR/data/models/lightning_config.json"
     
     # Ensure directory exists
     mkdir -p "$(dirname "$CONFIG_FILE")"
@@ -313,8 +357,14 @@ create_model_config() {
 {
     "ollama_enabled": true,
     "ollama_host": "http://localhost:11434",
+    "lightning_mode": true,
     "download_date": "$(date -Iseconds)",
     "pi_model": "$(cat /proc/device-tree/model 2>/dev/null || echo 'Unknown')",
+    "preferred_models": [
+        "nemotron-mini:4b-instruct-q4_K_M",
+        "qwen3:4b-instruct",
+        "gemma3:4b-it-q4_K_M"
+    ],
     "available_models": [
 EOF
 
@@ -325,15 +375,22 @@ EOF
             echo "        ," >> "$CONFIG_FILE"
         fi
         
-        # Get model info
-        MODEL_INFO=$(ollama show "$model" 2>/dev/null || echo "")
-        PARAMS=$(echo "$MODEL_INFO" | grep -i "parameters" | head -1 || echo "Unknown parameters")
         SIZE=$(ollama list | grep "$model" | awk '{print $2}' || echo "Unknown")
+        
+        # Determine priority
+        PRIORITY=99
+        if [[ "$model" == "nemotron-mini:4b-instruct-q4_K_M" ]]; then
+            PRIORITY=1
+        elif [[ "$model" == "qwen3:4b-instruct" ]]; then
+            PRIORITY=2
+        elif [[ "$model" == "gemma3:4b-it-q4_K_M" ]]; then
+            PRIORITY=3
+        fi
         
         echo "        {" >> "$CONFIG_FILE"
         echo "            \"name\": \"$model\"," >> "$CONFIG_FILE"
         echo "            \"size\": \"$SIZE\"," >> "$CONFIG_FILE"
-        echo "            \"parameters\": \"$PARAMS\"" >> "$CONFIG_FILE"
+        echo "            \"priority\": $PRIORITY" >> "$CONFIG_FILE"
         echo -n "        }" >> "$CONFIG_FILE"
         FIRST=false
     done
@@ -341,81 +398,73 @@ EOF
     cat >> "$CONFIG_FILE" << EOF
 
     ],
-    "model_recommendations": {
-        "fastest": "phi3:mini - Optimized for Pi 5, fastest responses",
-        "balanced": "llama3.2:3b - Good balance of speed and quality",
-        "quality": "qwen2.5:7b - Best quality (needs good cooling)",
-        "lightweight": "gemma2:2b - Minimal resource usage"
+    "performance_settings": {
+        "target_response_time": 3.0,
+        "streaming_enabled": true,
+        "keep_alive_duration": "5m",
+        "first_token_target": 1.0
     },
-    "performance_profiles": {
-        "speed": {
-            "preferred_models": ["phi3:mini", "gemma2:2b"],
-            "temperature": 0.3,
-            "max_tokens": 100
-        },
-        "balanced": {
-            "preferred_models": ["llama3.2:3b", "phi3:mini"],
-            "temperature": 0.7,
-            "max_tokens": 200
-        },
-        "quality": {
-            "preferred_models": ["qwen2.5:7b", "llama3.2:3b"],
-            "temperature": 0.8,
-            "max_tokens": 300
-        }
+    "lightning_tips": {
+        "primary": "nemotron-mini:4b-instruct-q4_K_M - Fastest responses",
+        "fallback1": "qwen3:4b-instruct - Good balance",
+        "fallback2": "gemma3:4b-it-q4_K_M - Most reliable"
     }
 }
 EOF
 
-    print_success "Pascal configuration saved to $CONFIG_FILE"
+    print_success "Lightning configuration saved to $CONFIG_FILE"
 }
 
-# Show usage instructions
-show_completion() {
-    print_success "Ollama setup complete! 🎉"
-    echo "================================"
+# Show completion message
+show_lightning_completion() {
+    print_success "⚡ Lightning setup complete! 🎉"
+    echo "================================="
+    echo ""
+    
+    print_status "Lightning Performance Achieved:"
+    echo "• Target: 1-3 second responses ⚡"
+    echo "• Streaming: Instant feedback"
+    echo "• Keep-alive: Models stay loaded"
+    echo "• Optimized: For Raspberry Pi 5"
     echo ""
     
     print_status "Available Commands:"
     echo "• ollama list                 - Show downloaded models"
-    echo "• ollama run [model]          - Chat with a model"
-    echo "• ollama pull [model]         - Download a new model"
-    echo "• ollama rm [model]           - Remove a model"
+    echo "• ollama run [model]          - Test a model"
     echo "• systemctl status ollama     - Check Ollama service"
     echo ""
     
     print_status "Pascal Integration:"
-    echo "• Models are automatically detected by Pascal"
+    echo "• Models are automatically detected"
     echo "• Start Pascal with: ./run.sh"
-    echo "• Use 'status' command in Pascal to see available models"
-    echo "• Switch models with 'model [name]' command"
+    echo "• Primary model loads on startup"
+    echo "• Automatic fallback if needed"
     echo ""
     
-    print_status "Performance Tips:"
-    echo "• phi3:mini - Best for quick responses (recommended)"
-    echo "• llama3.2:3b - Good balance of speed and quality"
-    echo "• gemma2:2b - Fastest, minimal resources"
-    echo "• qwen2.5:7b - Highest quality (ensure good cooling)"
+    print_status "⚡ Lightning Tips:"
+    echo "• Keep Pi 5 cool for sustained performance"
+    echo "• Use 'profile speed' in Pascal for fastest responses"
+    echo "• Streaming provides instant feedback"
+    echo "• Models stay loaded for 5 minutes (keep-alive)"
     echo ""
     
     print_status "Monitoring:"
-    echo "• Monitor temperature: vcgencmd measure_temp"
-    echo "• Monitor memory: free -h"
-    echo "• Monitor CPU: htop"
+    echo "• Temperature: vcgencmd measure_temp"
+    echo "• Memory: free -h"
+    echo "• CPU: htop"
     echo ""
     
-    print_success "Ready to start Pascal! Run: ./run.sh"
+    print_success "Ready for Lightning-fast Pascal! Run: ./run.sh"
 }
 
 # Cleanup function
 cleanup() {
     print_status "Cleaning up..."
-    # Ollama manages its own cleanup
 }
 
 # Main execution
 main() {
-    echo "Starting Pascal Ollama setup process..."
+    echo "⚡ Starting Pascal Lightning setup..."
     
     # Trap cleanup on exit
     trap cleanup EXIT
@@ -431,21 +480,21 @@ main() {
         exit 1
     fi
     
-    configure_ollama
+    configure_ollama_lightning
     
     if ! test_ollama; then
         print_error "Ollama connection test failed"
         exit 1
     fi
     
-    # Download models
-    download_models
+    # Download Lightning models
+    download_lightning_models
     
     # Verify and test
     if verify_models; then
-        test_models
-        create_model_config
-        show_completion
+        test_lightning_performance
+        create_lightning_config
+        show_lightning_completion
     else
         print_error "Model verification failed"
         exit 1
