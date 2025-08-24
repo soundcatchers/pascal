@@ -14,41 +14,52 @@ from config.settings import settings
 
 class ModelInfo:
     """Information about available Ollama models"""
-    def __init__(self, name: str, size: str, parameters: str, modified: str = ""):
+    def __init__(self, name: str, size: str = "Unknown", parameters: str = "Unknown", modified: str = ""):
         self.name = name
         self.size = size
         self.parameters = parameters
         self.modified = modified
         self.priority = self._get_priority()
+        self.loaded = False
     
     def _get_priority(self) -> int:
         """Get model priority (1 = highest)"""
-        # Priority order for our specific models
+        # Priority order for specific models
         if "nemotron-mini:4b-instruct-q4_K_M" in self.name:
             return 1
         elif "qwen3:4b-instruct" in self.name:
             return 2
         elif "gemma3:4b-it-q4_K_M" in self.name:
             return 3
+        elif "phi" in self.name.lower():
+            return 4
+        elif "llama" in self.name.lower():
+            return 5
+        elif "gemma" in self.name.lower():
+            return 6
         else:
-            return 99  # Other models have lowest priority
+            return 99
 
 class LightningOfflineLLM:
     """Lightning-fast Ollama-based offline LLM with streaming and keep-alive"""
     
     def __init__(self):
-        self.ollama_host = "http://localhost:11434"
+        self.ollama_host = os.getenv("OLLAMA_HOST", "http://localhost:11434")
         self.session = None
         self.current_model = None
         self.available_models = []
         self.model_loaded = False
         self.keep_alive_task = None
+        self.ollama_available = False
         
         # Primary and fallback models
         self.model_hierarchy = [
             "nemotron-mini:4b-instruct-q4_K_M",  # Primary - fastest
             "qwen3:4b-instruct",                  # Fallback 1
-            "gemma3:4b-it-q4_K_M"                  # Fallback 2
+            "gemma3:4b-it-q4_K_M",                # Fallback 2
+            "phi3:mini",                          # Fallback 3
+            "llama3.2:3b",                        # Fallback 4
+            "gemma2:2b"                           # Fallback 5
         ]
         
         # Performance tracking
@@ -63,8 +74,6 @@ class LightningOfflineLLM:
             'repeat_penalty': 1.1,
             'num_predict': 150,  # Limit tokens for faster responses
             'num_ctx': 2048,     # Context window
-            'num_batch': 512,    # Batch size for processing
-            'num_thread': 4,     # Use all Pi 5 cores
             'seed': -1,
             'stop': ["</s>", "<|end|>", "<|eot_id|>", "Human:", "User:", "\n\n"]
         }
@@ -77,21 +86,29 @@ class LightningOfflineLLM:
         """Initialize with lightning-fast configuration"""
         try:
             # Create optimized aiohttp session
-            timeout = aiohttp.ClientTimeout(total=60, sock_read=30)
+            timeout = aiohttp.ClientTimeout(total=30, sock_connect=5, sock_read=30)
             connector = aiohttp.TCPConnector(limit=10, force_close=True)
             self.session = aiohttp.ClientSession(
                 timeout=timeout,
                 connector=connector
             )
             
-            # Test Ollama connection
+            # Test Ollama connection with retries
             if not await self._test_ollama_connection():
                 print("❌ Could not connect to Ollama. Is it running?")
                 print("   Start with: sudo systemctl start ollama")
+                self.ollama_available = False
                 return False
+            
+            self.ollama_available = True
             
             # Scan for available models
             await self._scan_available_models()
+            
+            if not self.available_models:
+                print("❌ No models found in Ollama")
+                print("   Download models with: ./download_models.sh")
+                return False
             
             # Load primary model with keep-alive
             if await self._load_primary_model():
@@ -105,22 +122,33 @@ class LightningOfflineLLM:
                 
         except Exception as e:
             print(f"❌ Initialization failed: {e}")
+            if settings.debug_mode:
+                import traceback
+                traceback.print_exc()
             return False
     
     async def _test_ollama_connection(self) -> bool:
-        """Test connection to Ollama service"""
-        try:
-            async with self.session.get(f"{self.ollama_host}/api/version") as response:
-                if response.status == 200:
-                    version_data = await response.json()
-                    if settings.debug_mode:
-                        print(f"Connected to Ollama version: {version_data.get('version', 'unknown')}")
-                    return True
-                return False
-        except Exception as e:
-            if settings.debug_mode:
-                print(f"Ollama connection test failed: {e}")
-            return False
+        """Test connection to Ollama service with retries"""
+        for attempt in range(3):
+            try:
+                async with self.session.get(f"{self.ollama_host}/api/version") as response:
+                    if response.status == 200:
+                        version_data = await response.json()
+                        if settings.debug_mode:
+                            print(f"✅ Connected to Ollama version: {version_data.get('version', 'unknown')}")
+                        return True
+            except aiohttp.ClientError as e:
+                if settings.debug_mode:
+                    print(f"Ollama connection attempt {attempt + 1} failed: {e}")
+                if attempt < 2:
+                    await asyncio.sleep(2)
+            except Exception as e:
+                if settings.debug_mode:
+                    print(f"Unexpected error connecting to Ollama: {e}")
+                if attempt < 2:
+                    await asyncio.sleep(2)
+        
+        return False
     
     async def _scan_available_models(self):
         """Scan for available models with priority sorting"""
@@ -144,16 +172,18 @@ class LightningOfflineLLM:
                     self.available_models.sort(key=lambda x: x.priority)
                     
                     if settings.debug_mode:
-                        print(f"Found {len(self.available_models)} models")
-                        for model in self.available_models[:3]:
-                            print(f"  • {model.name} (Priority: {model.priority})")
+                        print(f"Found {len(self.available_models)} models:")
+                        for model in self.available_models[:5]:
+                            print(f"  • {model.name} (Priority: {model.priority}, Size: {model.size})")
                 
         except Exception as e:
-            if settings.debug_mode:
-                print(f"Failed to scan models: {e}")
+            print(f"Failed to scan models: {e}")
+            self.available_models = []
     
     def _format_size(self, size_bytes: int) -> str:
         """Format size in human readable format"""
+        if size_bytes == 0:
+            return "Unknown"
         for unit in ['B', 'KB', 'MB', 'GB', 'TB']:
             if size_bytes < 1024.0:
                 return f"{size_bytes:.1f}{unit}"
@@ -162,25 +192,28 @@ class LightningOfflineLLM:
     
     async def _load_primary_model(self) -> bool:
         """Load the primary model or first available fallback"""
+        # First try our preferred models
         for model_name in self.model_hierarchy:
             # Check if model is available
             model = next((m for m in self.available_models if model_name in m.name), None)
             if model:
-                # Load the model
                 if await self._load_model(model):
                     self.current_model = model
                     self.model_loaded = True
+                    model.loaded = True
                     print(f"✅ Loaded model: {model.name}")
                     return True
                 else:
-                    print(f"⚠️ Failed to load {model_name}, trying fallback...")
+                    print(f"⚠️ Failed to load {model_name}, trying next...")
         
         # If none of our preferred models are available, try any available model
         if self.available_models:
+            print("⚠️ No preferred models found, trying any available model...")
             for model in self.available_models:
                 if await self._load_model(model):
                     self.current_model = model
                     self.model_loaded = True
+                    model.loaded = True
                     print(f"✅ Loaded fallback model: {model.name}")
                     return True
         
@@ -192,16 +225,27 @@ class LightningOfflineLLM:
             # First, ensure the model is loaded with keep-alive
             payload = {
                 "model": model.name,
-                "keep_alive": self.keep_alive_duration
+                "keep_alive": self.keep_alive_duration,
+                "prompt": "",
+                "stream": False
             }
             
             async with self.session.post(
                 f"{self.ollama_host}/api/generate",
-                json={**payload, "prompt": "", "stream": False}
+                json=payload
             ) as response:
                 if response.status == 200:
+                    # Model loaded successfully
                     return True
+                else:
+                    error_text = await response.text()
+                    if settings.debug_mode:
+                        print(f"Failed to load model {model.name}: {error_text}")
+                    return False
                     
+        except asyncio.TimeoutError:
+            print(f"⚠️ Timeout loading model {model.name}")
+            return False
         except Exception as e:
             if settings.debug_mode:
                 print(f"Failed to load model {model.name}: {e}")
@@ -214,18 +258,24 @@ class LightningOfflineLLM:
             try:
                 await asyncio.sleep(self.keep_alive_interval)
                 
+                if not self.current_model:
+                    break
+                
                 # Send keep-alive request
                 payload = {
                     "model": self.current_model.name,
-                    "keep_alive": self.keep_alive_duration
+                    "keep_alive": self.keep_alive_duration,
+                    "prompt": "",
+                    "stream": False
                 }
                 
                 async with self.session.post(
                     f"{self.ollama_host}/api/generate",
-                    json={**payload, "prompt": "", "stream": False}
+                    json=payload
                 ) as response:
                     if response.status != 200:
-                        print(f"⚠️ Keep-alive failed for {self.current_model.name}")
+                        if settings.debug_mode:
+                            print(f"⚠️ Keep-alive failed for {self.current_model.name}")
                         
             except asyncio.CancelledError:
                 break
@@ -237,7 +287,7 @@ class LightningOfflineLLM:
                                      memory_context: str) -> AsyncGenerator[str, None]:
         """Generate streaming response for instant feedback"""
         if not self.model_loaded or not self.current_model:
-            yield "I'm having trouble connecting to my language model. Please wait..."
+            yield "Offline model is not available. Please check Ollama is running and models are downloaded."
             return
         
         try:
@@ -252,7 +302,7 @@ class LightningOfflineLLM:
                 "model": self.current_model.name,
                 "prompt": prompt,
                 "options": self.generation_config,
-                "stream": True,  # Enable streaming
+                "stream": True,
                 "keep_alive": self.keep_alive_duration
             }
             
@@ -291,23 +341,27 @@ class LightningOfflineLLM:
                         except json.JSONDecodeError:
                             continue
                 else:
-                    yield f"Error: Received status {response.status}"
+                    error_text = await response.text()
+                    yield f"Ollama error (status {response.status}): {error_text[:100]}"
                     
         except asyncio.TimeoutError:
-            yield "Response timeout - trying faster model..."
-            # Try to switch to a faster fallback
-            await self._fallback_to_faster_model()
+            yield "Response timeout - model is taking too long. Try a simpler query."
+            
+        except aiohttp.ClientError as e:
+            yield f"Connection error with Ollama: {str(e)}"
             
         except Exception as e:
             if settings.debug_mode:
                 print(f"Stream generation error: {e}")
-            yield f"I encountered an error. Let me try again..."
+                import traceback
+                traceback.print_exc()
+            yield f"An error occurred while generating response: {str(e)}"
     
     async def generate_response(self, query: str, personality_context: str, 
                               memory_context: str, profile: str = None) -> str:
         """Generate complete response (non-streaming fallback)"""
         if not self.model_loaded or not self.current_model:
-            return await self._fallback_response(query)
+            return "Offline model is not available. Please check Ollama is running and models are downloaded."
         
         try:
             start_time = time.time()
@@ -340,174 +394,104 @@ class LightningOfflineLLM:
                     if settings.debug_mode:
                         print(f"⏱️ Response time: {inference_time:.2f}s")
                     
-                    return data.get('response', '')
+                    return data.get('response', 'No response generated')
                 else:
                     error_text = await response.text()
-                    raise Exception(f"Ollama API error {response.status}: {error_text}")
+                    return f"Ollama API error {response.status}: {error_text[:200]}"
                     
+        except asyncio.TimeoutError:
+            return "Response timeout - model is taking too long. Try a simpler query or switch to a faster model."
+            
         except Exception as e:
             if settings.debug_mode:
                 print(f"Generation error: {e}")
+                import traceback
+                traceback.print_exc()
             
-            # Try fallback model
-            if await self._fallback_to_faster_model():
-                return await self.generate_response(query, personality_context, memory_context)
-            else:
-                return await self._fallback_response(query)
-    
-    async def _fallback_to_faster_model(self) -> bool:
-        """Switch to next available model in hierarchy"""
-        if not self.current_model:
-            return False
-        
-        current_priority = self.current_model.priority
-        
-        # Find next model in hierarchy
-        for model in self.available_models:
-            if model.priority > current_priority and model.priority <= 3:
-                if await self._load_model(model):
-                    self.current_model = model
-                    print(f"⚡ Switched to fallback: {model.name}")
-                    return True
-        
-        return False
+            return f"An error occurred: {str(e)}"
     
     def _build_lightning_prompt(self, query: str, personality_context: str, memory_context: str) -> str:
         """Build optimized prompt for lightning-fast responses"""
-        # Determine model type for optimal prompting
+        # Keep prompts minimal for speed
         if not self.current_model:
             return query
         
         model_name = self.current_model.name.lower()
         
-        # Keep prompts minimal for speed
-        if 'nemotron' in model_name:
-            return self._build_nemotron_prompt(query, personality_context)
-        elif 'qwen' in model_name:
-            return self._build_qwen_prompt(query, personality_context)
+        # Very minimal context for speed
+        context = personality_context[:200] if personality_context else ""
+        
+        # Model-specific formatting
+        if 'llama' in model_name:
+            return f"{context}\n\nUser: {query}\n\nAssistant:"
         elif 'gemma' in model_name:
-            return self._build_gemma_prompt(query, personality_context)
-        else:
-            return self._build_generic_prompt(query, personality_context)
-    
-    def _build_nemotron_prompt(self, query: str, personality_context: str) -> str:
-        """Optimized prompt for Nemotron models"""
-        # Nemotron typically uses a simple format
-        if personality_context:
-            return f"System: {personality_context[:100]}\n\nUser: {query}\n\nAssistant:"
-        else:
-            return f"User: {query}\n\nAssistant:"
-    
-    def _build_qwen_prompt(self, query: str, personality_context: str) -> str:
-        """Optimized prompt for Qwen models"""
-        # Qwen uses special tokens
-        system_content = personality_context[:100] if personality_context else "You are Pascal, a helpful AI assistant."
-        return f"<|im_start|>system\n{system_content}<|im_end|>\n<|im_start|>user\n{query}<|im_end|>\n<|im_start|>assistant\n"
-    
-    def _build_gemma_prompt(self, query: str, personality_context: str) -> str:
-        """Optimized prompt for Gemma models"""
-        # Gemma format
-        if personality_context:
-            return f"<start_of_turn>user\n{personality_context[:100]}\n\n{query}<end_of_turn>\n<start_of_turn>model\n"
-        else:
             return f"<start_of_turn>user\n{query}<end_of_turn>\n<start_of_turn>model\n"
-    
-    def _build_generic_prompt(self, query: str, personality_context: str) -> str:
-        """Generic prompt format"""
-        if personality_context:
-            return f"{personality_context[:100]}\n\nUser: {query}\n\nAssistant:"
-        else:
+        elif 'phi' in model_name:
             return f"User: {query}\n\nAssistant:"
-    
-    async def _fallback_response(self, query: str) -> str:
-        """Provide fallback response when model unavailable"""
-        query_lower = query.lower()
-        if any(word in query_lower for word in ['hello', 'hi', 'hey']):
-            return "Hello! I'm Pascal, but I'm currently having trouble with my language model. Please give me a moment..."
-        elif '?' in query:
-            return "I'd like to help with that, but my language model isn't responding right now. Please try again in a moment."
         else:
-            return "I'm experiencing a technical issue. Please try again shortly."
+            # Generic format
+            return f"{context}\n\nUser: {query}\n\nAssistant:"
     
     def set_performance_profile(self, profile: str):
         """Adjust settings for different performance profiles"""
         if profile == 'speed':
             self.generation_config['num_predict'] = 100
             self.generation_config['temperature'] = 0.5
+            self.generation_config['top_k'] = 30
         elif profile == 'balanced':
             self.generation_config['num_predict'] = 150
             self.generation_config['temperature'] = 0.7
+            self.generation_config['top_k'] = 40
         elif profile == 'quality':
             self.generation_config['num_predict'] = 200
             self.generation_config['temperature'] = 0.8
+            self.generation_config['top_k'] = 50
     
     async def switch_model(self, model_name: str) -> bool:
         """Switch to a different model"""
-        target_model = next((m for m in self.available_models if model_name in m.name), None)
+        # Find the model
+        target_model = None
+        for model in self.available_models:
+            if model_name.lower() in model.name.lower():
+                target_model = model
+                break
         
         if not target_model:
+            print(f"Model {model_name} not found")
             return False
         
+        # Unload current model
+        if self.current_model:
+            self.current_model.loaded = False
+        
+        # Load new model
         if await self._load_model(target_model):
             self.current_model = target_model
+            target_model.loaded = True
             print(f"✅ Switched to model: {target_model.name}")
             return True
         
         return False
     
-    def get_performance_stats(self) -> Dict[str, Any]:
-        """Get detailed performance statistics"""
-        stats = {
-            "ollama_enabled": True,
-            "model_loaded": self.model_loaded,
-            "current_model": self.current_model.name if self.current_model else None,
-            "model_priority": self.current_model.priority if self.current_model else None,
-            "keep_alive_active": self.keep_alive_task and not self.keep_alive_task.done() if self.keep_alive_task else False,
-            "ollama_host": self.ollama_host
-        }
-        
-        if self.inference_times:
-            stats.update({
-                "avg_inference_time": f"{sum(self.inference_times) / len(self.inference_times):.2f}s",
-                "min_inference_time": f"{min(self.inference_times):.2f}s",
-                "max_inference_time": f"{max(self.inference_times):.2f}s",
-                "total_inferences": len(self.inference_times)
-            })
-        
-        if self.first_token_times:
-            stats["avg_first_token_time"] = f"{sum(self.first_token_times) / len(self.first_token_times):.2f}s"
-        
-        return stats
-    
-    def list_available_models(self) -> List[Dict[str, Any]]:
-        """List all available models with their stats"""
-        return [
-            {
-                "name": model.name,
-                "size": model.size,
-                "priority": model.priority,
-                "loaded": model == self.current_model,
-                "is_primary": model.priority == 1,
-                "is_fallback": model.priority in [2, 3]
-            }
-            for model in self.available_models
-        ]
-    
     async def pull_model(self, model_name: str) -> bool:
         """Download a new model using Ollama"""
         try:
+            print(f"📥 Pulling model {model_name}...")
             payload = {"name": model_name, "stream": False}
             
             async with self.session.post(
                 f"{self.ollama_host}/api/pull", 
-                json=payload
+                json=payload,
+                timeout=aiohttp.ClientTimeout(total=600)  # 10 minutes for download
             ) as response:
                 if response.status == 200:
+                    # Rescan available models
                     await self._scan_available_models()
                     print(f"✅ Downloaded model: {model_name}")
                     return True
                 else:
-                    print(f"❌ Failed to download model: {model_name}")
+                    error_text = await response.text()
+                    print(f"❌ Failed to download model: {error_text}")
                     return False
                     
         except Exception as e:
@@ -533,16 +517,54 @@ class LightningOfflineLLM:
                     print(f"✅ Removed model: {model_name}")
                     return True
                 else:
-                    print(f"❌ Failed to remove model: {model_name}")
+                    print(f"❌ Failed to remove model")
                     return False
                     
         except Exception as e:
             print(f"❌ Remove error: {e}")
             return False
     
+    def get_performance_stats(self) -> Dict[str, Any]:
+        """Get detailed performance statistics"""
+        stats = {
+            "ollama_enabled": self.ollama_available,
+            "ollama_host": self.ollama_host,
+            "model_loaded": self.model_loaded,
+            "current_model": self.current_model.name if self.current_model else None,
+            "model_priority": self.current_model.priority if self.current_model else None,
+            "keep_alive_active": self.keep_alive_task and not self.keep_alive_task.done() if self.keep_alive_task else False
+        }
+        
+        if self.inference_times:
+            stats.update({
+                "avg_inference_time": f"{sum(self.inference_times) / len(self.inference_times):.2f}s",
+                "min_inference_time": f"{min(self.inference_times):.2f}s",
+                "max_inference_time": f"{max(self.inference_times):.2f}s",
+                "total_inferences": len(self.inference_times)
+            })
+        
+        if self.first_token_times:
+            stats["avg_first_token_time"] = f"{sum(self.first_token_times) / len(self.first_token_times):.2f}s"
+        
+        return stats
+    
+    def list_available_models(self) -> List[Dict[str, Any]]:
+        """List all available models with their stats"""
+        return [
+            {
+                "name": model.name,
+                "size": model.size,
+                "priority": model.priority,
+                "loaded": model.loaded,
+                "is_primary": model.priority == 1,
+                "is_fallback": model.priority in [2, 3, 4, 5, 6]
+            }
+            for model in self.available_models
+        ]
+    
     def is_available(self) -> bool:
         """Check if offline LLM is ready"""
-        return self.model_loaded and self.current_model is not None
+        return self.ollama_available and self.model_loaded and self.current_model is not None
     
     async def close(self):
         """Clean shutdown"""
@@ -560,6 +582,10 @@ class LightningOfflineLLM:
         
         self.model_loaded = False
         self.current_model = None
+        self.ollama_available = False
 
-# For backwards compatibility with existing code
+# For backwards compatibility
 OptimizedOfflineLLM = LightningOfflineLLM
+
+# Add missing import
+import os
