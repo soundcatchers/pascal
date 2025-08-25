@@ -1,0 +1,47 @@
+Adjustments can be made to how the offline llm behaves with regards to response length and also the mount of tokens for each response...
+
+Edit modules/offline_llm.py
+
+Additional Options You Can Tweak:
+
+If you want to further customize the behavior, you can edit these settings in the file:
+
+1.Timeout Configuration (line ~67):
+
+pythonself.timeout_config = {
+    'simple': 15.0,    # Adjust for simple queries
+    'medium': 25.0,    # Adjust for medium complexity
+    'complex': 40.0,   # Adjust for complex queries
+    'default': 20.0    # Default timeout
+}
+
+2.Token Limits (lines ~75-95):
+
+python'num_predict': 100,  # Simple queries (make smaller for more concise)
+'num_predict': 200,  # Medium queries
+'num_predict': 300,  # Complex queries (make larger for more detail)
+
+3. Add Your Own Keywords (line ~110):
+
+pythoncomplex_keywords = ['explain', 'analyze', ...]  # Add topics that need detail
+simple_keywords = ['hi', 'hello', ...]  # Add queries that should be quick
+
+Alternative Quick Fix:
+
+1.If you just want a simple global adjustment without the smart analysis, you can:
+
+For more concise responses everywhere, edit the config:
+
+python'num_predict': 150,  # Reduce from current values
+
+2.For longer timeout everywhere, edit line ~60:
+
+pythontimeout = aiohttp.ClientTimeout(total=90, sock_connect=5, sock_read=60)
+
+Benefits of This Approach:
+
+1.No more premature timeouts on complex questions
+2.Faster, more concise responses for simple queries
+3.Adaptive behavior - the system learns what type of answer you need
+4.Better user experience - graceful handling instead of error messages
+5.Maintains speed where it matters (simple queries stay fast)
