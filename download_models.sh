@@ -124,7 +124,7 @@ Environment="OLLAMA_FLASH_ATTENTION=0"
 Environment="OLLAMA_KV_CACHE_TYPE=f16"
 Environment="OLLAMA_NUM_THREAD=4"
 Environment="OLLAMA_TMPDIR=/tmp"
-Environment="OLLAMA_KEEP_ALIVE=5m"
+Environment="OLLAMA_KEEP_ALIVE=30m" # Standard is 5m
 EOF
 
     # Reload systemd and restart Ollama
