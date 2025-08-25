@@ -4,7 +4,7 @@
 fastapi==0.104.1
 uvicorn==0.24.0
 
-# HTTP client for Ollama API
+# HTTP client for Ollama API and Online APIs - CRITICAL FOR ONLINE FUNCTIONALITY
 aiohttp==3.9.1
 requests==2.31.0
 
