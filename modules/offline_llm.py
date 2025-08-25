@@ -71,7 +71,7 @@ class LightningOfflineLLM:
         self.timeout_config = {
             'simple': 15.0,    # Simple queries get 15 seconds
             'medium': 25.0,    # Medium complexity gets 25 seconds
-            'complex': 40.0,   # Complex queries get 40 seconds
+            'complex': 120.0,   # Complex queries get 40 seconds
             'default': 20.0    # Default timeout
         }
         
@@ -82,7 +82,7 @@ class LightningOfflineLLM:
                 'top_p': 0.9,
                 'top_k': 30,
                 'repeat_penalty': 1.2,
-                'num_predict': 100,  # Very concise
+                'num_predict': 100,  # Very concise - Standard is 100 # Simple queries (make smaller for more concise)
                 'num_ctx': 1024,
                 'seed': -1,
                 'stop': ["</s>", "<|end|>", "<|eot_id|>", "Human:", "User:", "\n\n", "\n\nIs there", "\n\nWould you"]
@@ -92,7 +92,7 @@ class LightningOfflineLLM:
                 'top_p': 0.9,
                 'top_k': 40,
                 'repeat_penalty': 1.1,
-                'num_predict': 200,  # Moderate length
+                'num_predict': 200,  # Moderate length - Standard is 200# Medium queries
                 'num_ctx': 2048,
                 'seed': -1,
                 'stop': ["</s>", "<|end|>", "<|eot_id|>", "Human:", "User:", "\n\n"]
@@ -102,7 +102,7 @@ class LightningOfflineLLM:
                 'top_p': 0.95,
                 'top_k': 50,
                 'repeat_penalty': 1.0,
-                'num_predict': 300,  # More detailed
+                'num_predict': 400,  # More detailed - Standard is 300 # Complex queries (make larger for more detail)
                 'num_ctx': 2048,
                 'seed': -1,
                 'stop': ["</s>", "<|end|>", "<|eot_id|>", "Human:", "User:"]
