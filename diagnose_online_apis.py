@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Pascal AI Assistant - Online LLM Diagnostic Script
-Diagnoses online API connectivity and configuration issues
+Complete diagnostic tool for online API connectivity issues
 """
 
 import sys
@@ -13,73 +13,80 @@ from pathlib import Path
 sys.path.append(str(Path(__file__).parent))
 
 async def diagnose_online_apis():
-    """Diagnose online API connectivity"""
-    print("🌐 Pascal AI - Online LLM Diagnostics")
-    print("=" * 50)
+    """Complete diagnostic for online API connectivity"""
+    print("🌐 Pascal AI - Complete Online LLM Diagnostics")
+    print("=" * 60)
     
-    # Check if aiohttp is available
+    # Step 1: Check aiohttp availability
     try:
         import aiohttp
         print("✅ aiohttp module: Available")
+        aiohttp_ok = True
     except ImportError:
         print("❌ aiohttp module: Not installed")
-        print("\nTo fix this issue:")
+        print("\nTo fix:")
         print("1. Activate virtual environment: source venv/bin/activate")
-        print("2. Install missing dependencies: pip install aiohttp")
-        print("3. Or reinstall all requirements: pip install -r requirements.txt")
+        print("2. Install aiohttp: pip install aiohttp")
+        print("3. Or reinstall all: pip install -r requirements.txt")
         return False
     
-    # Import settings after confirming aiohttp is available
+    # Step 2: Import settings
     try:
         from config.settings import settings
-        print("✅ Settings module: Loaded successfully")
+        print("✅ Settings module: Loaded")
     except ImportError as e:
-        print(f"❌ Settings module: Import failed - {e}")
+        print(f"❌ Settings module: Failed to load - {e}")
         return False
     
-    # Check environment variables
+    # Step 3: Check API key configuration
     print("\n🔍 Checking API Key Configuration:")
     
     api_keys = {
-        'Grok (xAI)': settings.grok_api_key,
-        'OpenAI': settings.openai_api_key,
-        'Anthropic': settings.anthropic_api_key
+        'Grok (xAI)': getattr(settings, 'grok_api_key', None),
+        'OpenAI': getattr(settings, 'openai_api_key', None),
+        'Anthropic': getattr(settings, 'anthropic_api_key', None)
     }
     
     configured_apis = []
     for name, key in api_keys.items():
-        if key and key not in ['', 'your_api_key_here', f'your_{name.lower().split()[0]}_api_key_here', None]:
-            print(f"✅ {name}: Configured")
+        provider_name = name.lower().split()[0]  # Extract provider name
+        invalid_keys = [None, '', 'your_api_key_here', f'your_{provider_name}_api_key_here']
+        
+        if key and key not in invalid_keys:
+            print(f"✅ {name}: Configured (key length: {len(str(key))})")
             configured_apis.append(name)
         else:
             print(f"❌ {name}: Not configured")
     
     if not configured_apis:
-        print("\n❌ No API keys configured!")
-        print("\nTo configure API keys:")
-        print("1. Copy .env.example to .env: cp .env.example .env")
-        print("2. Edit .env and add your API keys:")
-        print("   GROK_API_KEY=your_actual_grok_key")
-        print("   OPENAI_API_KEY=your_actual_openai_key")
-        print("   ANTHROPIC_API_KEY=your_actual_anthropic_key")
-        print("\nNote: You only need one API key to enable online functionality")
+        print("\n❌ No API keys properly configured!")
+        print("\nTo configure:")
+        print("1. Copy template: cp .env.example .env")
+        print("2. Edit .env file: nano .env")
+        print("3. Add real API keys:")
+        print("   GROK_API_KEY=xai-your-actual-key-here")
+        print("   OPENAI_API_KEY=sk-your-actual-key-here")  
+        print("   ANTHROPIC_API_KEY=sk-ant-your-actual-key-here")
+        print("\nNote: You only need one valid API key for online functionality")
         return False
     
-    # Test online LLM initialization
-    print(f"\n🔄 Testing Online LLM with {len(configured_apis)} configured API(s)...")
+    # Step 4: Test online LLM initialization
+    print(f"\n🔄 Testing Online LLM with {len(configured_apis)} API(s)...")
     
     try:
         from modules.online_llm import OnlineLLM
         online_llm = OnlineLLM()
+        
+        # Initialize with detailed error reporting
         success = await online_llm.initialize()
         
         if success:
             print("✅ Online LLM initialized successfully")
             
-            # Get detailed stats
+            # Get detailed provider statistics
             stats = online_llm.get_provider_stats()
             
-            print(f"\n📊 Provider Status:")
+            print(f"\n📊 System Status:")
             print(f"  • aiohttp available: {stats['aiohttp_available']}")
             print(f"  • Initialization successful: {stats['initialization_successful']}")
             print(f"  • Available providers: {stats['available_providers']}")
@@ -88,35 +95,45 @@ async def diagnose_online_apis():
             if stats.get('last_error'):
                 print(f"  • Last error: {stats['last_error']}")
             
-            print(f"\n📋 Individual Provider Status:")
+            print(f"\n📋 Provider Details:")
             for provider_name, provider_stats in stats['providers'].items():
-                status = "✅ Available" if provider_stats['available'] else "❌ Not Available"
-                key_status = "🔑 Configured" if provider_stats['api_key_configured'] else "🚫 No Key"
+                available = "✅ Available" if provider_stats['available'] else "❌ Not Available"
+                configured = "🔑 Configured" if provider_stats['api_key_configured'] else "🚫 No Key"
                 success_count = provider_stats['success_count']
                 failure_count = provider_stats['failure_count']
-                print(f"  • {provider_name.title()}: {status} ({key_status}) - Success: {success_count}, Failures: {failure_count}")
+                
+                print(f"  • {provider_name.title()}: {available} ({configured})")
+                print(f"    Success: {success_count}, Failures: {failure_count}")
             
-            # Test actual API call
-            print(f"\n🧪 Testing API Response:")
+            # Step 5: Test actual API functionality
+            print(f"\n🧪 Testing Live API Response:")
             try:
+                test_query = "Respond with exactly: 'API test successful'"
                 response = await online_llm.generate_response(
-                    "Say 'Online API test successful!' in exactly those words",
+                    test_query,
                     "You are a helpful assistant.", 
                     ""
                 )
                 
-                if "Online API test successful!" in response:
+                if "API test successful" in response:
                     print("✅ API response test: SUCCESS")
-                    print(f"Response: {response}")
-                elif response and not response.startswith("I'm sorry"):
-                    print("⚠️ API responded but with unexpected content:")
+                    print(f"Full response: {response}")
+                elif response and len(response) > 10 and not response.startswith("I'm having trouble"):
+                    print("⚠️ API working but gave unexpected response:")
                     print(f"Response: {response[:200]}...")
+                    print("This usually means the API is working correctly.")
                 else:
-                    print("❌ API response test failed")
+                    print("❌ API response test failed:")
                     print(f"Response: {response}")
+                    
+                    # Additional debugging
+                    print("\nDebugging info:")
+                    if hasattr(online_llm, 'last_error') and online_llm.last_error:
+                        print(f"Last error: {online_llm.last_error}")
             
             except Exception as e:
-                print(f"❌ API response test failed: {e}")
+                print(f"❌ API response test failed with exception: {e}")
+                print("\nThis indicates a connectivity or API key issue.")
             
             await online_llm.close()
             return True
@@ -124,95 +141,137 @@ async def diagnose_online_apis():
         else:
             print("❌ Online LLM initialization failed")
             
-            # Get error details
+            # Detailed failure analysis
             stats = online_llm.get_provider_stats()
+            
+            print(f"\n🔍 Failure Analysis:")
             if stats.get('last_error'):
-                print(f"Last error: {stats['last_error']}")
+                print(f"Primary error: {stats['last_error']}")
             
-            print(f"\n📋 Provider Details:")
+            print(f"\nProvider analysis:")
             for provider_name, provider_stats in stats['providers'].items():
-                key_configured = provider_stats['api_key_configured']
-                print(f"  • {provider_name.title()}: Key configured = {key_configured}")
+                configured = provider_stats['api_key_configured']
+                available = provider_stats['available']
+                print(f"  • {provider_name.title()}:")
+                print(f"    Key configured: {configured}")
+                print(f"    Connection test passed: {available}")
             
-            print("\n🔧 Troubleshooting Steps:")
-            print("1. Check your internet connection")
-            print("2. Verify API keys are valid and have credits/quota")
-            print("3. Check API key format (no extra spaces/quotes in .env)")
-            print("4. Try testing individual providers")
+            print(f"\n🔧 Troubleshooting:")
+            print("1. Verify internet connection")
+            print("2. Check API keys are valid and have quota/credits")
+            print("3. Ensure no extra spaces/quotes in .env file")
+            print("4. Test API keys directly with curl/postman")
             print("5. Check firewall/proxy settings")
             
             await online_llm.close()
             return False
     
     except Exception as e:
-        print(f"❌ Failed to import or test OnlineLLM: {e}")
-        print("\n🔧 This might indicate:")
-        print("1. Missing dependencies (run: pip install -r requirements.txt)")
-        print("2. Corrupted module files")
-        print("3. Python environment issues")
-        import traceback
-        traceback.print_exc()
+        print(f"❌ Critical error testing OnlineLLM: {e}")
+        print(f"\nError type: {type(e).__name__}")
+        print(f"This suggests a code or import issue.")
+        
+        # Show traceback for debugging
+        if settings.debug_mode:
+            import traceback
+            traceback.print_exc()
+        
         return False
 
 def check_environment():
-    """Check Python environment and dependencies"""
-    print("\n🔍 Environment Check:")
+    """Comprehensive environment check"""
+    print("\n🔍 Environment Analysis:")
     
-    # Check Python version
+    # Python version
     python_version = sys.version_info
-    print(f"Python version: {python_version.major}.{python_version.minor}.{python_version.micro}")
+    if python_version >= (3, 8):
+        print(f"✅ Python: {python_version.major}.{python_version.minor}.{python_version.micro}")
+    else:
+        print(f"⚠️ Python: {python_version.major}.{python_version.minor}.{python_version.micro} (3.8+ recommended)")
     
-    # Check if in virtual environment
-    if hasattr(sys, 'real_prefix') or (hasattr(sys, 'base_prefix') and sys.base_prefix != sys.prefix):
+    # Virtual environment
+    in_venv = (hasattr(sys, 'real_prefix') or 
+               (hasattr(sys, 'base_prefix') and sys.base_prefix != sys.prefix))
+    
+    if in_venv:
         print("✅ Virtual environment: Active")
     else:
-        print("⚠️ Virtual environment: Not active (recommended to use venv)")
+        print("⚠️ Virtual environment: Not active")
+        print("   Activate with: source venv/bin/activate")
     
-    # Check current directory
+    # Current directory
     current_dir = Path.cwd()
     if current_dir.name == 'pascal':
-        print("✅ Directory: In pascal project directory")
+        print("✅ Directory: In pascal project")
     else:
         print(f"⚠️ Directory: {current_dir} (should be in pascal/)")
     
-    # Check key files
-    key_files = ['main.py', 'requirements.txt', 'modules/online_llm.py', '.env']
-    for file in key_files:
+    # Critical files
+    critical_files = {
+        'main.py': 'Main entry point',
+        'requirements.txt': 'Dependencies',
+        'modules/online_llm.py': 'Online LLM module',
+        'modules/router.py': 'Router module',
+        '.env': 'Environment config'
+    }
+    
+    print(f"\n📁 File Status:")
+    for file, description in critical_files.items():
         if Path(file).exists():
-            print(f"✅ {file}: Found")
+            print(f"✅ {file}: Found ({description})")
         else:
-            print(f"❌ {file}: Missing")
+            print(f"❌ {file}: Missing ({description})")
+    
+    # Dependencies check
+    print(f"\n📦 Key Dependencies:")
+    dependencies = ['aiohttp', 'openai', 'anthropic', 'requests']
+    
+    for dep in dependencies:
+        try:
+            __import__(dep)
+            print(f"✅ {dep}: Available")
+        except ImportError:
+            print(f"❌ {dep}: Not installed")
 
 def main():
     """Main diagnostic function"""
     try:
-        # Basic environment check first
+        # Environment check first
         check_environment()
         
-        # Then test online APIs
+        # Online API diagnostics
         result = asyncio.run(diagnose_online_apis())
         
-        print("\n" + "=" * 50)
+        # Final summary
+        print("\n" + "=" * 60)
+        print("📊 DIAGNOSTIC SUMMARY")
+        print("=" * 60)
+        
         if result:
             print("✅ Online LLM diagnostics PASSED!")
-            print("Pascal should now work with online services.")
+            print("\nReady to use online services!")
             print("\nNext steps:")
             print("1. Run Pascal: ./run.sh")
-            print("2. Test online query: 'what is today's date?'")
-            print("3. Test offline query: 'what is 2+2?'")
+            print("2. Test offline: 'what is 2+2?'")
+            print("3. Test online: 'what is today's date?'")
         else:
             print("❌ Online LLM diagnostics FAILED!")
-            print("Fix the issues above, then run this diagnostic again.")
-            print("\nYou can still use Pascal in offline-only mode if Ollama is working.")
+            print("\nPlease fix the issues above.")
+            print("\nYou can still use Pascal offline-only if Ollama is working.")
+            print("Run Pascal with: ./run.sh")
         
+        print("\n" + "=" * 60)
         return 0 if result else 1
         
     except KeyboardInterrupt:
-        print("\n⏹️ Diagnostics interrupted")
+        print("\n⏹️ Diagnostics interrupted by user")
         return 1
     except Exception as e:
-        print(f"\n💥 Diagnostic error: {e}")
+        print(f"\n💥 Unexpected diagnostic error: {e}")
+        print(f"Error type: {type(e).__name__}")
+        
         import traceback
+        print("\nFull traceback:")
         traceback.print_exc()
         return 1
 
