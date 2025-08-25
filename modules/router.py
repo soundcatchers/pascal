@@ -267,4 +267,166 @@ class LightningRouter:
                     # Try offline fallback if available
                     if self.offline_available and self.offline_llm:
                         try:
-                            async for chunk in self.offline_llm.generate_response
+                            async for chunk in self.offline_llm.generate_response_stream(
+                                query, personality_context, memory_context
+                            ):
+                                yield chunk
+                                response_generated = True
+                        except Exception as offline_e:
+                            yield f"I'm having trouble with both online and offline services. Online error: {str(e)[:50]}. Offline error: {str(offline_e)[:50]}"
+                            response_generated = True
+                    else:
+                        yield f"Online service error: {str(e)}"
+                        response_generated = True
+            
+            else:
+                # Final fallback - try anything available
+                if self.offline_available and self.offline_llm:
+                    try:
+                        async for chunk in self.offline_llm.generate_response_stream(
+                            query, personality_context, memory_context
+                        ):
+                            yield chunk
+                            response_generated = True
+                    except Exception as e:
+                        yield f"I'm having trouble processing your request: {str(e)}"
+                        response_generated = True
+                elif self.online_available and self.online_llm:
+                    try:
+                        async for chunk in self.online_llm.generate_response_stream(
+                            query, personality_context, memory_context
+                        ):
+                            yield chunk
+                            response_generated = True
+                    except Exception as e:
+                        yield f"I'm having trouble processing your request: {str(e)}"
+                        response_generated = True
+                else:
+                    yield "I'm sorry, but I'm currently unable to process your request. Please check that Ollama is running and models are installed, or configure API keys for online services."
+                    response_generated = True
+            
+            # Track total response time
+            if response_generated:
+                total_time = time.time() - start_time
+                source = 'offline' if decision.use_offline else 'online'
+                self.response_times[source].append(total_time)
+                
+                # Keep only last 20 measurements
+                if len(self.response_times[source]) > 20:
+                    self.response_times[source] = self.response_times[source][-20:]
+                if first_token_time and len(self.first_token_times[source]) > 20:
+                    self.first_token_times[source] = self.first_token_times[source][-20:]
+                
+                if settings.debug_mode and first_token_time:
+                    print(f"⚡ First token: {first_token_time:.2f}s, Total: {total_time:.2f}s")
+            
+        except Exception as e:
+            if settings.debug_mode:
+                print(f"❌ Router streaming error: {e}")
+                import traceback
+                traceback.print_exc()
+            yield f"I encountered an error: {str(e)}"
+    
+    async def get_response(self, query: str) -> str:
+        """Get complete response (non-streaming fallback)"""
+        try:
+            # Collect streaming response
+            response_parts = []
+            async for chunk in self.get_streaming_response(query):
+                response_parts.append(chunk)
+            
+            response = ''.join(response_parts)
+            
+            # Store in memory if we got a valid response
+            if response and not response.startswith("I'm sorry") and not response.startswith("Error") and not response.startswith("I'm having trouble"):
+                await self.memory_manager.add_interaction(query, response)
+            
+            return response
+            
+        except Exception as e:
+            if settings.debug_mode:
+                print(f"Router error: {e}")
+                import traceback
+                traceback.print_exc()
+            
+            # Try direct non-streaming fallback
+            try:
+                analysis = self._analyze_query_speed(query)
+                decision = self._make_lightning_decision(query, analysis)
+                
+                personality_context = await self.personality_manager.get_system_prompt()
+                memory_context = await self.memory_manager.get_context() if not analysis['is_simple'] else ""
+                
+                if decision.use_offline and self.offline_available and self.offline_llm:
+                    response = await self.offline_llm.generate_response(
+                        query, personality_context, memory_context
+                    )
+                elif decision.use_online and self.online_available and self.online_llm:
+                    response = await self.online_llm.generate_response(
+                        query, personality_context, memory_context
+                    )
+                else:
+                    response = "I'm having trouble processing your request. Please ensure Ollama is running or configure online API keys."
+                
+                if response and not response.startswith("I'm sorry") and not response.startswith("Error"):
+                    await self.memory_manager.add_interaction(query, response)
+                
+                return response
+                
+            except Exception as fallback_error:
+                return f"I encountered an error processing your request: {fallback_error}"
+    
+    def set_mode(self, mode: RouteMode):
+        """Set routing mode"""
+        self.mode = mode
+        print(f"Routing mode set to: {mode.value}")
+    
+    def set_performance_preference(self, preference: str):
+        """Set performance preference"""
+        if preference in ['speed', 'balanced', 'quality']:
+            settings.set_performance_mode(preference)
+            if self.offline_llm and hasattr(self.offline_llm, 'set_performance_profile'):
+                self.offline_llm.set_performance_profile(preference)
+            print(f"Performance preference set to: {preference}")
+    
+    def get_status(self) -> Dict[str, Any]:
+        """Get router status with performance metrics"""
+        status = {
+            'mode': self.mode.value,
+            'offline_available': self.offline_available,
+            'online_available': self.online_available,
+            'hardware_info': settings.get_hardware_info(),
+            'performance_mode': settings.performance_mode,
+            'streaming_enabled': settings.streaming_enabled
+        }
+        
+        # Add performance metrics
+        if self.response_times['offline']:
+            status['avg_offline_time'] = f"{sum(self.response_times['offline']) / len(self.response_times['offline']):.2f}s"
+        if self.response_times['online']:
+            status['avg_online_time'] = f"{sum(self.response_times['online']) / len(self.response_times['online']):.2f}s"
+        
+        if self.first_token_times['offline']:
+            status['avg_offline_first_token'] = f"{sum(self.first_token_times['offline']) / len(self.first_token_times['offline']):.2f}s"
+        if self.first_token_times['online']:
+            status['avg_online_first_token'] = f"{sum(self.first_token_times['online']) / len(self.first_token_times['online']):.2f}s"
+        
+        if self.last_decision:
+            status['last_decision'] = {
+                'use_offline': self.last_decision.use_offline,
+                'reason': self.last_decision.reason,
+                'confidence': self.last_decision.confidence
+            }
+        
+        # Get offline model info
+        if self.offline_llm and hasattr(self.offline_llm, 'get_performance_stats'):
+            status['offline_model_info'] = self.offline_llm.get_performance_stats()
+        
+        # Get online provider info
+        if self.online_llm and hasattr(self.online_llm, 'get_provider_stats'):
+            status['online_provider_info'] = self.online_llm.get_provider_stats()
+        
+        return status
+
+# For backwards compatibility
+Router = LightningRouter
