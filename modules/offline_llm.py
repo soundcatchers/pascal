@@ -114,7 +114,7 @@ class LightningOfflineLLM:
         
         # Keep-alive configuration
         self.keep_alive_interval = 30  # seconds
-        self.keep_alive_duration = "5m"  # Keep model loaded for 5 minutes
+        self.keep_alive_duration = "30m"  # Keep model loaded for 5 minutes (5m)
     
     def analyze_query_complexity(self, query: str) -> tuple[str, float]:
         """Analyze query to determine complexity and appropriate timeout"""
