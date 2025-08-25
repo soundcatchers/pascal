@@ -7,6 +7,7 @@ import asyncio
 import time
 import json
 import aiohttp
+import os
 from typing import Optional, Dict, Any, List, AsyncGenerator
 from pathlib import Path
 
@@ -66,27 +67,91 @@ class LightningOfflineLLM:
         self.inference_times = []
         self.first_token_times = []
         
-        # Optimized settings for sub-3-second responses
-        self.generation_config = {
-            'temperature': 0.7,
-            'top_p': 0.9,
-            'top_k': 40,
-            'repeat_penalty': 1.1,
-            'num_predict': 150,  # Limit tokens for faster responses
-            'num_ctx': 2048,     # Context window
-            'seed': -1,
-            'stop': ["</s>", "<|end|>", "<|eot_id|>", "Human:", "User:", "\n\n"]
+        # Dynamic timeout management
+        self.timeout_config = {
+            'simple': 15.0,    # Simple queries get 15 seconds
+            'medium': 25.0,    # Medium complexity gets 25 seconds
+            'complex': 40.0,   # Complex queries get 40 seconds
+            'default': 20.0    # Default timeout
         }
+        
+        # Smart response configuration based on query type
+        self.response_configs = {
+            'speed': {
+                'temperature': 0.5,
+                'top_p': 0.9,
+                'top_k': 30,
+                'repeat_penalty': 1.2,
+                'num_predict': 100,  # Very concise
+                'num_ctx': 1024,
+                'seed': -1,
+                'stop': ["</s>", "<|end|>", "<|eot_id|>", "Human:", "User:", "\n\n", "\n\nIs there", "\n\nWould you"]
+            },
+            'balanced': {
+                'temperature': 0.7,
+                'top_p': 0.9,
+                'top_k': 40,
+                'repeat_penalty': 1.1,
+                'num_predict': 200,  # Moderate length
+                'num_ctx': 2048,
+                'seed': -1,
+                'stop': ["</s>", "<|end|>", "<|eot_id|>", "Human:", "User:", "\n\n"]
+            },
+            'quality': {
+                'temperature': 0.8,
+                'top_p': 0.95,
+                'top_k': 50,
+                'repeat_penalty': 1.0,
+                'num_predict': 300,  # More detailed
+                'num_ctx': 2048,
+                'seed': -1,
+                'stop': ["</s>", "<|end|>", "<|eot_id|>", "Human:", "User:"]
+            }
+        }
+        
+        # Default to balanced
+        self.generation_config = self.response_configs['balanced'].copy()
         
         # Keep-alive configuration
         self.keep_alive_interval = 30  # seconds
         self.keep_alive_duration = "5m"  # Keep model loaded for 5 minutes
     
+    def analyze_query_complexity(self, query: str) -> tuple[str, float]:
+        """Analyze query to determine complexity and appropriate timeout"""
+        query_lower = query.lower()
+        word_count = len(query.split())
+        
+        # Keywords indicating complexity
+        complex_keywords = ['explain', 'analyze', 'compare', 'describe', 'how does', 'what is the', 
+                          'tell me about', 'can you explain', 'detailed', 'comprehensive', 'elaborate',
+                          'walk me through', 'step by step', 'photosynthesis', 'physics', 'algorithm']
+        
+        simple_keywords = ['hi', 'hello', 'thanks', 'yes', 'no', 'ok', 'what time', 'what day',
+                         'what color', 'how far', 'capital of', 'who is', 'when was']
+        
+        technical_keywords = ['code', 'programming', 'function', 'algorithm', 'implement', 'debug',
+                            'syntax', 'compile', 'database', 'api', 'framework']
+        
+        # Check for question types
+        is_complex = any(keyword in query_lower for keyword in complex_keywords)
+        is_simple = any(keyword in query_lower for keyword in simple_keywords)
+        is_technical = any(keyword in query_lower for keyword in technical_keywords)
+        
+        # Determine complexity and timeout
+        if is_simple and word_count < 10:
+            return 'simple', self.timeout_config['simple']
+        elif is_complex or is_technical or word_count > 30:
+            return 'complex', self.timeout_config['complex']
+        elif word_count > 15:
+            return 'medium', self.timeout_config['medium']
+        else:
+            return 'simple', self.timeout_config['simple']
+    
     async def initialize(self) -> bool:
         """Initialize with lightning-fast configuration"""
         try:
-            # Create optimized aiohttp session
-            timeout = aiohttp.ClientTimeout(total=30, sock_connect=5, sock_read=30)
+            # Create optimized aiohttp session with longer timeout for complex queries
+            timeout = aiohttp.ClientTimeout(total=60, sock_connect=5, sock_read=45)
             connector = aiohttp.TCPConnector(limit=10, force_close=True)
             self.session = aiohttp.ClientSession(
                 timeout=timeout,
@@ -285,7 +350,7 @@ class LightningOfflineLLM:
     
     async def generate_response_stream(self, query: str, personality_context: str, 
                                      memory_context: str) -> AsyncGenerator[str, None]:
-        """Generate streaming response for instant feedback"""
+        """Generate streaming response for instant feedback with smart timeout"""
         if not self.model_loaded or not self.current_model:
             yield "Offline model is not available. Please check Ollama is running and models are downloaded."
             return
@@ -294,8 +359,25 @@ class LightningOfflineLLM:
             start_time = time.time()
             first_token_received = False
             
+            # Analyze query complexity and get appropriate timeout
+            complexity, timeout_seconds = self.analyze_query_complexity(query)
+            
+            # Adjust generation config based on complexity
+            if complexity == 'simple':
+                self.generation_config = self.response_configs['speed'].copy()
+                if settings.debug_mode:
+                    print(f"📝 Simple query - concise mode (timeout: {timeout_seconds}s)")
+            elif complexity == 'complex':
+                self.generation_config = self.response_configs['quality'].copy()
+                if settings.debug_mode:
+                    print(f"📚 Complex query - detailed mode (timeout: {timeout_seconds}s)")
+            else:
+                self.generation_config = self.response_configs['balanced'].copy()
+                if settings.debug_mode:
+                    print(f"⚖️ Medium query - balanced mode (timeout: {timeout_seconds}s)")
+            
             # Build optimized prompt
-            prompt = self._build_lightning_prompt(query, personality_context, memory_context)
+            prompt = self._build_lightning_prompt(query, personality_context, memory_context, complexity)
             
             # Prepare streaming request
             payload = {
@@ -306,12 +388,20 @@ class LightningOfflineLLM:
                 "keep_alive": self.keep_alive_duration
             }
             
-            # Stream response
+            # Create timeout for this specific query
+            query_timeout = aiohttp.ClientTimeout(total=timeout_seconds)
+            
+            # Stream response with dynamic timeout
             async with self.session.post(
                 f"{self.ollama_host}/api/generate", 
-                json=payload
+                json=payload,
+                timeout=query_timeout
             ) as response:
                 if response.status == 200:
+                    response_buffer = []
+                    token_count = 0
+                    last_meaningful_time = start_time
+                    
                     async for line in response.content:
                         try:
                             if line:
@@ -327,7 +417,21 @@ class LightningOfflineLLM:
                                 
                                 # Yield the response chunk
                                 if 'response' in data:
-                                    yield data['response']
+                                    chunk = data['response']
+                                    response_buffer.append(chunk)
+                                    token_count += 1
+                                    
+                                    # Track if we're getting meaningful content
+                                    if chunk.strip():
+                                        last_meaningful_time = time.time()
+                                    
+                                    yield chunk
+                                    
+                                    # Check if we've been generating for too long without meaningful content
+                                    if time.time() - last_meaningful_time > 5.0:
+                                        if settings.debug_mode:
+                                            print("⚠️ No meaningful content for 5s, stopping")
+                                        break
                                 
                                 # Check if done
                                 if data.get('done', False):
@@ -335,7 +439,7 @@ class LightningOfflineLLM:
                                     total_time = time.time() - start_time
                                     self.inference_times.append(total_time)
                                     if settings.debug_mode:
-                                        print(f"⏱️ Total time: {total_time:.2f}s")
+                                        print(f"⏱️ Total time: {total_time:.2f}s, Tokens: {token_count}")
                                     break
                                     
                         except json.JSONDecodeError:
@@ -345,7 +449,15 @@ class LightningOfflineLLM:
                     yield f"Ollama error (status {response.status}): {error_text[:100]}"
                     
         except asyncio.TimeoutError:
-            yield "Response timeout - model is taking too long. Try a simpler query."
+            total_time = time.time() - start_time
+            if settings.debug_mode:
+                print(f"⏱️ Timeout after {total_time:.2f}s (limit was {timeout_seconds}s)")
+            
+            # Don't show timeout message for complex queries that got a good amount of response
+            if complexity == 'complex' and first_token_received:
+                yield "\n\n[Response completed]"
+            else:
+                yield "\n\n[Response time limit reached. Try rephrasing for a more concise answer.]"
             
         except aiohttp.ClientError as e:
             yield f"Connection error with Ollama: {str(e)}"
@@ -359,15 +471,28 @@ class LightningOfflineLLM:
     
     async def generate_response(self, query: str, personality_context: str, 
                               memory_context: str, profile: str = None) -> str:
-        """Generate complete response (non-streaming fallback)"""
+        """Generate complete response (non-streaming fallback) with smart timeout"""
         if not self.model_loaded or not self.current_model:
             return "Offline model is not available. Please check Ollama is running and models are downloaded."
         
         try:
             start_time = time.time()
             
+            # Analyze query complexity
+            complexity, timeout_seconds = self.analyze_query_complexity(query)
+            
+            # Set appropriate config
+            if profile:
+                self.set_performance_profile(profile)
+            elif complexity == 'simple':
+                self.generation_config = self.response_configs['speed'].copy()
+            elif complexity == 'complex':
+                self.generation_config = self.response_configs['quality'].copy()
+            else:
+                self.generation_config = self.response_configs['balanced'].copy()
+            
             # Build optimized prompt
-            prompt = self._build_lightning_prompt(query, personality_context, memory_context)
+            prompt = self._build_lightning_prompt(query, personality_context, memory_context, complexity)
             
             # Generate response
             payload = {
@@ -378,9 +503,13 @@ class LightningOfflineLLM:
                 "keep_alive": self.keep_alive_duration
             }
             
+            # Use dynamic timeout
+            query_timeout = aiohttp.ClientTimeout(total=timeout_seconds)
+            
             async with self.session.post(
                 f"{self.ollama_host}/api/generate", 
-                json=payload
+                json=payload,
+                timeout=query_timeout
             ) as response:
                 if response.status == 200:
                     data = await response.json()
@@ -392,7 +521,7 @@ class LightningOfflineLLM:
                         self.inference_times = self.inference_times[-20:]
                     
                     if settings.debug_mode:
-                        print(f"⏱️ Response time: {inference_time:.2f}s")
+                        print(f"⏱️ Response time: {inference_time:.2f}s (complexity: {complexity})")
                     
                     return data.get('response', 'No response generated')
                 else:
@@ -400,7 +529,7 @@ class LightningOfflineLLM:
                     return f"Ollama API error {response.status}: {error_text[:200]}"
                     
         except asyncio.TimeoutError:
-            return "Response timeout - model is taking too long. Try a simpler query or switch to a faster model."
+            return f"Response exceeded time limit ({timeout_seconds}s). Try asking for a more concise answer or breaking the question into parts."
             
         except Exception as e:
             if settings.debug_mode:
@@ -410,7 +539,7 @@ class LightningOfflineLLM:
             
             return f"An error occurred: {str(e)}"
     
-    def _build_lightning_prompt(self, query: str, personality_context: str, memory_context: str) -> str:
+    def _build_lightning_prompt(self, query: str, personality_context: str, memory_context: str, complexity: str = 'medium') -> str:
         """Build optimized prompt for lightning-fast responses"""
         # Keep prompts minimal for speed
         if not self.current_model:
@@ -418,34 +547,37 @@ class LightningOfflineLLM:
         
         model_name = self.current_model.name.lower()
         
+        # Add instructions based on complexity
+        instructions = ""
+        if complexity == 'simple':
+            instructions = "Provide a brief, direct answer. "
+        elif complexity == 'complex':
+            instructions = "Provide a comprehensive but well-structured answer. "
+        else:
+            instructions = "Provide a clear, balanced response. "
+        
         # Very minimal context for speed
         context = personality_context[:200] if personality_context else ""
         
-        # Model-specific formatting
+        # Model-specific formatting with instructions
         if 'llama' in model_name:
-            return f"{context}\n\nUser: {query}\n\nAssistant:"
+            return f"{context}\n\n{instructions}User: {query}\n\nAssistant:"
         elif 'gemma' in model_name:
-            return f"<start_of_turn>user\n{query}<end_of_turn>\n<start_of_turn>model\n"
+            return f"<start_of_turn>user\n{instructions}{query}<end_of_turn>\n<start_of_turn>model\n"
         elif 'phi' in model_name:
-            return f"User: {query}\n\nAssistant:"
+            return f"{instructions}User: {query}\n\nAssistant:"
         else:
             # Generic format
-            return f"{context}\n\nUser: {query}\n\nAssistant:"
+            return f"{context}\n\n{instructions}User: {query}\n\nAssistant:"
     
     def set_performance_profile(self, profile: str):
         """Adjust settings for different performance profiles"""
         if profile == 'speed':
-            self.generation_config['num_predict'] = 100
-            self.generation_config['temperature'] = 0.5
-            self.generation_config['top_k'] = 30
+            self.generation_config = self.response_configs['speed'].copy()
         elif profile == 'balanced':
-            self.generation_config['num_predict'] = 150
-            self.generation_config['temperature'] = 0.7
-            self.generation_config['top_k'] = 40
+            self.generation_config = self.response_configs['balanced'].copy()
         elif profile == 'quality':
-            self.generation_config['num_predict'] = 200
-            self.generation_config['temperature'] = 0.8
-            self.generation_config['top_k'] = 50
+            self.generation_config = self.response_configs['quality'].copy()
     
     async def switch_model(self, model_name: str) -> bool:
         """Switch to a different model"""
@@ -586,6 +718,3 @@ class LightningOfflineLLM:
 
 # For backwards compatibility
 OptimizedOfflineLLM = LightningOfflineLLM
-
-# Add missing import
-import os
