@@ -54,9 +54,19 @@ class LightningRouter:
         
         # Query complexity patterns for fast routing
         self.complexity_patterns = {
-            'needs_current_info': ['current', 'latest', 'recent', 'today', 'now', 'news', 'update', 'weather', '2024', '2025', 'this year', 'this month'],
-            'simple_queries': ['hi', 'hello', 'hey', 'thanks', 'bye', 'yes', 'no', 'ok', 'what is', 'who is', 'how far', 'distance'],
-            'complex_queries': ['analyze', 'compare', 'evaluate', 'research', 'detailed', 'comprehensive', 'explain in detail']
+            'needs_current_info': [
+                'current', 'latest', 'recent', 'today', 'now', 'news', 'update', 
+                'weather', '2024', '2025', 'this year', 'this month', 'what day',
+                'what date', 'current date', 'current time'
+            ],
+            'simple_queries': [
+                'hi', 'hello', 'hey', 'thanks', 'bye', 'yes', 'no', 'ok', 
+                'what is', 'who is', 'how far', 'distance'
+            ],
+            'complex_queries': [
+                'analyze', 'compare', 'evaluate', 'research', 'detailed', 
+                'comprehensive', 'explain in detail'
+            ]
         }
     
     async def _check_llm_availability(self):
@@ -65,7 +75,7 @@ class LightningRouter:
             if settings.debug_mode:
                 print("⚡ Lightning Router checking LLM availability...")
             
-            # Always check offline LLM first (priority for offline-first approach)
+            # Initialize offline LLM first (priority for offline-first)
             try:
                 from modules.offline_llm import LightningOfflineLLM
                 self.offline_llm = LightningOfflineLLM()
@@ -83,9 +93,9 @@ class LightningRouter:
                     traceback.print_exc()
                 self.offline_available = False
             
-            # Check online LLM only if API keys are configured
+            # Initialize online LLM if API keys are available
             self.online_available = False
-            if settings.is_online_available():
+            if getattr(settings, 'grok_api_key', None) or getattr(settings, 'openai_api_key', None) or getattr(settings, 'anthropic_api_key', None):
                 try:
                     from modules.online_llm import OnlineLLM
                     self.online_llm = OnlineLLM()
@@ -94,10 +104,10 @@ class LightningRouter:
                     if self.online_available:
                         print("✅ Online LLM ready (Grok/OpenAI/Anthropic)")
                     else:
-                        # Get more detailed error info
+                        # Get detailed error info
                         if self.online_llm and hasattr(self.online_llm, 'get_provider_stats'):
                             stats = self.online_llm.get_provider_stats()
-                            error_msg = stats.get('last_error', 'Unknown error')
+                            error_msg = stats.get('last_error', 'Configuration or connectivity issue')
                             print(f"❌ Online LLM failed: {error_msg}")
                         else:
                             print("❌ Online LLM not available")
@@ -113,22 +123,21 @@ class LightningRouter:
                     print("ℹ️ No online API keys configured - running offline only")
                 self.online_available = False
             
-            # Final status reporting
+            # Final status
             if not self.offline_available and not self.online_available:
                 print("❌ ERROR: No LLMs available!")
-                print("Please ensure:")
-                print("1. Ollama is running: sudo systemctl start ollama")
-                print("2. Models are downloaded: ./download_models.sh")
-                print("3. Or configure API keys in .env for online fallback")
+                print("Solutions:")
+                print("1. For offline: sudo systemctl start ollama && ./download_models.sh")
+                print("2. For online: Configure API keys in .env file")
             elif self.offline_available and not self.online_available:
                 print("ℹ️ Running in offline-only mode")
             elif not self.offline_available and self.online_available:
-                print("ℹ️ Running in online-only mode (no offline models)")
+                print("ℹ️ Running in online-only mode")
             else:
                 print("✅ Both offline and online LLMs available")
             
             if settings.debug_mode:
-                print(f"Final availability - Offline: {self.offline_available}, Online: {self.online_available}")
+                print(f"Final status - Offline: {self.offline_available}, Online: {self.online_available}")
             
         except Exception as e:
             print(f"❌ Critical error in LLM availability check: {e}")
@@ -140,7 +149,7 @@ class LightningRouter:
         """Fast query analysis for immediate routing decision"""
         query_lower = query.lower()
         
-        # Quick checks for routing decision
+        # Quick pattern matching
         needs_current = any(pattern in query_lower for pattern in self.complexity_patterns['needs_current_info'])
         is_simple = any(pattern in query_lower for pattern in self.complexity_patterns['simple_queries'])
         is_complex = any(pattern in query_lower for pattern in self.complexity_patterns['complex_queries'])
@@ -158,71 +167,64 @@ class LightningRouter:
     def _estimate_response_time(self, is_simple: bool, is_complex: bool, word_count: int) -> float:
         """Estimate response time for offline processing"""
         if is_simple:
-            return 1.0  # 1 second for simple queries
+            return 1.0
         elif is_complex:
-            return 3.0  # 3 seconds for complex
+            return 3.0
         elif word_count <= 10:
-            return 1.5  # Quick for short queries
+            return 1.5
         elif word_count <= 30:
-            return 2.0  # Medium queries
+            return 2.0
         else:
-            return 2.5  # Longer queries
+            return 2.5
     
     def _make_lightning_decision(self, query: str, analysis: Dict[str, Any]) -> RouteDecision:
-        """Make ultra-fast routing decision with improved logic"""
+        """Make ultra-fast routing decision"""
         
-        # Force modes
+        # Handle forced modes
         if self.mode == RouteMode.OFFLINE_ONLY:
             return RouteDecision(True, "Forced offline mode", 1.0)
         elif self.mode == RouteMode.ONLINE_ONLY:
             return RouteDecision(False, "Forced online mode", 1.0)
         
-        # Check availability - handle cases where neither is available
+        # Handle availability constraints
         if not self.offline_available and not self.online_available:
             return RouteDecision(True, "No LLMs available (will show error)", 0.1)
         elif self.offline_available and not self.online_available:
-            return RouteDecision(True, "Only offline LLM available", 1.0)
+            return RouteDecision(True, "Only offline available", 1.0)
         elif not self.offline_available and self.online_available:
-            return RouteDecision(False, "Only online LLM available", 1.0)
+            return RouteDecision(False, "Only online available", 1.0)
         
-        # Both available - make intelligent decision
-        
-        # Check if query explicitly needs current information
+        # Both available - intelligent routing
+        # Only use online for queries that explicitly need current information
         if analysis['needs_current_info']:
-            return RouteDecision(False, "Query requires current information", 0.9)
+            return RouteDecision(False, "Query needs current information", 0.9)
         
-        # For all other queries, prefer offline for speed
-        # This includes general knowledge, calculations, coding help, etc.
+        # Everything else goes to offline for speed
         return RouteDecision(True, "Offline preferred for speed", 0.95)
     
     async def get_streaming_response(self, query: str) -> AsyncGenerator[str, None]:
         """Get streaming response for instant feedback"""
         start_time = time.time()
         first_token_time = None
+        response_generated = False
         
         try:
-            # Fast query analysis
+            # Fast analysis and routing
             analysis = self._analyze_query_speed(query)
-            
-            # Make routing decision
             decision = self._make_lightning_decision(query, analysis)
             self.last_decision = decision
             
             if settings.debug_mode:
                 print(f"⚡ Query: '{query[:50]}...'")
-                print(f"⚡ Analysis: Simple={analysis['is_simple']}, Current={analysis['needs_current_info']}")
                 print(f"⚡ Routing: {'Offline' if decision.use_offline else 'Online'} - {decision.reason}")
             
-            # Get personality and memory context (minimal for speed)
+            # Get context (minimal for speed)
             personality_context = await self.personality_manager.get_system_prompt()
-            memory_context = ""  # Skip memory for simple queries
-            
+            memory_context = ""
             if not analysis['is_simple']:
                 memory_context = await self.memory_manager.get_context()
             
-            # Stream from appropriate source
-            response_generated = False
-            
+            # Route to appropriate LLM
             if decision.use_offline and self.offline_available and self.offline_llm:
                 try:
                     async for chunk in self.offline_llm.generate_response_stream(
@@ -235,8 +237,8 @@ class LightningRouter:
                         response_generated = True
                 except Exception as e:
                     if settings.debug_mode:
-                        print(f"❌ Offline streaming error: {e}")
-                    # Try online fallback if available
+                        print(f"❌ Offline error: {e}")
+                    # Try online fallback
                     if self.online_available and self.online_llm:
                         try:
                             async for chunk in self.online_llm.generate_response_stream(
@@ -245,10 +247,10 @@ class LightningRouter:
                                 yield chunk
                                 response_generated = True
                         except Exception as online_e:
-                            yield f"I'm having trouble generating a response. Offline error: {str(e)[:50]}. Online error: {str(online_e)[:50]}"
+                            yield f"I'm having trouble processing your request. Error: {str(e)[:100]}"
                             response_generated = True
                     else:
-                        yield f"I'm having trouble generating a response: {str(e)}"
+                        yield f"I'm having trouble processing your request: {str(e)}"
                         response_generated = True
             
             elif decision.use_online and self.online_available and self.online_llm:
@@ -263,8 +265,8 @@ class LightningRouter:
                         response_generated = True
                 except Exception as e:
                     if settings.debug_mode:
-                        print(f"❌ Online streaming error: {e}")
-                    # Try offline fallback if available
+                        print(f"❌ Online error: {e}")
+                    # Try offline fallback
                     if self.offline_available and self.offline_llm:
                         try:
                             async for chunk in self.offline_llm.generate_response_stream(
@@ -273,14 +275,14 @@ class LightningRouter:
                                 yield chunk
                                 response_generated = True
                         except Exception as offline_e:
-                            yield f"I'm having trouble with both online and offline services. Online error: {str(e)[:50]}. Offline error: {str(offline_e)[:50]}"
+                            yield f"I'm having trouble with both services. Error: {str(e)[:100]}"
                             response_generated = True
                     else:
-                        yield f"Online service error: {str(e)}"
+                        yield f"I'm having trouble connecting to online services: {str(e)[:100]}"
                         response_generated = True
             
             else:
-                # Final fallback - try anything available
+                # Final fallback - try whatever is available
                 if self.offline_available and self.offline_llm:
                     try:
                         async for chunk in self.offline_llm.generate_response_stream(
@@ -302,23 +304,23 @@ class LightningRouter:
                         yield f"I'm having trouble processing your request: {str(e)}"
                         response_generated = True
                 else:
-                    yield "I'm sorry, but I'm currently unable to process your request. Please check that Ollama is running and models are installed, or configure API keys for online services."
+                    yield "I'm sorry, but no AI services are currently available. Please check that Ollama is running or configure API keys."
                     response_generated = True
             
-            # Track total response time
+            # Track performance
             if response_generated:
                 total_time = time.time() - start_time
                 source = 'offline' if decision.use_offline else 'online'
                 self.response_times[source].append(total_time)
                 
-                # Keep only last 20 measurements
+                # Keep recent measurements
                 if len(self.response_times[source]) > 20:
                     self.response_times[source] = self.response_times[source][-20:]
                 if first_token_time and len(self.first_token_times[source]) > 20:
                     self.first_token_times[source] = self.first_token_times[source][-20:]
                 
                 if settings.debug_mode and first_token_time:
-                    print(f"⚡ First token: {first_token_time:.2f}s, Total: {total_time:.2f}s")
+                    print(f"⚡ Performance: {first_token_time:.2f}s first token, {total_time:.2f}s total")
             
         except Exception as e:
             if settings.debug_mode:
@@ -337,8 +339,12 @@ class LightningRouter:
             
             response = ''.join(response_parts)
             
-            # Store in memory if we got a valid response
-            if response and not response.startswith("I'm sorry") and not response.startswith("Error") and not response.startswith("I'm having trouble"):
+            # Store in memory if valid response
+            if (response and 
+                not response.startswith("I'm sorry") and 
+                not response.startswith("Error") and 
+                not response.startswith("I'm having trouble") and
+                not response.startswith("I encountered an error")):
                 await self.memory_manager.add_interaction(query, response)
             
             return response
@@ -349,32 +355,7 @@ class LightningRouter:
                 import traceback
                 traceback.print_exc()
             
-            # Try direct non-streaming fallback
-            try:
-                analysis = self._analyze_query_speed(query)
-                decision = self._make_lightning_decision(query, analysis)
-                
-                personality_context = await self.personality_manager.get_system_prompt()
-                memory_context = await self.memory_manager.get_context() if not analysis['is_simple'] else ""
-                
-                if decision.use_offline and self.offline_available and self.offline_llm:
-                    response = await self.offline_llm.generate_response(
-                        query, personality_context, memory_context
-                    )
-                elif decision.use_online and self.online_available and self.online_llm:
-                    response = await self.online_llm.generate_response(
-                        query, personality_context, memory_context
-                    )
-                else:
-                    response = "I'm having trouble processing your request. Please ensure Ollama is running or configure online API keys."
-                
-                if response and not response.startswith("I'm sorry") and not response.startswith("Error"):
-                    await self.memory_manager.add_interaction(query, response)
-                
-                return response
-                
-            except Exception as fallback_error:
-                return f"I encountered an error processing your request: {fallback_error}"
+            return f"I encountered an error processing your request: {str(e)}"
     
     def set_mode(self, mode: RouteMode):
         """Set routing mode"""
@@ -396,8 +377,8 @@ class LightningRouter:
             'offline_available': self.offline_available,
             'online_available': self.online_available,
             'hardware_info': settings.get_hardware_info(),
-            'performance_mode': settings.performance_mode,
-            'streaming_enabled': settings.streaming_enabled
+            'performance_mode': getattr(settings, 'performance_mode', 'balanced'),
+            'streaming_enabled': getattr(settings, 'streaming_enabled', True)
         }
         
         # Add performance metrics
@@ -418,11 +399,10 @@ class LightningRouter:
                 'confidence': self.last_decision.confidence
             }
         
-        # Get offline model info
+        # Get component stats
         if self.offline_llm and hasattr(self.offline_llm, 'get_performance_stats'):
             status['offline_model_info'] = self.offline_llm.get_performance_stats()
         
-        # Get online provider info
         if self.online_llm and hasattr(self.online_llm, 'get_provider_stats'):
             status['online_provider_info'] = self.online_llm.get_provider_stats()
         
