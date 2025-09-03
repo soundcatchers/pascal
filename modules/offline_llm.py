@@ -102,7 +102,7 @@ class LightningOfflineLLM:
                 'top_p': 0.95,
                 'top_k': 50,
                 'repeat_penalty': 1.0,
-                'num_predict': 300,  # More detailed
+                'num_predict': 400,  # More detailed - standard is 300 for complex queries make larger for more detail
                 'num_ctx': 2048,
                 'seed': -1,
                 'stop': ["</s>", "<|end|>", "<|eot_id|>", "Human:", "User:"]
@@ -114,7 +114,7 @@ class LightningOfflineLLM:
         
         # Keep-alive configuration
         self.keep_alive_interval = 30  # seconds
-        self.keep_alive_duration = "5m"  # Keep model loaded for 5 minutes
+        self.keep_alive_duration = "30m"  # Keep model loaded for 5 minutes (5m)
     
     def analyze_query_complexity(self, query: str) -> tuple[str, float]:
         """Analyze query to determine complexity and appropriate timeout"""
