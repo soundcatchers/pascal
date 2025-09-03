@@ -1,6 +1,6 @@
 """
-Pascal AI Assistant - Online LLM Integration with Grok Priority
-Handles API calls to Grok, OpenAI, and Anthropic with streaming support - Fixed Priority
+Pascal AI Assistant - Online LLM Integration with Gemini Support
+Handles API calls to Grok, OpenAI, and Google Gemini with streaming support
 """
 
 import asyncio
@@ -21,10 +21,10 @@ class APIProvider(Enum):
     """Available API providers"""
     GROK = "grok"
     OPENAI = "openai"
-    ANTHROPIC = "anthropic"
+    GEMINI = "gemini"
 
 class OnlineLLM:
-    """Manages online LLM API calls with Grok as primary"""
+    """Manages online LLM API calls with Grok as primary, Gemini as alternative"""
     
     def __init__(self):
         self.session = None
@@ -38,9 +38,11 @@ class OnlineLLM:
             self.last_error = "aiohttp module not installed"
             if settings.debug_mode:
                 print("❌ aiohttp not available - install with: pip install aiohttp")
+            # Initialize api_configs even if aiohttp is not available
+            self.api_configs = {}
             return
         
-        # API configurations - CORRECTED Grok endpoint
+        # API configurations - Including Google Gemini
         self.api_configs = {
             APIProvider.GROK: {
                 'base_url': 'https://api.x.ai/v1/chat/completions',
@@ -52,10 +54,10 @@ class OnlineLLM:
                 'model': 'gpt-4o-mini',
                 'api_key': getattr(settings, 'openai_api_key', None)
             },
-            APIProvider.ANTHROPIC: {
-                'base_url': 'https://api.anthropic.com/v1/messages',
-                'model': 'claude-3-haiku-20240307',
-                'api_key': getattr(settings, 'anthropic_api_key', None)
+            APIProvider.GEMINI: {
+                'base_url': 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:streamGenerateContent',
+                'model': 'gemini-2.0-flash-exp',
+                'api_key': getattr(settings, 'gemini_api_key', None)
             }
         }
         
@@ -88,8 +90,8 @@ class OnlineLLM:
                     print("   Check API keys in .env file")
                 return False
             
-            # Set preferred provider - GROK FIRST!
-            for provider in [APIProvider.GROK, APIProvider.OPENAI, APIProvider.ANTHROPIC]:
+            # Set preferred provider - GROK FIRST, then OpenAI, then Gemini
+            for provider in [APIProvider.GROK, APIProvider.OPENAI, APIProvider.GEMINI]:
                 if provider in self.available_providers:
                     self.preferred_provider = provider
                     break
@@ -115,15 +117,16 @@ class OnlineLLM:
         """Check which API providers are configured and working"""
         self.available_providers = []
         
-        # Check providers in priority order: Grok -> OpenAI -> Anthropic
-        priority_order = [APIProvider.GROK, APIProvider.OPENAI, APIProvider.ANTHROPIC]
+        # Check providers in priority order: Grok -> OpenAI -> Gemini
+        priority_order = [APIProvider.GROK, APIProvider.OPENAI, APIProvider.GEMINI]
         
         for provider in priority_order:
             config = self.api_configs[provider]
             api_key = config.get('api_key')
             
             # Skip if no API key or placeholder
-            invalid_keys = [None, '', 'your_api_key_here', f'your_{provider.value}_api_key_here']
+            invalid_keys = [None, '', 'your_api_key_here', f'your_{provider.value}_api_key_here', 
+                          'your_gemini_api_key_here', 'your_google_api_key_here']
             if api_key in invalid_keys:
                 if settings.debug_mode:
                     print(f"⏭️ Skipping {provider.value} - no valid API key")
@@ -147,19 +150,42 @@ class OnlineLLM:
         try:
             config = self.api_configs[provider]
             
-            if provider == APIProvider.ANTHROPIC:
+            if provider == APIProvider.GEMINI:
+                # Test Gemini API
                 headers = {
                     'Content-Type': 'application/json',
-                    'x-api-key': config['api_key'],
-                    'anthropic-version': '2023-06-01'
+                    'x-goog-api-key': config['api_key']
+                }
+                test_url = f"https://generativelanguage.googleapis.com/v1beta/models?key={config['api_key']}"
+                
+                # Just check if we can list models
+                test_timeout = aiohttp.ClientTimeout(total=10)
+                async with self.session.get(
+                    test_url,
+                    timeout=test_timeout
+                ) as response:
+                    if response.status in [200, 400, 401, 403, 429]:
+                        if response.status == 401 or response.status == 403:
+                            if settings.debug_mode:
+                                print(f"⚠️ {provider.value} invalid API key")
+                            return False
+                        return True
+                    return False
+                    
+            elif provider == APIProvider.OPENAI:
+                # OpenAI compatible test
+                headers = {
+                    'Content-Type': 'application/json',
+                    'Authorization': f'Bearer {config["api_key"]}'
                 }
                 payload = {
                     "model": config['model'],
+                    "messages": [{"role": "user", "content": "hi"}],
                     "max_tokens": 5,
-                    "messages": [{"role": "user", "content": "hi"}]
+                    "temperature": 0.5
                 }
             else:
-                # OpenAI/Grok compatible
+                # Grok compatible test
                 headers = {
                     'Content-Type': 'application/json',
                     'Authorization': f'Bearer {config["api_key"]}'
@@ -171,28 +197,25 @@ class OnlineLLM:
                     "temperature": 0.5
                 }
             
-            # Quick test with short timeout
-            test_timeout = aiohttp.ClientTimeout(total=20)
-            async with self.session.post(
-                config['base_url'],
-                headers=headers,
-                json=payload,
-                timeout=test_timeout
-            ) as response:
-                # Accept various response codes that indicate the server is reachable
-                if response.status in [200, 400, 401, 429]:
-                    if response.status == 429:
-                        # Rate limited but server is working
-                        if settings.debug_mode:
-                            print(f"⚠️ {provider.value} rate limited but reachable")
+            if provider != APIProvider.GEMINI:
+                # Quick test with short timeout for non-Gemini
+                test_timeout = aiohttp.ClientTimeout(total=20)
+                async with self.session.post(
+                    config['base_url'],
+                    headers=headers,
+                    json=payload,
+                    timeout=test_timeout
+                ) as response:
+                    if response.status in [200, 400, 401, 429]:
+                        if response.status == 429:
+                            if settings.debug_mode:
+                                print(f"⚠️ {provider.value} rate limited but reachable")
+                            return True
+                        elif response.status == 401:
+                            if settings.debug_mode:
+                                print(f"⚠️ {provider.value} invalid API key")
+                            return False
                         return True
-                    elif response.status == 401:
-                        # Invalid API key but server is working
-                        if settings.debug_mode:
-                            print(f"⚠️ {provider.value} invalid API key but server reachable")
-                        return False  # Don't use if API key is invalid
-                    return True
-                else:
                     return False
                     
         except asyncio.TimeoutError:
@@ -206,12 +229,12 @@ class OnlineLLM:
     
     async def generate_response_stream(self, query: str, personality_context: str, 
                                      memory_context: str) -> AsyncGenerator[str, None]:
-        """Generate streaming response from online API - GROK PRIORITY"""
+        """Generate streaming response from online API"""
         if not self.initialization_successful or not self.available_providers:
             yield "Online services are not available right now."
             return
         
-        # Try providers in strict priority order: Grok -> OpenAI -> Anthropic
+        # Try providers in priority order
         providers_to_try = []
         
         # Always try Grok first if available
@@ -222,9 +245,9 @@ class OnlineLLM:
         if APIProvider.OPENAI in self.available_providers:
             providers_to_try.append(APIProvider.OPENAI)
         
-        # Finally Anthropic
-        if APIProvider.ANTHROPIC in self.available_providers:
-            providers_to_try.append(APIProvider.ANTHROPIC)
+        # Finally Gemini
+        if APIProvider.GEMINI in self.available_providers:
+            providers_to_try.append(APIProvider.GEMINI)
         
         last_error = None
         
@@ -257,12 +280,12 @@ class OnlineLLM:
     
     async def _stream_from_provider(self, provider: APIProvider, query: str, 
                                    personality_context: str, memory_context: str) -> AsyncGenerator[str, None]:
-        """Stream response from specific provider with better error handling"""
+        """Stream response from specific provider"""
         start_time = time.time()
         
         try:
-            if provider == APIProvider.ANTHROPIC:
-                async for chunk in self._stream_anthropic(query, personality_context, memory_context):
+            if provider == APIProvider.GEMINI:
+                async for chunk in self._stream_gemini(query, personality_context, memory_context):
                     yield chunk
             else:
                 # OpenAI/Grok compatible streaming
@@ -282,6 +305,72 @@ class OnlineLLM:
         if len(self.response_times[provider]) > 10:
             self.response_times[provider] = self.response_times[provider][-10:]
     
+    async def _stream_gemini(self, query: str, personality_context: str, memory_context: str) -> AsyncGenerator[str, None]:
+        """Stream response from Google Gemini API"""
+        config = self.api_configs[APIProvider.GEMINI]
+        
+        # Build prompt with context
+        prompt_parts = []
+        if personality_context:
+            prompt_parts.append(f"Context: {personality_context[:600]}")
+        if memory_context:
+            prompt_parts.append(f"Recent conversation: {memory_context[:300]}")
+        prompt_parts.append(f"User: {query}")
+        
+        full_prompt = "\n\n".join(prompt_parts)
+        
+        # Gemini API format
+        payload = {
+            "contents": [{
+                "parts": [{
+                    "text": full_prompt
+                }]
+            }],
+            "generationConfig": {
+                "temperature": 0.7,
+                "maxOutputTokens": min(getattr(settings, 'max_response_tokens', 200), 300),
+                "topP": 0.9,
+                "topK": 40
+            }
+        }
+        
+        # Use streaming endpoint
+        stream_url = f"https://generativelanguage.googleapis.com/v1beta/models/{config['model']}:streamGenerateContent?key={config['api_key']}"
+        
+        headers = {
+            'Content-Type': 'application/json'
+        }
+        
+        response_received = False
+        try:
+            async with self.session.post(stream_url, headers=headers, json=payload) as response:
+                if response.status == 200:
+                    async for line in response.content:
+                        if line:
+                            try:
+                                # Parse the JSON response
+                                line_str = line.decode('utf-8').strip()
+                                if line_str:
+                                    data = json.loads(line_str)
+                                    # Extract text from Gemini response format
+                                    if 'candidates' in data:
+                                        for candidate in data['candidates']:
+                                            if 'content' in candidate and 'parts' in candidate['content']:
+                                                for part in candidate['content']['parts']:
+                                                    if 'text' in part:
+                                                        yield part['text']
+                                                        response_received = True
+                            except json.JSONDecodeError:
+                                continue
+                    
+                    if not response_received:
+                        yield "No response received from Gemini."
+                else:
+                    error_text = await response.text()
+                    raise Exception(f"Gemini API error {response.status}: {error_text[:200]}")
+        except aiohttp.ClientError as e:
+            raise Exception(f"Gemini connection failed: {str(e)}")
+    
     async def _stream_openai_compatible(self, provider: APIProvider, query: str, 
                                        personality_context: str, memory_context: str) -> AsyncGenerator[str, None]:
         """Stream response from OpenAI-compatible APIs (OpenAI, Grok)"""
@@ -289,10 +378,10 @@ class OnlineLLM:
         
         messages = []
         
-        # Build system message - keep it concise for better performance
+        # Build system message
         system_parts = []
         if personality_context:
-            system_parts.append(personality_context[:600])  # Limit context for speed
+            system_parts.append(personality_context[:600])
         if memory_context:
             system_parts.append(f"Recent context: {memory_context[:300]}")
         
@@ -301,23 +390,13 @@ class OnlineLLM:
         
         messages.append({"role": "user", "content": query})
         
-        # Different parameters for different providers
-        if provider == APIProvider.GROK:
-            payload = {
-                "model": config['model'],
-                "messages": messages,
-                "max_tokens": min(getattr(settings, 'max_response_tokens', 200), 300),
-                "temperature": 0.7,
-                "stream": True
-            }
-        else:  # OpenAI
-            payload = {
-                "model": config['model'], 
-                "messages": messages,
-                "max_tokens": min(getattr(settings, 'max_response_tokens', 200), 200),
-                "temperature": 0.7,
-                "stream": True
-            }
+        payload = {
+            "model": config['model'],
+            "messages": messages,
+            "max_tokens": min(getattr(settings, 'max_response_tokens', 200), 300),
+            "temperature": 0.7,
+            "stream": True
+        }
         
         headers = {
             'Content-Type': 'application/json',
@@ -325,7 +404,6 @@ class OnlineLLM:
         }
         
         response_received = False
-        error_content = ""
         
         try:
             async with self.session.post(config['base_url'], headers=headers, json=payload) as response:
@@ -351,79 +429,16 @@ class OnlineLLM:
                         yield f"No response received from {provider.value}."
                 
                 else:
-                    # Handle specific error codes
                     error_content = await response.text()
                     if response.status == 429:
-                        if "quota" in error_content.lower():
-                            raise Exception(f"API quota exceeded for {provider.value}")
-                        else:
-                            raise Exception(f"Rate limited by {provider.value}")
+                        raise Exception(f"Rate limited by {provider.value}")
                     elif response.status == 401:
                         raise Exception(f"Invalid API key for {provider.value}")
-                    elif response.status == 403:
-                        raise Exception(f"Access denied for {provider.value}")
                     else:
                         raise Exception(f"{provider.value} API error {response.status}: {error_content[:200]}")
                         
         except aiohttp.ClientError as e:
             raise Exception(f"{provider.value} connection failed: {str(e)}")
-    
-    async def _stream_anthropic(self, query: str, personality_context: str, memory_context: str) -> AsyncGenerator[str, None]:
-        """Stream response from Anthropic API"""
-        config = self.api_configs[APIProvider.ANTHROPIC]
-        
-        # Build system prompt
-        system_parts = []
-        if personality_context:
-            system_parts.append(personality_context[:600])
-        if memory_context:
-            system_parts.append(f"Recent context: {memory_context[:300]}")
-        
-        system_prompt = "\n\n".join(system_parts) if system_parts else None
-        
-        payload = {
-            "model": config['model'],
-            "max_tokens": min(getattr(settings, 'max_response_tokens', 200), 250),
-            "messages": [{"role": "user", "content": query}],
-            "stream": True,
-            "temperature": 0.7
-        }
-        
-        if system_prompt:
-            payload["system"] = system_prompt
-        
-        headers = {
-            'Content-Type': 'application/json',
-            'x-api-key': config['api_key'],
-            'anthropic-version': '2023-06-01'
-        }
-        
-        response_received = False
-        try:
-            async with self.session.post(config['base_url'], headers=headers, json=payload) as response:
-                if response.status == 200:
-                    async for line in response.content:
-                        if line:
-                            line_str = line.decode('utf-8').strip()
-                            if line_str.startswith('data: '):
-                                line_str = line_str[6:]
-                                try:
-                                    data = json.loads(line_str)
-                                    if data.get('type') == 'content_block_delta':
-                                        delta = data.get('delta', {})
-                                        if 'text' in delta:
-                                            yield delta['text']
-                                            response_received = True
-                                except json.JSONDecodeError:
-                                    continue
-                    
-                    if not response_received:
-                        yield "No response received from Anthropic."
-                else:
-                    error_text = await response.text()
-                    raise Exception(f"Anthropic API error {response.status}: {error_text[:200]}")
-        except aiohttp.ClientError as e:
-            raise Exception(f"Anthropic connection failed: {str(e)}")
     
     async def generate_response(self, query: str, personality_context: str, memory_context: str) -> str:
         """Generate non-streaming response (fallback)"""
@@ -457,8 +472,9 @@ class OnlineLLM:
         }
         
         for provider in APIProvider:
-            api_key = self.api_configs[provider].get('api_key')
-            invalid_keys = [None, '', 'your_api_key_here', f'your_{provider.value}_api_key_here']
+            api_key = self.api_configs[provider].get('api_key') if hasattr(self, 'api_configs') else None
+            invalid_keys = [None, '', 'your_api_key_here', f'your_{provider.value}_api_key_here',
+                          'your_gemini_api_key_here', 'your_google_api_key_here']
             api_key_configured = api_key and api_key not in invalid_keys
             
             provider_stats = {
