@@ -28,7 +28,7 @@ rich==13.7.0
 psutil==5.9.6
 
 # Mathematical operations (ARM optimized)
-numpy==1.24.3
+numpy==1.26.0    # Was 1.24.3
 
 # Threading and async support
 asyncio-throttle==1.0.2
