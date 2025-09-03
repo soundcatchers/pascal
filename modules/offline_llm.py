@@ -1,720 +1,520 @@
 """
-Pascal AI Assistant - Lightning-Fast Offline LLM with Streaming
-Optimized for sub-3-second responses on Raspberry Pi 5 with keep-alive
+Pascal AI Assistant - Online LLM Integration with Gemini Support
+Handles API calls to Grok, OpenAI, and Google Gemini with streaming support - FIXED
 """
 
 import asyncio
 import time
 import json
-import aiohttp
-import os
 from typing import Optional, Dict, Any, List, AsyncGenerator
-from pathlib import Path
+from enum import Enum
+
+try:
+    import aiohttp
+    AIOHTTP_AVAILABLE = True
+except ImportError:
+    AIOHTTP_AVAILABLE = False
 
 from config.settings import settings
 
-class ModelInfo:
-    """Information about available Ollama models"""
-    def __init__(self, name: str, size: str = "Unknown", parameters: str = "Unknown", modified: str = ""):
-        self.name = name
-        self.size = size
-        self.parameters = parameters
-        self.modified = modified
-        self.priority = self._get_priority()
-        self.loaded = False
-    
-    def _get_priority(self) -> int:
-        """Get model priority (1 = highest)"""
-        # Priority order for specific models
-        if "nemotron-mini:4b-instruct-q4_K_M" in self.name:
-            return 1
-        elif "qwen3:4b-instruct" in self.name:
-            return 2
-        elif "gemma3:4b-it-q4_K_M" in self.name:
-            return 3
-        elif "phi" in self.name.lower():
-            return 4
-        elif "llama" in self.name.lower():
-            return 5
-        elif "gemma" in self.name.lower():
-            return 6
-        else:
-            return 99
+class APIProvider(Enum):
+    """Available API providers"""
+    GROK = "grok"
+    OPENAI = "openai"
+    GEMINI = "gemini"
 
-class LightningOfflineLLM:
-    """Lightning-fast Ollama-based offline LLM with streaming and keep-alive"""
+class OnlineLLM:
+    """Manages online LLM API calls with Grok as primary, Gemini as alternative"""
     
     def __init__(self):
-        self.ollama_host = os.getenv("OLLAMA_HOST", "http://localhost:11434")
         self.session = None
-        self.current_model = None
-        self.available_models = []
-        self.model_loaded = False
-        self.keep_alive_task = None
-        self.ollama_available = False
+        self.available_providers = []
+        self.preferred_provider = None
+        self.initialization_successful = False
+        self.last_error = None
         
-        # Primary and fallback models
-        self.model_hierarchy = [
-            "nemotron-mini:4b-instruct-q4_K_M",  # Primary - fastest
-            "qwen3:4b-instruct",                  # Fallback 1
-            "gemma3:4b-it-q4_K_M",                # Fallback 2
-            "phi3:mini",                          # Fallback 3
-            "llama3.2:3b",                        # Fallback 4
-            "gemma2:2b"                           # Fallback 5
-        ]
+        # Check if aiohttp is available first
+        if not AIOHTTP_AVAILABLE:
+            self.last_error = "aiohttp module not installed"
+            if settings.debug_mode:
+                print("❌ aiohttp not available - install with: pip install aiohttp")
+            # Initialize api_configs even if aiohttp is not available
+            self.api_configs = {}
+            return
         
-        # Performance tracking
-        self.inference_times = []
-        self.first_token_times = []
-        
-        # Dynamic timeout management
-        self.timeout_config = {
-            'simple': 15.0,    # Simple queries get 15 seconds
-            'medium': 25.0,    # Medium complexity gets 25 seconds
-            'complex': 120.0,   # Complex queries get 40 seconds
-            'default': 20.0    # Default timeout
-        }
-        
-        # Smart response configuration based on query type
-        self.response_configs = {
-            'speed': {
-                'temperature': 0.5,
-                'top_p': 0.9,
-                'top_k': 30,
-                'repeat_penalty': 1.2,
-                'num_predict': 100,  # Very concise - Standard is 100 # Simple queries (make smaller for more concise)
-                'num_ctx': 1024,
-                'seed': -1,
-                'stop': ["</s>", "<|end|>", "<|eot_id|>", "Human:", "User:", "\n\n", "\n\nIs there", "\n\nWould you"]
+        # API configurations - Including Google Gemini
+        self.api_configs = {
+            APIProvider.GROK: {
+                'base_url': 'https://api.x.ai/v1/chat/completions',
+                'model': 'grok-beta',
+                'api_key': getattr(settings, 'grok_api_key', None)
             },
-            'balanced': {
-                'temperature': 0.7,
-                'top_p': 0.9,
-                'top_k': 40,
-                'repeat_penalty': 1.1,
-                'num_predict': 200,  # Moderate length - Standard is 200# Medium queries
-                'num_ctx': 2048,
-                'seed': -1,
-                'stop': ["</s>", "<|end|>", "<|eot_id|>", "Human:", "User:", "\n\n"]
+            APIProvider.OPENAI: {
+                'base_url': 'https://api.openai.com/v1/chat/completions',
+                'model': 'gpt-4o-mini',
+                'api_key': getattr(settings, 'openai_api_key', None)
             },
-            'quality': {
-                'temperature': 0.8,
-                'top_p': 0.95,
-                'top_k': 50,
-                'repeat_penalty': 1.0,
-                'num_predict': 400,  # More detailed - Standard is 300 # Complex queries (make larger for more detail)
-                'num_ctx': 2048,
-                'seed': -1,
-                'stop': ["</s>", "<|end|>", "<|eot_id|>", "Human:", "User:"]
+            APIProvider.GEMINI: {
+                'base_url': 'https://generativelanguage.googleapis.com/v1beta/models',
+                'model': 'gemini-2.0-flash-exp',
+                'api_key': getattr(settings, 'gemini_api_key', None) or getattr(settings, 'google_api_key', None)
             }
         }
         
-        # Default to balanced
-        self.generation_config = self.response_configs['balanced'].copy()
-        
-        # Keep-alive configuration
-        self.keep_alive_interval = 30  # seconds
-        self.keep_alive_duration = "30m"  # Keep model loaded for 5 minutes (5m)
-    
-    def analyze_query_complexity(self, query: str) -> tuple[str, float]:
-        """Analyze query to determine complexity and appropriate timeout"""
-        query_lower = query.lower()
-        word_count = len(query.split())
-        
-        # Keywords indicating complexity
-        complex_keywords = ['explain', 'analyze', 'compare', 'describe', 'how does', 'what is the', 
-                          'tell me about', 'can you explain', 'detailed', 'comprehensive', 'elaborate',
-                          'walk me through', 'step by step', 'photosynthesis', 'physics', 'algorithm']
-        
-        simple_keywords = ['hi', 'hello', 'thanks', 'yes', 'no', 'ok', 'what time', 'what day',
-                         'what color', 'how far', 'capital of', 'who is', 'when was']
-        
-        technical_keywords = ['code', 'programming', 'function', 'algorithm', 'implement', 'debug',
-                            'syntax', 'compile', 'database', 'api', 'framework']
-        
-        # Check for question types
-        is_complex = any(keyword in query_lower for keyword in complex_keywords)
-        is_simple = any(keyword in query_lower for keyword in simple_keywords)
-        is_technical = any(keyword in query_lower for keyword in technical_keywords)
-        
-        # Determine complexity and timeout
-        if is_simple and word_count < 10:
-            return 'simple', self.timeout_config['simple']
-        elif is_complex or is_technical or word_count > 30:
-            return 'complex', self.timeout_config['complex']
-        elif word_count > 15:
-            return 'medium', self.timeout_config['medium']
-        else:
-            return 'simple', self.timeout_config['simple']
+        # Performance tracking
+        self.response_times = {provider: [] for provider in APIProvider}
+        self.failure_counts = {provider: 0 for provider in APIProvider}
+        self.success_counts = {provider: 0 for provider in APIProvider}
     
     async def initialize(self) -> bool:
-        """Initialize with lightning-fast configuration"""
-        try:
-            # Create optimized aiohttp session with longer timeout for complex queries
-            timeout = aiohttp.ClientTimeout(total=60, sock_connect=5, sock_read=45)
-            connector = aiohttp.TCPConnector(limit=10, force_close=True)
-            self.session = aiohttp.ClientSession(
-                timeout=timeout,
-                connector=connector
-            )
-            
-            # Test Ollama connection with retries
-            if not await self._test_ollama_connection():
-                print("❌ Could not connect to Ollama. Is it running?")
-                print("   Start with: sudo systemctl start ollama")
-                self.ollama_available = False
-                return False
-            
-            self.ollama_available = True
-            
-            # Scan for available models
-            await self._scan_available_models()
-            
-            if not self.available_models:
-                print("❌ No models found in Ollama")
-                print("   Download models with: ./download_models.sh")
-                return False
-            
-            # Load primary model with keep-alive
-            if await self._load_primary_model():
-                # Start keep-alive task
-                self.keep_alive_task = asyncio.create_task(self._keep_alive_loop())
-                print(f"⚡ Lightning mode activated with {self.current_model.name}")
-                return True
-            else:
-                print("❌ Failed to load any models")
-                return False
-                
-        except Exception as e:
-            print(f"❌ Initialization failed: {e}")
+        """Initialize online LLM connections"""
+        if not AIOHTTP_AVAILABLE:
+            self.last_error = "aiohttp module not available"
             if settings.debug_mode:
+                print("❌ Cannot initialize online LLM: aiohttp not installed")
+            return False
+        
+        try:
+            # Create aiohttp session with longer timeout
+            timeout = aiohttp.ClientTimeout(total=45, connect=15)
+            connector = aiohttp.TCPConnector(limit=10, force_close=True)
+            self.session = aiohttp.ClientSession(timeout=timeout, connector=connector)
+            
+            # Check which providers are available - PRIORITIZE GROK
+            await self._check_available_providers()
+            
+            if not self.available_providers:
+                self.last_error = "No API keys configured properly or all providers failed connection test"
+                if settings.debug_mode:
+                    print("❌ No online LLM providers available")
+                    print("   Check API keys in .env file")
+                return False
+            
+            # Set preferred provider - GROK FIRST, then OpenAI, then Gemini
+            for provider in [APIProvider.GROK, APIProvider.OPENAI, APIProvider.GEMINI]:
+                if provider in self.available_providers:
+                    self.preferred_provider = provider
+                    break
+            
+            self.initialization_successful = True
+            
+            if settings.debug_mode:
+                provider_names = [p.value for p in self.available_providers]
+                print(f"✅ Online LLM initialized with: {provider_names}")
+                print(f"🎯 Primary provider: {self.preferred_provider.value}")
+            
+            return True
+            
+        except Exception as e:
+            self.last_error = f"Initialization error: {str(e)}"
+            if settings.debug_mode:
+                print(f"❌ Online LLM initialization failed: {e}")
                 import traceback
                 traceback.print_exc()
             return False
     
-    async def _test_ollama_connection(self) -> bool:
-        """Test connection to Ollama service with retries"""
-        for attempt in range(3):
-            try:
-                async with self.session.get(f"{self.ollama_host}/api/version") as response:
-                    if response.status == 200:
-                        version_data = await response.json()
-                        if settings.debug_mode:
-                            print(f"✅ Connected to Ollama version: {version_data.get('version', 'unknown')}")
-                        return True
-            except aiohttp.ClientError as e:
+    async def _check_available_providers(self):
+        """Check which API providers are configured and working"""
+        self.available_providers = []
+        
+        # Check providers in priority order: Grok -> OpenAI -> Gemini
+        priority_order = [APIProvider.GROK, APIProvider.OPENAI, APIProvider.GEMINI]
+        
+        for provider in priority_order:
+            config = self.api_configs[provider]
+            api_key = config.get('api_key')
+            
+            # Skip if no API key or placeholder
+            invalid_keys = [None, '', 'your_api_key_here', f'your_{provider.value}_api_key_here', 
+                          'your_gemini_api_key_here', 'your_google_api_key_here']
+            if api_key in invalid_keys:
                 if settings.debug_mode:
-                    print(f"Ollama connection attempt {attempt + 1} failed: {e}")
-                if attempt < 2:
-                    await asyncio.sleep(2)
+                    print(f"⏭️ Skipping {provider.value} - no valid API key")
+                continue
+            
+            # Test connectivity with proper error handling
+            try:
+                if await self._test_provider_connectivity(provider):
+                    self.available_providers.append(provider)
+                    if settings.debug_mode:
+                        print(f"✅ {provider.value} - connection test passed")
+                else:
+                    if settings.debug_mode:
+                        print(f"❌ {provider.value} - connection test failed")
             except Exception as e:
                 if settings.debug_mode:
-                    print(f"Unexpected error connecting to Ollama: {e}")
-                if attempt < 2:
-                    await asyncio.sleep(2)
-        
-        return False
+                    print(f"❌ {provider.value} - test error: {str(e)[:100]}")
     
-    async def _scan_available_models(self):
-        """Scan for available models with priority sorting"""
+    async def _test_provider_connectivity(self, provider: APIProvider) -> bool:
+        """Test if provider is reachable and working"""
         try:
-            async with self.session.get(f"{self.ollama_host}/api/tags") as response:
-                if response.status == 200:
-                    data = await response.json()
-                    models = data.get('models', [])
-                    
-                    self.available_models = []
-                    for model_data in models:
-                        model_info = ModelInfo(
-                            name=model_data.get('name', ''),
-                            size=self._format_size(model_data.get('size', 0)),
-                            parameters=model_data.get('details', {}).get('parameter_size', 'Unknown'),
-                            modified=model_data.get('modified_at', '')
-                        )
-                        self.available_models.append(model_info)
-                    
-                    # Sort by priority for our specific models
-                    self.available_models.sort(key=lambda x: x.priority)
-                    
-                    if settings.debug_mode:
-                        print(f"Found {len(self.available_models)} models:")
-                        for model in self.available_models[:5]:
-                            print(f"  • {model.name} (Priority: {model.priority}, Size: {model.size})")
-                
-        except Exception as e:
-            print(f"Failed to scan models: {e}")
-            self.available_models = []
-    
-    def _format_size(self, size_bytes: int) -> str:
-        """Format size in human readable format"""
-        if size_bytes == 0:
-            return "Unknown"
-        for unit in ['B', 'KB', 'MB', 'GB', 'TB']:
-            if size_bytes < 1024.0:
-                return f"{size_bytes:.1f}{unit}"
-            size_bytes /= 1024.0
-        return f"{size_bytes:.1f}TB"
-    
-    async def _load_primary_model(self) -> bool:
-        """Load the primary model or first available fallback"""
-        # First try our preferred models
-        for model_name in self.model_hierarchy:
-            # Check if model is available
-            model = next((m for m in self.available_models if model_name in m.name), None)
-            if model:
-                if await self._load_model(model):
-                    self.current_model = model
-                    self.model_loaded = True
-                    model.loaded = True
-                    print(f"✅ Loaded model: {model.name}")
-                    return True
-                else:
-                    print(f"⚠️ Failed to load {model_name}, trying next...")
-        
-        # If none of our preferred models are available, try any available model
-        if self.available_models:
-            print("⚠️ No preferred models found, trying any available model...")
-            for model in self.available_models:
-                if await self._load_model(model):
-                    self.current_model = model
-                    self.model_loaded = True
-                    model.loaded = True
-                    print(f"✅ Loaded fallback model: {model.name}")
-                    return True
-        
-        return False
-    
-    async def _load_model(self, model: ModelInfo) -> bool:
-        """Load a specific model with keep-alive"""
-        try:
-            # First, ensure the model is loaded with keep-alive
-            payload = {
-                "model": model.name,
-                "keep_alive": self.keep_alive_duration,
-                "prompt": "",
-                "stream": False
-            }
+            config = self.api_configs[provider]
             
-            async with self.session.post(
-                f"{self.ollama_host}/api/generate",
-                json=payload
-            ) as response:
-                if response.status == 200:
-                    # Model loaded successfully
-                    return True
-                else:
-                    error_text = await response.text()
-                    if settings.debug_mode:
-                        print(f"Failed to load model {model.name}: {error_text}")
+            if provider == APIProvider.GEMINI:
+                # Test Gemini API - just check if we can list models
+                test_url = f"https://generativelanguage.googleapis.com/v1beta/models?key={config['api_key']}"
+                
+                test_timeout = aiohttp.ClientTimeout(total=10)
+                async with self.session.get(
+                    test_url,
+                    timeout=test_timeout
+                ) as response:
+                    if response.status in [200, 400, 401, 403, 429]:
+                        if response.status == 401 or response.status == 403:
+                            if settings.debug_mode:
+                                print(f"⚠️ {provider.value} invalid API key")
+                            return False
+                        return True
+                    return False
+                    
+            else:
+                # OpenAI/Grok compatible test
+                headers = {
+                    'Content-Type': 'application/json',
+                    'Authorization': f'Bearer {config["api_key"]}'
+                }
+                payload = {
+                    "model": config['model'],
+                    "messages": [{"role": "user", "content": "hi"}],
+                    "max_tokens": 5,
+                    "temperature": 0.5
+                }
+                
+                # Quick test with short timeout
+                test_timeout = aiohttp.ClientTimeout(total=20)
+                async with self.session.post(
+                    config['base_url'],
+                    headers=headers,
+                    json=payload,
+                    timeout=test_timeout
+                ) as response:
+                    if response.status in [200, 400, 401, 429]:
+                        if response.status == 429:
+                            if settings.debug_mode:
+                                print(f"⚠️ {provider.value} rate limited but reachable")
+                            return True
+                        elif response.status == 401:
+                            if settings.debug_mode:
+                                print(f"⚠️ {provider.value} invalid API key")
+                            return False
+                        return True
                     return False
                     
         except asyncio.TimeoutError:
-            print(f"⚠️ Timeout loading model {model.name}")
+            if settings.debug_mode:
+                print(f"⚠️ {provider.value} timeout during test")
             return False
         except Exception as e:
             if settings.debug_mode:
-                print(f"Failed to load model {model.name}: {e}")
-        
-        return False
-    
-    async def _keep_alive_loop(self):
-        """Background task to keep model loaded in memory"""
-        while self.model_loaded and self.current_model:
-            try:
-                await asyncio.sleep(self.keep_alive_interval)
-                
-                if not self.current_model:
-                    break
-                
-                # Send keep-alive request
-                payload = {
-                    "model": self.current_model.name,
-                    "keep_alive": self.keep_alive_duration,
-                    "prompt": "",
-                    "stream": False
-                }
-                
-                async with self.session.post(
-                    f"{self.ollama_host}/api/generate",
-                    json=payload
-                ) as response:
-                    if response.status != 200:
-                        if settings.debug_mode:
-                            print(f"⚠️ Keep-alive failed for {self.current_model.name}")
-                        
-            except asyncio.CancelledError:
-                break
-            except Exception as e:
-                if settings.debug_mode:
-                    print(f"Keep-alive error: {e}")
+                print(f"⚠️ {provider.value} connectivity test error: {str(e)[:100]}")
+            return False
     
     async def generate_response_stream(self, query: str, personality_context: str, 
                                      memory_context: str) -> AsyncGenerator[str, None]:
-        """Generate streaming response for instant feedback with smart timeout"""
-        if not self.model_loaded or not self.current_model:
-            yield "Offline model is not available. Please check Ollama is running and models are downloaded."
+        """Generate streaming response from online API"""
+        if not self.initialization_successful or not self.available_providers:
+            yield "Online services are not available right now."
             return
         
-        try:
-            start_time = time.time()
-            first_token_received = False
-            
-            # Analyze query complexity and get appropriate timeout
-            complexity, timeout_seconds = self.analyze_query_complexity(query)
-            
-            # Adjust generation config based on complexity
-            if complexity == 'simple':
-                self.generation_config = self.response_configs['speed'].copy()
-                if settings.debug_mode:
-                    print(f"📝 Simple query - concise mode (timeout: {timeout_seconds}s)")
-            elif complexity == 'complex':
-                self.generation_config = self.response_configs['quality'].copy()
-                if settings.debug_mode:
-                    print(f"📚 Complex query - detailed mode (timeout: {timeout_seconds}s)")
-            else:
-                self.generation_config = self.response_configs['balanced'].copy()
-                if settings.debug_mode:
-                    print(f"⚖️ Medium query - balanced mode (timeout: {timeout_seconds}s)")
-            
-            # Build optimized prompt
-            prompt = self._build_lightning_prompt(query, personality_context, memory_context, complexity)
-            
-            # Prepare streaming request
-            payload = {
-                "model": self.current_model.name,
-                "prompt": prompt,
-                "options": self.generation_config,
-                "stream": True,
-                "keep_alive": self.keep_alive_duration
-            }
-            
-            # Create timeout for this specific query
-            query_timeout = aiohttp.ClientTimeout(total=timeout_seconds)
-            
-            # Stream response with dynamic timeout
-            async with self.session.post(
-                f"{self.ollama_host}/api/generate", 
-                json=payload,
-                timeout=query_timeout
-            ) as response:
-                if response.status == 200:
-                    response_buffer = []
-                    token_count = 0
-                    last_meaningful_time = start_time
-                    
-                    async for line in response.content:
-                        try:
-                            if line:
-                                data = json.loads(line)
-                                
-                                # Track first token time
-                                if not first_token_received:
-                                    first_token_time = time.time() - start_time
-                                    self.first_token_times.append(first_token_time)
-                                    first_token_received = True
-                                    if settings.debug_mode:
-                                        print(f"⚡ First token: {first_token_time:.2f}s")
-                                
-                                # Yield the response chunk
-                                if 'response' in data:
-                                    chunk = data['response']
-                                    response_buffer.append(chunk)
-                                    token_count += 1
-                                    
-                                    # Track if we're getting meaningful content
-                                    if chunk.strip():
-                                        last_meaningful_time = time.time()
-                                    
-                                    yield chunk
-                                    
-                                    # Check if we've been generating for too long without meaningful content
-                                    if time.time() - last_meaningful_time > 5.0:
-                                        if settings.debug_mode:
-                                            print("⚠️ No meaningful content for 5s, stopping")
-                                        break
-                                
-                                # Check if done
-                                if data.get('done', False):
-                                    # Track total time
-                                    total_time = time.time() - start_time
-                                    self.inference_times.append(total_time)
-                                    if settings.debug_mode:
-                                        print(f"⏱️ Total time: {total_time:.2f}s, Tokens: {token_count}")
-                                    break
-                                    
-                        except json.JSONDecodeError:
-                            continue
-                else:
-                    error_text = await response.text()
-                    yield f"Ollama error (status {response.status}): {error_text[:100]}"
-                    
-        except asyncio.TimeoutError:
-            total_time = time.time() - start_time
-            if settings.debug_mode:
-                print(f"⏱️ Timeout after {total_time:.2f}s (limit was {timeout_seconds}s)")
-            
-            # Don't show timeout message for complex queries that got a good amount of response
-            if complexity == 'complex' and first_token_received:
-                yield "\n\n[Response completed]"
-            else:
-                yield "\n\n[Response time limit reached. Try rephrasing for a more concise answer.]"
-            
-        except aiohttp.ClientError as e:
-            yield f"Connection error with Ollama: {str(e)}"
-            
-        except Exception as e:
-            if settings.debug_mode:
-                print(f"Stream generation error: {e}")
-                import traceback
-                traceback.print_exc()
-            yield f"An error occurred while generating response: {str(e)}"
-    
-    async def generate_response(self, query: str, personality_context: str, 
-                              memory_context: str, profile: str = None) -> str:
-        """Generate complete response (non-streaming fallback) with smart timeout"""
-        if not self.model_loaded or not self.current_model:
-            return "Offline model is not available. Please check Ollama is running and models are downloaded."
+        # Try providers in priority order
+        providers_to_try = []
         
-        try:
-            start_time = time.time()
-            
-            # Analyze query complexity
-            complexity, timeout_seconds = self.analyze_query_complexity(query)
-            
-            # Set appropriate config
-            if profile:
-                self.set_performance_profile(profile)
-            elif complexity == 'simple':
-                self.generation_config = self.response_configs['speed'].copy()
-            elif complexity == 'complex':
-                self.generation_config = self.response_configs['quality'].copy()
-            else:
-                self.generation_config = self.response_configs['balanced'].copy()
-            
-            # Build optimized prompt
-            prompt = self._build_lightning_prompt(query, personality_context, memory_context, complexity)
-            
-            # Generate response
-            payload = {
-                "model": self.current_model.name,
-                "prompt": prompt,
-                "options": self.generation_config,
-                "stream": False,
-                "keep_alive": self.keep_alive_duration
-            }
-            
-            # Use dynamic timeout
-            query_timeout = aiohttp.ClientTimeout(total=timeout_seconds)
-            
-            async with self.session.post(
-                f"{self.ollama_host}/api/generate", 
-                json=payload,
-                timeout=query_timeout
-            ) as response:
-                if response.status == 200:
-                    data = await response.json()
-                    inference_time = time.time() - start_time
-                    self.inference_times.append(inference_time)
-                    
-                    # Keep only last 20 measurements
-                    if len(self.inference_times) > 20:
-                        self.inference_times = self.inference_times[-20:]
-                    
+        # Always try Grok first if available
+        if APIProvider.GROK in self.available_providers:
+            providers_to_try.append(APIProvider.GROK)
+        
+        # Then OpenAI
+        if APIProvider.OPENAI in self.available_providers:
+            providers_to_try.append(APIProvider.OPENAI)
+        
+        # Finally Gemini
+        if APIProvider.GEMINI in self.available_providers:
+            providers_to_try.append(APIProvider.GEMINI)
+        
+        last_error = None
+        
+        for provider in providers_to_try:
+            try:
+                if settings.debug_mode:
+                    print(f"🔄 Trying provider: {provider.value}")
+                
+                response_generated = False
+                response_buffer = []
+                
+                async for chunk in self._stream_from_provider(provider, query, personality_context, memory_context):
+                    if chunk:  # Only yield non-empty chunks
+                        yield chunk
+                        response_buffer.append(chunk)
+                        response_generated = True
+                
+                if response_generated and len(''.join(response_buffer)) > 0:
+                    self.success_counts[provider] += 1
                     if settings.debug_mode:
-                        print(f"⏱️ Response time: {inference_time:.2f}s (complexity: {complexity})")
-                    
-                    return data.get('response', 'No response generated')
+                        print(f"✅ Success with {provider.value}")
+                    return  # Successfully got response, exit
                 else:
-                    error_text = await response.text()
-                    return f"Ollama API error {response.status}: {error_text[:200]}"
+                    # No response from this provider, try next
+                    if settings.debug_mode:
+                        print(f"⚠️ No response from {provider.value}, trying next provider")
+                    continue
+                
+            except Exception as e:
+                self.failure_counts[provider] += 1
+                last_error = str(e)
+                if settings.debug_mode:
+                    print(f"❌ {provider.value} failed: {str(e)[:150]}")
+                continue
+        
+        # All providers failed
+        self.last_error = last_error
+        yield f"I'm having trouble connecting to online services. Error: {last_error}"
+    
+    async def _stream_from_provider(self, provider: APIProvider, query: str, 
+                                   personality_context: str, memory_context: str) -> AsyncGenerator[str, None]:
+        """Stream response from specific provider"""
+        start_time = time.time()
+        
+        try:
+            if provider == APIProvider.GEMINI:
+                async for chunk in self._stream_gemini(query, personality_context, memory_context):
+                    yield chunk
+            else:
+                # OpenAI/Grok compatible streaming
+                async for chunk in self._stream_openai_compatible(provider, query, personality_context, memory_context):
+                    yield chunk
                     
         except asyncio.TimeoutError:
-            return f"Response exceeded time limit ({timeout_seconds}s). Try asking for a more concise answer or breaking the question into parts."
-            
+            raise Exception(f"{provider.value} request timeout")
+        except aiohttp.ClientError as e:
+            raise Exception(f"{provider.value} connection error: {str(e)}")
         except Exception as e:
-            if settings.debug_mode:
-                print(f"Generation error: {e}")
-                import traceback
-                traceback.print_exc()
-            
-            return f"An error occurred: {str(e)}"
+            raise Exception(f"{provider.value} error: {str(e)}")
+        finally:
+            # Record response time
+            response_time = time.time() - start_time
+            self.response_times[provider].append(response_time)
+            if len(self.response_times[provider]) > 10:
+                self.response_times[provider] = self.response_times[provider][-10:]
     
-    def _build_lightning_prompt(self, query: str, personality_context: str, memory_context: str, complexity: str = 'medium') -> str:
-        """Build optimized prompt for lightning-fast responses"""
-        # Keep prompts minimal for speed
-        if not self.current_model:
-            return query
+    async def _stream_gemini(self, query: str, personality_context: str, memory_context: str) -> AsyncGenerator[str, None]:
+        """Stream response from Google Gemini API"""
+        config = self.api_configs[APIProvider.GEMINI]
         
-        model_name = self.current_model.name.lower()
+        # Build prompt with context
+        prompt_parts = []
+        if personality_context:
+            prompt_parts.append(f"Context: {personality_context[:600]}")
+        if memory_context:
+            prompt_parts.append(f"Recent conversation: {memory_context[:300]}")
+        prompt_parts.append(f"User: {query}")
         
-        # Add instructions based on complexity
-        instructions = ""
-        if complexity == 'simple':
-            instructions = "Provide a brief, direct answer. "
-        elif complexity == 'complex':
-            instructions = "Provide a comprehensive but well-structured answer. "
-        else:
-            instructions = "Provide a clear, balanced response. "
+        full_prompt = "\n\n".join(prompt_parts)
         
-        # Very minimal context for speed
-        context = personality_context[:200] if personality_context else ""
-        
-        # Model-specific formatting with instructions
-        if 'llama' in model_name:
-            return f"{context}\n\n{instructions}User: {query}\n\nAssistant:"
-        elif 'gemma' in model_name:
-            return f"<start_of_turn>user\n{instructions}{query}<end_of_turn>\n<start_of_turn>model\n"
-        elif 'phi' in model_name:
-            return f"{instructions}User: {query}\n\nAssistant:"
-        else:
-            # Generic format
-            return f"{context}\n\n{instructions}User: {query}\n\nAssistant:"
-    
-    def set_performance_profile(self, profile: str):
-        """Adjust settings for different performance profiles"""
-        if profile == 'speed':
-            self.generation_config = self.response_configs['speed'].copy()
-        elif profile == 'balanced':
-            self.generation_config = self.response_configs['balanced'].copy()
-        elif profile == 'quality':
-            self.generation_config = self.response_configs['quality'].copy()
-    
-    async def switch_model(self, model_name: str) -> bool:
-        """Switch to a different model"""
-        # Find the model
-        target_model = None
-        for model in self.available_models:
-            if model_name.lower() in model.name.lower():
-                target_model = model
-                break
-        
-        if not target_model:
-            print(f"Model {model_name} not found")
-            return False
-        
-        # Unload current model
-        if self.current_model:
-            self.current_model.loaded = False
-        
-        # Load new model
-        if await self._load_model(target_model):
-            self.current_model = target_model
-            target_model.loaded = True
-            print(f"✅ Switched to model: {target_model.name}")
-            return True
-        
-        return False
-    
-    async def pull_model(self, model_name: str) -> bool:
-        """Download a new model using Ollama"""
-        try:
-            print(f"📥 Pulling model {model_name}...")
-            payload = {"name": model_name, "stream": False}
-            
-            async with self.session.post(
-                f"{self.ollama_host}/api/pull", 
-                json=payload,
-                timeout=aiohttp.ClientTimeout(total=600)  # 10 minutes for download
-            ) as response:
-                if response.status == 200:
-                    # Rescan available models
-                    await self._scan_available_models()
-                    print(f"✅ Downloaded model: {model_name}")
-                    return True
-                else:
-                    error_text = await response.text()
-                    print(f"❌ Failed to download model: {error_text}")
-                    return False
-                    
-        except Exception as e:
-            print(f"❌ Download error: {e}")
-            return False
-    
-    async def remove_model(self, model_name: str) -> bool:
-        """Remove a model using Ollama"""
-        try:
-            # Don't remove current model
-            if self.current_model and model_name in self.current_model.name:
-                print("❌ Cannot remove currently loaded model")
-                return False
-            
-            payload = {"name": model_name}
-            
-            async with self.session.delete(
-                f"{self.ollama_host}/api/delete", 
-                json=payload
-            ) as response:
-                if response.status == 200:
-                    await self._scan_available_models()
-                    print(f"✅ Removed model: {model_name}")
-                    return True
-                else:
-                    print(f"❌ Failed to remove model")
-                    return False
-                    
-        except Exception as e:
-            print(f"❌ Remove error: {e}")
-            return False
-    
-    def get_performance_stats(self) -> Dict[str, Any]:
-        """Get detailed performance statistics"""
-        stats = {
-            "ollama_enabled": self.ollama_available,
-            "ollama_host": self.ollama_host,
-            "model_loaded": self.model_loaded,
-            "current_model": self.current_model.name if self.current_model else None,
-            "model_priority": self.current_model.priority if self.current_model else None,
-            "keep_alive_active": self.keep_alive_task and not self.keep_alive_task.done() if self.keep_alive_task else False
+        # Gemini API format
+        payload = {
+            "contents": [{
+                "parts": [{
+                    "text": full_prompt
+                }]
+            }],
+            "generationConfig": {
+                "temperature": 0.7,
+                "maxOutputTokens": min(getattr(settings, 'max_response_tokens', 200), 300),
+                "topP": 0.9,
+                "topK": 40
+            }
         }
         
-        if self.inference_times:
-            stats.update({
-                "avg_inference_time": f"{sum(self.inference_times) / len(self.inference_times):.2f}s",
-                "min_inference_time": f"{min(self.inference_times):.2f}s",
-                "max_inference_time": f"{max(self.inference_times):.2f}s",
-                "total_inferences": len(self.inference_times)
-            })
+        # Use streaming endpoint with API key in URL
+        stream_url = f"{config['base_url']}/{config['model']}:streamGenerateContent?key={config['api_key']}"
         
-        if self.first_token_times:
-            stats["avg_first_token_time"] = f"{sum(self.first_token_times) / len(self.first_token_times):.2f}s"
+        headers = {
+            'Content-Type': 'application/json'
+        }
+        
+        response_received = False
+        response_text = ""
+        
+        try:
+            async with self.session.post(stream_url, headers=headers, json=payload) as response:
+                if response.status == 200:
+                    async for line in response.content:
+                        if line:
+                            try:
+                                # Parse the JSON response
+                                line_str = line.decode('utf-8').strip()
+                                if line_str:
+                                    # Gemini sometimes sends multiple JSON objects in one line
+                                    # Split by newline and parse each
+                                    for json_str in line_str.split('\n'):
+                                        if json_str.strip():
+                                            try:
+                                                data = json.loads(json_str)
+                                                # Extract text from Gemini response format
+                                                if 'candidates' in data:
+                                                    for candidate in data['candidates']:
+                                                        if 'content' in candidate and 'parts' in candidate['content']:
+                                                            for part in candidate['content']['parts']:
+                                                                if 'text' in part:
+                                                                    text_chunk = part['text']
+                                                                    response_text += text_chunk
+                                                                    yield text_chunk
+                                                                    response_received = True
+                                            except json.JSONDecodeError:
+                                                continue
+                            except Exception as parse_error:
+                                if settings.debug_mode:
+                                    print(f"Parse error in Gemini response: {parse_error}")
+                                continue
+                    
+                    if not response_received:
+                        if settings.debug_mode:
+                            print(f"No valid response from Gemini")
+                        # Don't yield error message here, let the main function handle it
+                        
+                else:
+                    error_text = await response.text()
+                    raise Exception(f"Gemini API error {response.status}: {error_text[:200]}")
+                    
+        except aiohttp.ClientError as e:
+            raise Exception(f"Gemini connection failed: {str(e)}")
+    
+    async def _stream_openai_compatible(self, provider: APIProvider, query: str, 
+                                       personality_context: str, memory_context: str) -> AsyncGenerator[str, None]:
+        """Stream response from OpenAI-compatible APIs (OpenAI, Grok)"""
+        config = self.api_configs[provider]
+        
+        messages = []
+        
+        # Build system message
+        system_parts = []
+        if personality_context:
+            system_parts.append(personality_context[:600])
+        if memory_context:
+            system_parts.append(f"Recent context: {memory_context[:300]}")
+        
+        if system_parts:
+            messages.append({"role": "system", "content": "\n\n".join(system_parts)})
+        
+        messages.append({"role": "user", "content": query})
+        
+        payload = {
+            "model": config['model'],
+            "messages": messages,
+            "max_tokens": min(getattr(settings, 'max_response_tokens', 200), 300),
+            "temperature": 0.7,
+            "stream": True
+        }
+        
+        headers = {
+            'Content-Type': 'application/json',
+            'Authorization': f'Bearer {config["api_key"]}'
+        }
+        
+        response_received = False
+        response_text = ""
+        
+        try:
+            async with self.session.post(config['base_url'], headers=headers, json=payload) as response:
+                if response.status == 200:
+                    async for line in response.content:
+                        if line:
+                            line_str = line.decode('utf-8').strip()
+                            if line_str.startswith('data: '):
+                                line_str = line_str[6:]
+                                if line_str == '[DONE]':
+                                    break
+                                try:
+                                    data = json.loads(line_str)
+                                    if 'choices' in data and data['choices']:
+                                        delta = data['choices'][0].get('delta', {})
+                                        if 'content' in delta and delta['content']:
+                                            text_chunk = delta['content']
+                                            response_text += text_chunk
+                                            yield text_chunk
+                                            response_received = True
+                                except json.JSONDecodeError:
+                                    continue
+                    
+                    if not response_received:
+                        if settings.debug_mode:
+                            print(f"No valid response from {provider.value}")
+                        # Don't yield error message here, let the main function handle it
+                
+                else:
+                    error_content = await response.text()
+                    if response.status == 429:
+                        raise Exception(f"Rate limited by {provider.value}")
+                    elif response.status == 401:
+                        raise Exception(f"Invalid API key for {provider.value}")
+                    else:
+                        raise Exception(f"{provider.value} API error {response.status}: {error_content[:200]}")
+                        
+        except aiohttp.ClientError as e:
+            raise Exception(f"{provider.value} connection failed: {str(e)}")
+    
+    async def generate_response(self, query: str, personality_context: str, memory_context: str) -> str:
+        """Generate non-streaming response (fallback)"""
+        if not self.initialization_successful or not self.available_providers:
+            return "I'm having trouble connecting to online services right now."
+        
+        # Collect streaming response
+        response_parts = []
+        try:
+            async for chunk in self.generate_response_stream(query, personality_context, memory_context):
+                response_parts.append(chunk)
+            
+            response = ''.join(response_parts)
+            
+            # Check if we got a valid response
+            if not response or response.startswith("I'm having trouble"):
+                return "I'm having trouble connecting to online services right now. Please try again."
+            
+            return response
+            
+        except Exception as e:
+            self.last_error = str(e)
+            if settings.debug_mode:
+                print(f"❌ Online response error: {str(e)[:150]}")
+            return f"I'm having trouble connecting to online services right now."
+    
+    def get_provider_stats(self) -> Dict[str, Any]:
+        """Get statistics for all providers"""
+        stats = {
+            'aiohttp_available': AIOHTTP_AVAILABLE,
+            'initialization_successful': self.initialization_successful,
+            'last_error': self.last_error,
+            'available_providers': [p.value for p in self.available_providers],
+            'preferred_provider': self.preferred_provider.value if self.preferred_provider else None,
+            'providers': {}
+        }
+        
+        for provider in APIProvider:
+            api_key = self.api_configs[provider].get('api_key') if hasattr(self, 'api_configs') else None
+            invalid_keys = [None, '', 'your_api_key_here', f'your_{provider.value}_api_key_here',
+                          'your_gemini_api_key_here', 'your_google_api_key_here']
+            api_key_configured = api_key and api_key not in invalid_keys
+            
+            provider_stats = {
+                'available': provider in self.available_providers,
+                'success_count': self.success_counts[provider],
+                'failure_count': self.failure_counts[provider],
+                'avg_response_time': 0,
+                'api_key_configured': api_key_configured
+            }
+            
+            if self.response_times[provider]:
+                provider_stats['avg_response_time'] = sum(self.response_times[provider]) / len(self.response_times[provider])
+            
+            stats['providers'][provider.value] = provider_stats
         
         return stats
     
-    def list_available_models(self) -> List[Dict[str, Any]]:
-        """List all available models with their stats"""
-        return [
-            {
-                "name": model.name,
-                "size": model.size,
-                "priority": model.priority,
-                "loaded": model.loaded,
-                "is_primary": model.priority == 1,
-                "is_fallback": model.priority in [2, 3, 4, 5, 6]
-            }
-            for model in self.available_models
-        ]
-    
     def is_available(self) -> bool:
-        """Check if offline LLM is ready"""
-        return self.ollama_available and self.model_loaded and self.current_model is not None
+        """Check if any online provider is available"""
+        return self.initialization_successful and len(self.available_providers) > 0
     
     async def close(self):
-        """Clean shutdown"""
-        # Cancel keep-alive task
-        if self.keep_alive_task:
-            self.keep_alive_task.cancel()
-            try:
-                await self.keep_alive_task
-            except asyncio.CancelledError:
-                pass
-        
-        # Close session
+        """Close the aiohttp session"""
         if self.session:
             await self.session.close()
-        
-        self.model_loaded = False
-        self.current_model = None
-        self.ollama_available = False
-
-# For backwards compatibility
-OptimizedOfflineLLM = LightningOfflineLLM
