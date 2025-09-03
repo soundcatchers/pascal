@@ -1,6 +1,6 @@
 """
 Pascal AI Assistant - Lightning-Fast Router with Streaming
-Intelligently routes requests between offline and online LLMs with streaming support
+Intelligently routes requests between offline and online LLMs with Gemini priority
 """
 
 import asyncio
@@ -43,7 +43,7 @@ class LightningRouter:
         self.online_llm = None
         
         # Router state
-        self.mode = RouteMode.OFFLINE_PREFERRED  # Default to offline for speed
+        self.mode = RouteMode.AUTO  # Changed to AUTO to use best available
         self.last_decision = None
         self.offline_available = False
         self.online_available = False
@@ -57,15 +57,15 @@ class LightningRouter:
             'needs_current_info': [
                 'current', 'latest', 'recent', 'today', 'now', 'news', 'update', 
                 'weather', '2024', '2025', 'this year', 'this month', 'what day',
-                'what date', 'current date', 'current time'
+                'what date', 'current date', 'current time', 'happening now'
             ],
             'simple_queries': [
                 'hi', 'hello', 'hey', 'thanks', 'bye', 'yes', 'no', 'ok', 
-                'what is', 'who is', 'how far', 'distance'
+                'what is', 'who is', 'how far', 'distance', 'define', 'meaning'
             ],
             'complex_queries': [
                 'analyze', 'compare', 'evaluate', 'research', 'detailed', 
-                'comprehensive', 'explain in detail'
+                'comprehensive', 'explain in detail', 'write code', 'debug'
             ]
         }
     
@@ -75,7 +75,7 @@ class LightningRouter:
             if settings.debug_mode:
                 print("⚡ Lightning Router checking LLM availability...")
             
-            # Initialize offline LLM first (priority for offline-first)
+            # Initialize offline LLM first (for fallback)
             try:
                 from modules.offline_llm import LightningOfflineLLM
                 self.offline_llm = LightningOfflineLLM()
@@ -95,14 +95,23 @@ class LightningRouter:
             
             # Initialize online LLM if API keys are available
             self.online_available = False
-            if getattr(settings, 'grok_api_key', None) or getattr(settings, 'openai_api_key', None) or getattr(settings, 'anthropic_api_key', None):
+            # Check for any API key
+            if (getattr(settings, 'gemini_api_key', None) or 
+                getattr(settings, 'google_api_key', None) or
+                getattr(settings, 'grok_api_key', None) or 
+                getattr(settings, 'openai_api_key', None)):
                 try:
                     from modules.online_llm import OnlineLLM
                     self.online_llm = OnlineLLM()
                     self.online_available = await self.online_llm.initialize()
                     
                     if self.online_available:
-                        print("✅ Online LLM ready (Grok/OpenAI/Anthropic)")
+                        # Show which provider is primary
+                        if self.online_llm.preferred_provider:
+                            provider_name = self.online_llm.preferred_provider.value.title()
+                            print(f"✅ Online LLM ready (Primary: {provider_name})")
+                        else:
+                            print("✅ Online LLM ready")
                     else:
                         # Get detailed error info
                         if self.online_llm and hasattr(self.online_llm, 'get_provider_stats'):
@@ -123,21 +132,26 @@ class LightningRouter:
                     print("ℹ️ No online API keys configured - running offline only")
                 self.online_available = False
             
-            # Final status
-            if not self.offline_available and not self.online_available:
+            # Adjust routing mode based on availability
+            if self.online_available and not self.offline_available:
+                self.mode = RouteMode.ONLINE_ONLY
+                print("ℹ️ Running in online-only mode (Gemini/other APIs)")
+            elif self.offline_available and not self.online_available:
+                self.mode = RouteMode.OFFLINE_ONLY
+                print("ℹ️ Running in offline-only mode (Ollama)")
+            elif self.offline_available and self.online_available:
+                # Both available - use auto mode for best performance
+                self.mode = RouteMode.AUTO
+                print("✅ Both offline and online LLMs available")
+            else:
                 print("❌ ERROR: No LLMs available!")
                 print("Solutions:")
                 print("1. For offline: sudo systemctl start ollama && ./download_models.sh")
-                print("2. For online: Configure API keys in .env file")
-            elif self.offline_available and not self.online_available:
-                print("ℹ️ Running in offline-only mode")
-            elif not self.offline_available and self.online_available:
-                print("ℹ️ Running in online-only mode")
-            else:
-                print("✅ Both offline and online LLMs available")
+                print("2. For online: Configure API keys in .env file (Gemini is free)")
             
             if settings.debug_mode:
                 print(f"Final status - Offline: {self.offline_available}, Online: {self.online_available}")
+                print(f"Routing mode: {self.mode.value}")
             
         except Exception as e:
             print(f"❌ Critical error in LLM availability check: {e}")
@@ -195,12 +209,29 @@ class LightningRouter:
             return RouteDecision(False, "Only online available", 1.0)
         
         # Both available - intelligent routing
-        # Only use online for queries that explicitly need current information
-        if analysis['needs_current_info']:
-            return RouteDecision(False, "Query needs current information", 0.9)
+        # For AUTO mode, prefer online (Gemini) for better quality unless query needs speed
+        if self.mode == RouteMode.AUTO:
+            # Use online for most queries since Gemini is fast and high quality
+            if analysis['is_simple'] and not analysis['needs_current_info']:
+                # Very simple queries can go offline for speed
+                return RouteDecision(True, "Simple query - using offline for speed", 0.8)
+            else:
+                # Everything else goes to online (Gemini) for quality
+                return RouteDecision(False, "Using online (Gemini) for quality", 0.95)
         
-        # Everything else goes to offline for speed
-        return RouteDecision(True, "Offline preferred for speed", 0.95)
+        # OFFLINE_PREFERRED mode
+        elif self.mode == RouteMode.OFFLINE_PREFERRED:
+            if analysis['needs_current_info']:
+                return RouteDecision(False, "Query needs current information", 0.9)
+            else:
+                return RouteDecision(True, "Offline preferred mode", 0.95)
+        
+        # ONLINE_PREFERRED mode
+        elif self.mode == RouteMode.ONLINE_PREFERRED:
+            return RouteDecision(False, "Online preferred mode", 0.95)
+        
+        # Default to offline for speed
+        return RouteDecision(True, "Default to offline", 0.7)
     
     async def get_streaming_response(self, query: str) -> AsyncGenerator[str, None]:
         """Get streaming response for instant feedback"""
@@ -283,17 +314,7 @@ class LightningRouter:
             
             else:
                 # Final fallback - try whatever is available
-                if self.offline_available and self.offline_llm:
-                    try:
-                        async for chunk in self.offline_llm.generate_response_stream(
-                            query, personality_context, memory_context
-                        ):
-                            yield chunk
-                            response_generated = True
-                    except Exception as e:
-                        yield f"I'm having trouble processing your request: {str(e)}"
-                        response_generated = True
-                elif self.online_available and self.online_llm:
+                if self.online_available and self.online_llm:
                     try:
                         async for chunk in self.online_llm.generate_response_stream(
                             query, personality_context, memory_context
@@ -301,7 +322,17 @@ class LightningRouter:
                             yield chunk
                             response_generated = True
                     except Exception as e:
-                        yield f"I'm having trouble processing your request: {str(e)}"
+                        yield f"Online service error: {str(e)}"
+                        response_generated = True
+                elif self.offline_available and self.offline_llm:
+                    try:
+                        async for chunk in self.offline_llm.generate_response_stream(
+                            query, personality_context, memory_context
+                        ):
+                            yield chunk
+                            response_generated = True
+                    except Exception as e:
+                        yield f"Offline service error: {str(e)}"
                         response_generated = True
                 else:
                     yield "I'm sorry, but no AI services are currently available. Please check that Ollama is running or configure API keys."
@@ -344,7 +375,9 @@ class LightningRouter:
                 not response.startswith("I'm sorry") and 
                 not response.startswith("Error") and 
                 not response.startswith("I'm having trouble") and
-                not response.startswith("I encountered an error")):
+                not response.startswith("I encountered an error") and
+                not response.startswith("Online service error") and
+                not response.startswith("Offline service error")):
                 await self.memory_manager.add_interaction(query, response)
             
             return response
@@ -380,6 +413,11 @@ class LightningRouter:
             'performance_mode': getattr(settings, 'performance_mode', 'balanced'),
             'streaming_enabled': getattr(settings, 'streaming_enabled', True)
         }
+        
+        # Add online provider info if available
+        if self.online_available and self.online_llm:
+            if hasattr(self.online_llm, 'preferred_provider'):
+                status['primary_online_provider'] = self.online_llm.preferred_provider.value if self.online_llm.preferred_provider else 'None'
         
         # Add performance metrics
         if self.response_times['offline']:
