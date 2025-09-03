@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-Pascal AI Assistant - Online LLM Diagnostic Script
-Complete diagnostic tool for online API connectivity issues
+Pascal AI Assistant - Online API Diagnostic Script with Gemini Support
+Complete diagnostic tool for online API connectivity including Google Gemini
 """
 
 import sys
@@ -13,8 +13,8 @@ from pathlib import Path
 sys.path.append(str(Path(__file__).parent))
 
 async def diagnose_online_apis():
-    """Complete diagnostic for online API connectivity"""
-    print("🌐 Pascal AI - Complete Online LLM Diagnostics")
+    """Complete diagnostic for online API connectivity including Gemini"""
+    print("🌐 Pascal AI - Complete Online LLM Diagnostics (with Gemini)")
     print("=" * 60)
     
     # Step 1: Check aiohttp availability
@@ -44,13 +44,14 @@ async def diagnose_online_apis():
     api_keys = {
         'Grok (xAI)': getattr(settings, 'grok_api_key', None),
         'OpenAI': getattr(settings, 'openai_api_key', None),
-        'Anthropic': getattr(settings, 'anthropic_api_key', None)
+        'Google Gemini': getattr(settings, 'gemini_api_key', None) or getattr(settings, 'google_api_key', None)
     }
     
     configured_apis = []
     for name, key in api_keys.items():
         provider_name = name.lower().split()[0]  # Extract provider name
-        invalid_keys = [None, '', 'your_api_key_here', f'your_{provider_name}_api_key_here']
+        invalid_keys = [None, '', 'your_api_key_here', f'your_{provider_name}_api_key_here',
+                       'your_gemini_api_key_here', 'your_google_api_key_here']
         
         if key and key not in invalid_keys:
             print(f"✅ {name}: Configured (key length: {len(str(key))})")
@@ -66,8 +67,12 @@ async def diagnose_online_apis():
         print("3. Add real API keys:")
         print("   GROK_API_KEY=xai-your-actual-key-here")
         print("   OPENAI_API_KEY=sk-your-actual-key-here")  
-        print("   ANTHROPIC_API_KEY=sk-ant-your-actual-key-here")
-        print("\nNote: You only need one valid API key for online functionality")
+        print("   GEMINI_API_KEY=your-gemini-key-here")
+        print("\nGet API keys from:")
+        print("   Grok: https://x.ai")
+        print("   OpenAI: https://platform.openai.com/api-keys")
+        print("   Gemini: https://aistudio.google.com/app/apikey")
+        print("\nNote: You only need ONE valid API key for online functionality")
         return False
     
     # Step 4: Test online LLM initialization
@@ -107,33 +112,34 @@ async def diagnose_online_apis():
             
             # Step 5: Test actual API functionality
             print(f"\n🧪 Testing Live API Response:")
-            try:
-                test_query = "Respond with exactly: 'API test successful'"
-                response = await online_llm.generate_response(
-                    test_query,
-                    "You are a helpful assistant.", 
-                    ""
-                )
-                
-                if "API test successful" in response:
-                    print("✅ API response test: SUCCESS")
-                    print(f"Full response: {response}")
-                elif response and len(response) > 10 and not response.startswith("I'm having trouble"):
-                    print("⚠️ API working but gave unexpected response:")
-                    print(f"Response: {response[:200]}...")
-                    print("This usually means the API is working correctly.")
-                else:
-                    print("❌ API response test failed:")
-                    print(f"Response: {response}")
-                    
-                    # Additional debugging
-                    print("\nDebugging info:")
-                    if hasattr(online_llm, 'last_error') and online_llm.last_error:
-                        print(f"Last error: {online_llm.last_error}")
             
-            except Exception as e:
-                print(f"❌ API response test failed with exception: {e}")
-                print("\nThis indicates a connectivity or API key issue.")
+            # Test each available provider
+            for provider_name in stats['available_providers']:
+                print(f"\nTesting {provider_name}...")
+                try:
+                    test_query = f"Respond with exactly: '{provider_name} API test successful'"
+                    response = await online_llm.generate_response(
+                        test_query,
+                        "You are a helpful assistant.", 
+                        ""
+                    )
+                    
+                    if "test successful" in response.lower():
+                        print(f"✅ {provider_name} response test: SUCCESS")
+                        print(f"Response: {response}")
+                    elif response and len(response) > 10:
+                        print(f"⚠️ {provider_name} working but gave unexpected response:")
+                        print(f"Response: {response[:200]}...")
+                    else:
+                        print(f"❌ {provider_name} response test failed:")
+                        print(f"Response: {response}")
+                    
+                    # Only test first working provider for speed
+                    break
+                    
+                except Exception as e:
+                    print(f"❌ {provider_name} test error: {e}")
+                    continue
             
             await online_llm.close()
             return True
@@ -160,7 +166,10 @@ async def diagnose_online_apis():
             print("1. Verify internet connection")
             print("2. Check API keys are valid and have quota/credits")
             print("3. Ensure no extra spaces/quotes in .env file")
-            print("4. Test API keys directly with curl/postman")
+            print("4. Test API keys directly:")
+            print("   - Grok: Check at https://x.ai")
+            print("   - OpenAI: Check at https://platform.openai.com")
+            print("   - Gemini: Check at https://aistudio.google.com")
             print("5. Check firewall/proxy settings")
             
             await online_llm.close()
@@ -224,7 +233,7 @@ def check_environment():
     
     # Dependencies check
     print(f"\n📦 Key Dependencies:")
-    dependencies = ['aiohttp', 'openai', 'anthropic', 'requests']
+    dependencies = ['aiohttp', 'openai', 'requests']
     
     for dep in dependencies:
         try:
@@ -249,11 +258,12 @@ def main():
         
         if result:
             print("✅ Online LLM diagnostics PASSED!")
-            print("\nReady to use online services!")
+            print("\nReady to use online services with Gemini support!")
             print("\nNext steps:")
             print("1. Run Pascal: ./run.sh")
             print("2. Test offline: 'what is 2+2?'")
             print("3. Test online: 'what is today's date?'")
+            print("4. Test Gemini specifically if configured")
         else:
             print("❌ Online LLM diagnostics FAILED!")
             print("\nPlease fix the issues above.")
