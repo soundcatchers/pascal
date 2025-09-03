@@ -226,4 +226,140 @@ class Settings:
             }
         }
         
-        return profiles
+        return profiles.get(self.performance_mode, profiles['speed'])
+    
+    def set_performance_mode(self, mode: str):
+        """Set performance mode (speed/balanced/quality)"""
+        if mode in ['speed', 'balanced', 'quality']:
+            self.performance_mode = mode
+            if self.debug_mode:
+                print(f"Performance mode set to: {mode}")
+    
+    def get_hardware_info(self) -> Dict[str, Any]:
+        """Get hardware information for optimization"""
+        return {
+            'is_raspberry_pi': self.is_raspberry_pi,
+            'pi_model': self.pi_model,
+            'available_ram_gb': self.available_ram_gb,
+            'cpu_cores': self.local_model_threads,
+            'arm_optimizations_enabled': self.use_arm_optimizations,
+            'performance_mode': self.performance_mode,
+            'streaming_enabled': self.streaming_enabled,
+            'keep_alive_enabled': self.keep_alive_enabled
+        }
+    
+    def get_config_summary(self) -> Dict[str, Any]:
+        """Get configuration summary for status display"""
+        return {
+            "pascal_version": self.version,
+            "base_directory": str(self.base_dir),
+            "personality": self.default_personality,
+            "online_apis_configured": self.is_online_available(),
+            "grok_configured": bool(self.grok_api_key),
+            "gemini_configured": bool(self.gemini_api_key),
+            "local_model_available": self.is_local_model_available(),
+            "prefer_offline": self.prefer_offline,
+            "debug_mode": self.debug_mode,
+            "memory_enabled": self.long_term_memory_enabled,
+            "performance_mode": self.performance_mode,
+            "hardware_info": self.get_hardware_info(),
+            "arm_optimizations": self.use_arm_optimizations,
+            "streaming_enabled": self.streaming_enabled,
+            "target_response_time": self.target_response_time,
+            "preferred_models": self.preferred_models,
+            "available_models": len(list(self.models_dir.glob("*.gguf"))) if self.models_dir.exists() else 0
+        }
+    
+    def update_from_env(self):
+        """Update settings from environment variables"""
+        # Performance mode
+        env_perf_mode = os.getenv("PERFORMANCE_MODE")
+        if env_perf_mode in ['speed', 'balanced', 'quality']:
+            self.performance_mode = env_perf_mode
+        
+        # Thread count
+        env_threads = os.getenv("LLM_THREADS")
+        if env_threads and env_threads.isdigit():
+            self.local_model_threads = min(int(env_threads), 4)  # Max 4 for Pi 5
+        
+        # Context size
+        env_context = os.getenv("LLM_CONTEXT")
+        if env_context and env_context.isdigit():
+            self.local_model_context = int(env_context)
+        
+        # Max response tokens
+        env_max_tokens = os.getenv("MAX_RESPONSE_TOKENS")
+        if env_max_tokens and env_max_tokens.isdigit():
+            self.max_response_tokens = int(env_max_tokens)
+        
+        # Streaming
+        env_streaming = os.getenv("STREAMING_ENABLED")
+        if env_streaming:
+            self.streaming_enabled = env_streaming.lower() == "true"
+        
+        # Keep alive
+        env_keep_alive = os.getenv("KEEP_ALIVE_ENABLED")
+        if env_keep_alive:
+            self.keep_alive_enabled = env_keep_alive.lower() == "true"
+    
+    def save_performance_settings(self):
+        """Save current performance settings to file"""
+        settings_file = self.config_dir / "performance_settings.json"
+        settings_data = {
+            'performance_mode': self.performance_mode,
+            'local_model_threads': self.local_model_threads,
+            'local_model_context': self.local_model_context,
+            'max_response_tokens': self.max_response_tokens,
+            'use_arm_optimizations': self.use_arm_optimizations,
+            'streaming_enabled': self.streaming_enabled,
+            'keep_alive_enabled': self.keep_alive_enabled,
+            'target_response_time': self.target_response_time,
+            'preferred_models': self.preferred_models,
+            'updated_timestamp': os.time.time() if hasattr(os, 'time') else 0
+        }
+        
+        try:
+            with open(settings_file, 'w') as f:
+                json.dump(settings_data, f, indent=2)
+        except Exception as e:
+            if self.debug_mode:
+                print(f"Failed to save performance settings: {e}")
+    
+    def load_performance_settings(self):
+        """Load performance settings from file"""
+        settings_file = self.config_dir / "performance_settings.json"
+        
+        if not settings_file.exists():
+            return
+        
+        try:
+            with open(settings_file, 'r') as f:
+                settings_data = json.load(f)
+            
+            self.performance_mode = settings_data.get('performance_mode', self.performance_mode)
+            self.local_model_threads = settings_data.get('local_model_threads', self.local_model_threads)
+            self.local_model_context = settings_data.get('local_model_context', self.local_model_context)
+            self.max_response_tokens = settings_data.get('max_response_tokens', self.max_response_tokens)
+            self.use_arm_optimizations = settings_data.get('use_arm_optimizations', self.use_arm_optimizations)
+            self.streaming_enabled = settings_data.get('streaming_enabled', self.streaming_enabled)
+            self.keep_alive_enabled = settings_data.get('keep_alive_enabled', self.keep_alive_enabled)
+            self.target_response_time = settings_data.get('target_response_time', self.target_response_time)
+            self.preferred_models = settings_data.get('preferred_models', self.preferred_models)
+            
+        except Exception as e:
+            if self.debug_mode:
+                print(f"Failed to load performance settings: {e}")
+
+# Global settings instance
+settings = Settings()
+
+# Load any saved performance settings
+settings.load_performance_settings()
+
+# Update from environment variables
+settings.update_from_env()
+
+# Export commonly used paths
+BASE_DIR = settings.base_dir
+CONFIG_DIR = settings.config_dir
+DATA_DIR = settings.data_dir
