@@ -1,6 +1,6 @@
 """
 Pascal AI Assistant - Online LLM Integration with Gemini Support
-Handles API calls to Grok, OpenAI, and Google Gemini with streaming support
+Handles API calls to Grok, OpenAI, and Google Gemini with streaming support - FIXED
 """
 
 import asyncio
@@ -55,9 +55,9 @@ class OnlineLLM:
                 'api_key': getattr(settings, 'openai_api_key', None)
             },
             APIProvider.GEMINI: {
-                'base_url': 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:streamGenerateContent',
+                'base_url': 'https://generativelanguage.googleapis.com/v1beta/models',
                 'model': 'gemini-2.0-flash-exp',
-                'api_key': getattr(settings, 'gemini_api_key', None)
+                'api_key': getattr(settings, 'gemini_api_key', None) or getattr(settings, 'google_api_key', None)
             }
         }
         
@@ -151,14 +151,9 @@ class OnlineLLM:
             config = self.api_configs[provider]
             
             if provider == APIProvider.GEMINI:
-                # Test Gemini API
-                headers = {
-                    'Content-Type': 'application/json',
-                    'x-goog-api-key': config['api_key']
-                }
+                # Test Gemini API - just check if we can list models
                 test_url = f"https://generativelanguage.googleapis.com/v1beta/models?key={config['api_key']}"
                 
-                # Just check if we can list models
                 test_timeout = aiohttp.ClientTimeout(total=10)
                 async with self.session.get(
                     test_url,
@@ -172,20 +167,8 @@ class OnlineLLM:
                         return True
                     return False
                     
-            elif provider == APIProvider.OPENAI:
-                # OpenAI compatible test
-                headers = {
-                    'Content-Type': 'application/json',
-                    'Authorization': f'Bearer {config["api_key"]}'
-                }
-                payload = {
-                    "model": config['model'],
-                    "messages": [{"role": "user", "content": "hi"}],
-                    "max_tokens": 5,
-                    "temperature": 0.5
-                }
             else:
-                # Grok compatible test
+                # OpenAI/Grok compatible test
                 headers = {
                     'Content-Type': 'application/json',
                     'Authorization': f'Bearer {config["api_key"]}'
@@ -196,9 +179,8 @@ class OnlineLLM:
                     "max_tokens": 5,
                     "temperature": 0.5
                 }
-            
-            if provider != APIProvider.GEMINI:
-                # Quick test with short timeout for non-Gemini
+                
+                # Quick test with short timeout
                 test_timeout = aiohttp.ClientTimeout(total=20)
                 async with self.session.post(
                     config['base_url'],
@@ -206,17 +188,26 @@ class OnlineLLM:
                     json=payload,
                     timeout=test_timeout
                 ) as response:
-                    if response.status in [200, 400, 401, 429]:
-                        if response.status == 429:
-                            if settings.debug_mode:
-                                print(f"⚠️ {provider.value} rate limited but reachable")
-                            return True
-                        elif response.status == 401:
-                            if settings.debug_mode:
-                                print(f"⚠️ {provider.value} invalid API key")
-                            return False
+                    # Accept various response codes but handle quota/permission errors
+                    if response.status == 200:
                         return True
-                    return False
+                    elif response.status == 429:
+                        # Rate limit or quota exceeded
+                        if settings.debug_mode:
+                            print(f"⚠️ {provider.value} quota exceeded or rate limited")
+                        return False  # Don't use if quota exceeded
+                    elif response.status == 401:
+                        # Invalid API key
+                        if settings.debug_mode:
+                            print(f"⚠️ {provider.value} invalid API key")
+                        return False
+                    elif response.status == 403:
+                        # No permission/credits
+                        if settings.debug_mode:
+                            print(f"⚠️ {provider.value} no credits or permission denied")
+                        return False
+                    else:
+                        return False
                     
         except asyncio.TimeoutError:
             if settings.debug_mode:
@@ -257,15 +248,24 @@ class OnlineLLM:
                     print(f"🔄 Trying provider: {provider.value}")
                 
                 response_generated = False
-                async for chunk in self._stream_from_provider(provider, query, personality_context, memory_context):
-                    yield chunk
-                    response_generated = True
+                response_buffer = []
                 
-                if response_generated:
+                async for chunk in self._stream_from_provider(provider, query, personality_context, memory_context):
+                    if chunk:  # Only yield non-empty chunks
+                        yield chunk
+                        response_buffer.append(chunk)
+                        response_generated = True
+                
+                if response_generated and len(''.join(response_buffer)) > 0:
                     self.success_counts[provider] += 1
                     if settings.debug_mode:
                         print(f"✅ Success with {provider.value}")
-                    return
+                    return  # Successfully got response, exit
+                else:
+                    # No response from this provider, try next
+                    if settings.debug_mode:
+                        print(f"⚠️ No response from {provider.value}, trying next provider")
+                    continue
                 
             except Exception as e:
                 self.failure_counts[provider] += 1
@@ -276,7 +276,7 @@ class OnlineLLM:
         
         # All providers failed
         self.last_error = last_error
-        yield "I'm having trouble connecting to online services right now."
+        yield f"I'm having trouble connecting to online services. Error: {last_error}"
     
     async def _stream_from_provider(self, provider: APIProvider, query: str, 
                                    personality_context: str, memory_context: str) -> AsyncGenerator[str, None]:
@@ -298,12 +298,12 @@ class OnlineLLM:
             raise Exception(f"{provider.value} connection error: {str(e)}")
         except Exception as e:
             raise Exception(f"{provider.value} error: {str(e)}")
-        
-        # Record response time
-        response_time = time.time() - start_time
-        self.response_times[provider].append(response_time)
-        if len(self.response_times[provider]) > 10:
-            self.response_times[provider] = self.response_times[provider][-10:]
+        finally:
+            # Record response time
+            response_time = time.time() - start_time
+            self.response_times[provider].append(response_time)
+            if len(self.response_times[provider]) > 10:
+                self.response_times[provider] = self.response_times[provider][-10:]
     
     async def _stream_gemini(self, query: str, personality_context: str, memory_context: str) -> AsyncGenerator[str, None]:
         """Stream response from Google Gemini API"""
@@ -334,14 +334,16 @@ class OnlineLLM:
             }
         }
         
-        # Use streaming endpoint
-        stream_url = f"https://generativelanguage.googleapis.com/v1beta/models/{config['model']}:streamGenerateContent?key={config['api_key']}"
+        # Use streaming endpoint with API key in URL
+        stream_url = f"{config['base_url']}/{config['model']}:streamGenerateContent?key={config['api_key']}"
         
         headers = {
             'Content-Type': 'application/json'
         }
         
         response_received = False
+        response_text = ""
+        
         try:
             async with self.session.post(stream_url, headers=headers, json=payload) as response:
                 if response.status == 200:
@@ -351,23 +353,38 @@ class OnlineLLM:
                                 # Parse the JSON response
                                 line_str = line.decode('utf-8').strip()
                                 if line_str:
-                                    data = json.loads(line_str)
-                                    # Extract text from Gemini response format
-                                    if 'candidates' in data:
-                                        for candidate in data['candidates']:
-                                            if 'content' in candidate and 'parts' in candidate['content']:
-                                                for part in candidate['content']['parts']:
-                                                    if 'text' in part:
-                                                        yield part['text']
-                                                        response_received = True
-                            except json.JSONDecodeError:
+                                    # Gemini sometimes sends multiple JSON objects in one line
+                                    # Split by newline and parse each
+                                    for json_str in line_str.split('\n'):
+                                        if json_str.strip():
+                                            try:
+                                                data = json.loads(json_str)
+                                                # Extract text from Gemini response format
+                                                if 'candidates' in data:
+                                                    for candidate in data['candidates']:
+                                                        if 'content' in candidate and 'parts' in candidate['content']:
+                                                            for part in candidate['content']['parts']:
+                                                                if 'text' in part:
+                                                                    text_chunk = part['text']
+                                                                    response_text += text_chunk
+                                                                    yield text_chunk
+                                                                    response_received = True
+                                            except json.JSONDecodeError:
+                                                continue
+                            except Exception as parse_error:
+                                if settings.debug_mode:
+                                    print(f"Parse error in Gemini response: {parse_error}")
                                 continue
                     
                     if not response_received:
-                        yield "No response received from Gemini."
+                        if settings.debug_mode:
+                            print(f"No valid response from Gemini")
+                        # Don't yield error message here, let the main function handle it
+                        
                 else:
                     error_text = await response.text()
                     raise Exception(f"Gemini API error {response.status}: {error_text[:200]}")
+                    
         except aiohttp.ClientError as e:
             raise Exception(f"Gemini connection failed: {str(e)}")
     
@@ -404,6 +421,7 @@ class OnlineLLM:
         }
         
         response_received = False
+        response_text = ""
         
         try:
             async with self.session.post(config['base_url'], headers=headers, json=payload) as response:
@@ -420,13 +438,17 @@ class OnlineLLM:
                                     if 'choices' in data and data['choices']:
                                         delta = data['choices'][0].get('delta', {})
                                         if 'content' in delta and delta['content']:
-                                            yield delta['content']
+                                            text_chunk = delta['content']
+                                            response_text += text_chunk
+                                            yield text_chunk
                                             response_received = True
                                 except json.JSONDecodeError:
                                     continue
                     
                     if not response_received:
-                        yield f"No response received from {provider.value}."
+                        if settings.debug_mode:
+                            print(f"No valid response from {provider.value}")
+                        # Don't yield error message here, let the main function handle it
                 
                 else:
                     error_content = await response.text()
@@ -452,7 +474,12 @@ class OnlineLLM:
                 response_parts.append(chunk)
             
             response = ''.join(response_parts)
-            return response if response else "No response received from online services."
+            
+            # Check if we got a valid response
+            if not response or response.startswith("I'm having trouble"):
+                return "I'm having trouble connecting to online services right now. Please try again."
+            
+            return response
             
         except Exception as e:
             self.last_error = str(e)
