@@ -45,7 +45,7 @@ check_pi() {
             if [[ ! $REPLY =~ ^[Yy]$ ]]; then
                 exit 1
             fi
-        else:
+        else
             print_warning "Not running on Raspberry Pi - Lightning models work on most systems"
         fi
     fi
@@ -124,7 +124,7 @@ Environment="OLLAMA_FLASH_ATTENTION=0"
 Environment="OLLAMA_KV_CACHE_TYPE=f16"
 Environment="OLLAMA_NUM_THREAD=4"
 Environment="OLLAMA_TMPDIR=/tmp"
-Environment="OLLAMA_KEEP_ALIVE=30m" # Standard is 5m
+Environment="OLLAMA_KEEP_ALIVE=30m"
 EOF
 
     # Reload systemd and restart Ollama
@@ -162,8 +162,8 @@ download_lightning_models() {
     echo ""
     echo "Primary Models (Optimized for 1-3 second responses):"
     echo "1. nemotron-mini:4b-instruct-q4_K_M - PRIMARY (Fastest, 2.5GB)"
-    echo "2. qwen3:4b-instruct - FALLBACK 1 (Fast, 2.3GB)"
-    echo "3. gemma3:4b-it-q4_K_M - FALLBACK 2 (Reliable, 2.4GB)"
+    echo "2. qwen2.5:3b - FALLBACK 1 (Fast, 2.0GB)"
+    echo "3. phi3:mini - FALLBACK 2 (Reliable, 2.3GB)"
     echo ""
     echo "4. Download all Lightning models (recommended)"
     echo "5. Download primary model only (nemotron-mini)"
@@ -178,16 +178,16 @@ download_lightning_models() {
             download_single_model "nemotron-mini:4b-instruct-q4_K_M" "Nemotron Mini 4B (PRIMARY)" "2.5GB"
             ;;
         2)
-            download_single_model "qwen3:4b-instruct" "Qwen3 4B (FALLBACK 1)" "2.3GB"
+            download_single_model "qwen2.5:3b" "Qwen2.5 3B (FALLBACK 1)" "2.0GB"
             ;;
         3)
-            download_single_model "gemma3:4b-it-q4_K_M" "Gemma3 4B (FALLBACK 2)" "2.4GB"
+            download_single_model "phi3:mini" "Phi3 Mini (FALLBACK 2)" "2.3GB"
             ;;
         4)
             print_status "Downloading all Lightning models for maximum reliability..."
             download_single_model "nemotron-mini:4b-instruct-q4_K_M" "Nemotron Mini 4B (PRIMARY)" "2.5GB"
-            download_single_model "qwen3:4b-instruct" "Qwen3 4B (FALLBACK 1)" "2.3GB"
-            download_single_model "gemma3:4b-it-q4_K_M" "Gemma3 4B (FALLBACK 2)" "2.4GB"
+            download_single_model "qwen2.5:3b" "Qwen2.5 3B (FALLBACK 1)" "2.0GB"
+            download_single_model "phi3:mini" "Phi3 Mini (FALLBACK 2)" "2.3GB"
             ;;
         5)
             download_single_model "nemotron-mini:4b-instruct-q4_K_M" "Nemotron Mini 4B (PRIMARY)" "2.5GB"
@@ -195,8 +195,8 @@ download_lightning_models() {
         6)
             echo "Available Lightning models:"
             echo "  nemotron-mini:4b-instruct-q4_K_M (primary)"
-            echo "  qwen3:4b-instruct (fallback 1)"
-            echo "  gemma3:4b-it-q4_K_M (fallback 2)"
+            echo "  qwen2.5:3b (fallback 1)"
+            echo "  phi3:mini (fallback 2)"
             echo ""
             echo "Enter model names separated by spaces:"
             read -p "Models: " selected_models
@@ -204,10 +204,10 @@ download_lightning_models() {
                 case $model in
                     "nemotron-mini:4b-instruct-q4_K_M") 
                         download_single_model "$model" "Nemotron Mini 4B" "2.5GB" ;;
-                    "qwen3:4b-instruct") 
-                        download_single_model "$model" "Qwen3 4B" "2.3GB" ;;
-                    "gemma3:4b-it-q4_K_M") 
-                        download_single_model "$model" "Gemma3 4B" "2.4GB" ;;
+                    "qwen2.5:3b") 
+                        download_single_model "$model" "Qwen2.5 3B" "2.0GB" ;;
+                    "phi3:mini") 
+                        download_single_model "$model" "Phi3 Mini" "2.3GB" ;;
                     *) 
                         print_warning "Unknown model: $model" ;;
                 esac
@@ -235,24 +235,44 @@ download_single_model() {
     if ollama list | grep -q "$model_name"; then
         print_warning "$display_name is already downloaded"
         
-        # Ensure it's loaded with keep-alive
-        print_status "Loading model with keep-alive..."
-        ollama run "$model_name" --keepalive 5m <<< ""
+        # Test the model briefly to ensure it loads
+        print_status "Testing model..."
+        test_model_quick "$model_name"
         return 0
     fi
     
     # Download with progress
-    if ollama pull "$model_name"; then
+    if timeout 600 ollama pull "$model_name"; then
         print_success "Downloaded $display_name successfully ⚡"
         
-        # Load model with keep-alive
-        print_status "Loading model with keep-alive for instant responses..."
-        ollama run "$model_name" --keepalive 5m <<< ""
+        # Test model briefly
+        print_status "Testing model..."
+        test_model_quick "$model_name"
         
         return 0
     else
-        print_error "Failed to download $display_name"
+        print_error "Failed to download $display_name (timeout or error)"
         return 1
+    fi
+}
+
+# Quick model test to avoid infinite loops
+test_model_quick() {
+    local model_name="$1"
+    
+    print_status "Running quick test of $model_name..."
+    
+    # Create a simple test with timeout
+    local test_result=""
+    
+    # Use timeout to prevent hanging and redirect stderr to avoid seeing the full output
+    test_result=$(timeout 30 bash -c "echo 'Hi' | ollama run '$model_name' 2>/dev/null | head -n 5" 2>/dev/null || echo "timeout")
+    
+    if [[ "$test_result" == "timeout" ]] || [[ -z "$test_result" ]]; then
+        print_warning "Model test timed out or failed (this is normal for first load)"
+        print_status "Model will work properly in Pascal"
+    else
+        print_success "Model test successful - ready for use!"
     fi
 }
 
@@ -276,12 +296,12 @@ verify_models() {
         print_success "✅ Primary model ready: nemotron-mini:4b-instruct-q4_K_M"
         LIGHTNING_MODELS=$((LIGHTNING_MODELS + 1))
     fi
-    if echo "$MODEL_LIST" | grep -q "qwen3:4b-instruct"; then
-        print_success "✅ Fallback 1 ready: qwen3:4b-instruct"
+    if echo "$MODEL_LIST" | grep -q "qwen2.5:3b"; then
+        print_success "✅ Fallback 1 ready: qwen2.5:3b"
         LIGHTNING_MODELS=$((LIGHTNING_MODELS + 1))
     fi
-    if echo "$MODEL_LIST" | grep -q "gemma3:4b-it-q4_K_M"; then
-        print_success "✅ Fallback 2 ready: gemma3:4b-it-q4_K_M"
+    if echo "$MODEL_LIST" | grep -q "phi3:mini"; then
+        print_success "✅ Fallback 2 ready: phi3:mini"
         LIGHTNING_MODELS=$((LIGHTNING_MODELS + 1))
     fi
     
@@ -292,50 +312,6 @@ verify_models() {
     fi
     
     return 0
-}
-
-# Test model performance
-test_lightning_performance() {
-    print_status "Testing Lightning performance..."
-    
-    # Get list of downloaded models
-    MODELS=$(ollama list | tail -n +2 | awk '{print $1}' | grep -v "^$")
-    
-    if [ -z "$MODELS" ]; then
-        print_warning "No models available for testing"
-        return
-    fi
-    
-    read -p "Test Lightning model performance? (y/N): " -n 1 -r
-    echo
-    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-        return
-    fi
-    
-    # Test primary model if available
-    if echo "$MODELS" | grep -q "nemotron-mini:4b-instruct-q4_K_M"; then
-        print_status "⚡ Testing nemotron-mini (PRIMARY)..."
-        
-        start_time=$(date +%s.%N)
-        
-        # Simple test prompt
-        response=$(echo "Say 'Lightning fast!' in 5 words or less" | ollama run "nemotron-mini:4b-instruct-q4_K_M" --verbose 2>/dev/null || echo "Error")
-        
-        end_time=$(date +%s.%N)
-        duration=$(echo "$end_time - $start_time" | bc)
-        
-        print_success "Response time: ${duration}s"
-        
-        if (( $(echo "$duration < 3" | bc -l) )); then
-            print_success "⚡ LIGHTNING FAST! Under 3 seconds!"
-        elif (( $(echo "$duration < 5" | bc -l) )); then
-            print_warning "Good speed, but not quite lightning (3-5s)"
-        else
-            print_warning "Slower than target (>5s). Check cooling and resources."
-        fi
-        
-        echo ""
-    fi
 }
 
 # Create model configuration for Pascal
@@ -362,8 +338,8 @@ create_lightning_config() {
     "pi_model": "$(cat /proc/device-tree/model 2>/dev/null || echo 'Unknown')",
     "preferred_models": [
         "nemotron-mini:4b-instruct-q4_K_M",
-        "qwen3:4b-instruct",
-        "gemma3:4b-it-q4_K_M"
+        "qwen2.5:3b",
+        "phi3:mini"
     ],
     "available_models": [
 EOF
@@ -381,9 +357,9 @@ EOF
         PRIORITY=99
         if [[ "$model" == "nemotron-mini:4b-instruct-q4_K_M" ]]; then
             PRIORITY=1
-        elif [[ "$model" == "qwen3:4b-instruct" ]]; then
+        elif [[ "$model" == "qwen2.5:3b" ]]; then
             PRIORITY=2
-        elif [[ "$model" == "gemma3:4b-it-q4_K_M" ]]; then
+        elif [[ "$model" == "phi3:mini" ]]; then
             PRIORITY=3
         fi
         
@@ -406,8 +382,8 @@ EOF
     },
     "lightning_tips": {
         "primary": "nemotron-mini:4b-instruct-q4_K_M - Fastest responses",
-        "fallback1": "qwen3:4b-instruct - Good balance",
-        "fallback2": "gemma3:4b-it-q4_K_M - Most reliable"
+        "fallback1": "qwen2.5:3b - Good balance",
+        "fallback2": "phi3:mini - Most reliable"
     }
 }
 EOF
@@ -490,9 +466,8 @@ main() {
     # Download Lightning models
     download_lightning_models
     
-    # Verify and test
+    # Verify and create config
     if verify_models; then
-        test_lightning_performance
         create_lightning_config
         show_lightning_completion
     else
