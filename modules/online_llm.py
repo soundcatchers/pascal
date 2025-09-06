@@ -1,6 +1,6 @@
 """
-Pascal AI Assistant - Online LLM Integration with Gemini Support
-Handles API calls to Grok, OpenAI, and Google Gemini with streaming support - FIXED
+Pascal AI Assistant - Online LLM Integration with Groq Priority
+Handles API calls to Groq (primary), Gemini (secondary), and OpenAI (fallback) with streaming support
 """
 
 import asyncio
@@ -18,13 +18,13 @@ except ImportError:
 from config.settings import settings
 
 class APIProvider(Enum):
-    """Available API providers"""
-    GROK = "grok"
-    OPENAI = "openai"
-    GEMINI = "gemini"
+    """Available API providers in priority order"""
+    GROQ = "groq"      # Primary - fastest and most efficient
+    GEMINI = "gemini"  # Secondary - good quality and free
+    OPENAI = "openai"  # Fallback - reliable but paid
 
 class OnlineLLM:
-    """Manages online LLM API calls with Grok as primary, Gemini as alternative"""
+    """Manages online LLM API calls with Groq as primary, Gemini as secondary, OpenAI as fallback"""
     
     def __init__(self):
         self.session = None
@@ -42,22 +42,22 @@ class OnlineLLM:
             self.api_configs = {}
             return
         
-        # API configurations - Including Google Gemini
+        # API configurations - Groq as primary, Gemini as secondary, OpenAI as fallback
         self.api_configs = {
-            APIProvider.GROK: {
-                'base_url': 'https://api.x.ai/v1/chat/completions',
-                'model': 'grok-beta',
-                'api_key': getattr(settings, 'grok_api_key', None)
-            },
-            APIProvider.OPENAI: {
-                'base_url': 'https://api.openai.com/v1/chat/completions',
-                'model': 'gpt-4o-mini',
-                'api_key': getattr(settings, 'openai_api_key', None)
+            APIProvider.GROQ: {
+                'base_url': 'https://api.groq.com/openai/v1/chat/completions',
+                'model': 'llama-3.1-70b-versatile',  # Fast and capable model
+                'api_key': getattr(settings, 'grok_api_key', None)  # Using grok_api_key for Groq
             },
             APIProvider.GEMINI: {
                 'base_url': 'https://generativelanguage.googleapis.com/v1beta/models',
                 'model': 'gemini-2.0-flash-exp',
                 'api_key': getattr(settings, 'gemini_api_key', None) or getattr(settings, 'google_api_key', None)
+            },
+            APIProvider.OPENAI: {
+                'base_url': 'https://api.openai.com/v1/chat/completions',
+                'model': 'gpt-4o-mini',
+                'api_key': getattr(settings, 'openai_api_key', None)
             }
         }
         
@@ -80,7 +80,7 @@ class OnlineLLM:
             connector = aiohttp.TCPConnector(limit=10, force_close=True)
             self.session = aiohttp.ClientSession(timeout=timeout, connector=connector)
             
-            # Check which providers are available - PRIORITIZE GROK
+            # Check which providers are available - PRIORITIZE GROQ FIRST
             await self._check_available_providers()
             
             if not self.available_providers:
@@ -90,8 +90,8 @@ class OnlineLLM:
                     print("   Check API keys in .env file")
                 return False
             
-            # Set preferred provider - GROK FIRST, then OpenAI, then Gemini
-            for provider in [APIProvider.GROK, APIProvider.OPENAI, APIProvider.GEMINI]:
+            # Set preferred provider - GROQ FIRST, then GEMINI, then OPENAI
+            for provider in [APIProvider.GROQ, APIProvider.GEMINI, APIProvider.OPENAI]:
                 if provider in self.available_providers:
                     self.preferred_provider = provider
                     break
@@ -117,8 +117,8 @@ class OnlineLLM:
         """Check which API providers are configured and working"""
         self.available_providers = []
         
-        # Check providers in priority order: Grok -> OpenAI -> Gemini
-        priority_order = [APIProvider.GROK, APIProvider.OPENAI, APIProvider.GEMINI]
+        # Check providers in priority order: Groq -> Gemini -> OpenAI
+        priority_order = [APIProvider.GROQ, APIProvider.GEMINI, APIProvider.OPENAI]
         
         for provider in priority_order:
             config = self.api_configs[provider]
@@ -126,7 +126,8 @@ class OnlineLLM:
             
             # Skip if no API key or placeholder
             invalid_keys = [None, '', 'your_api_key_here', f'your_{provider.value}_api_key_here', 
-                          'your_gemini_api_key_here', 'your_google_api_key_here']
+                          'your_gemini_api_key_here', 'your_google_api_key_here',
+                          'your_grok_api_key_here', 'your_groq_api_key_here']
             if api_key in invalid_keys:
                 if settings.debug_mode:
                     print(f"⏭️ Skipping {provider.value} - no valid API key")
@@ -168,7 +169,7 @@ class OnlineLLM:
                     return False
                     
             else:
-                # OpenAI/Grok compatible test
+                # OpenAI/Groq compatible test
                 headers = {
                     'Content-Type': 'application/json',
                     'Authorization': f'Bearer {config["api_key"]}'
@@ -225,20 +226,20 @@ class OnlineLLM:
             yield "Online services are not available right now."
             return
         
-        # Try providers in priority order
+        # Try providers in priority order: Groq -> Gemini -> OpenAI
         providers_to_try = []
         
-        # Always try Grok first if available
-        if APIProvider.GROK in self.available_providers:
-            providers_to_try.append(APIProvider.GROK)
+        # Always try Groq first if available
+        if APIProvider.GROQ in self.available_providers:
+            providers_to_try.append(APIProvider.GROQ)
         
-        # Then OpenAI
-        if APIProvider.OPENAI in self.available_providers:
-            providers_to_try.append(APIProvider.OPENAI)
-        
-        # Finally Gemini
+        # Then Gemini
         if APIProvider.GEMINI in self.available_providers:
             providers_to_try.append(APIProvider.GEMINI)
+        
+        # Finally OpenAI
+        if APIProvider.OPENAI in self.available_providers:
+            providers_to_try.append(APIProvider.OPENAI)
         
         last_error = None
         
@@ -288,7 +289,7 @@ class OnlineLLM:
                 async for chunk in self._stream_gemini(query, personality_context, memory_context):
                     yield chunk
             else:
-                # OpenAI/Grok compatible streaming
+                # OpenAI/Groq compatible streaming
                 async for chunk in self._stream_openai_compatible(provider, query, personality_context, memory_context):
                     yield chunk
                     
@@ -390,7 +391,7 @@ class OnlineLLM:
     
     async def _stream_openai_compatible(self, provider: APIProvider, query: str, 
                                        personality_context: str, memory_context: str) -> AsyncGenerator[str, None]:
-        """Stream response from OpenAI-compatible APIs (OpenAI, Grok)"""
+        """Stream response from OpenAI-compatible APIs (OpenAI, Groq)"""
         config = self.api_configs[provider]
         
         messages = []
@@ -501,7 +502,8 @@ class OnlineLLM:
         for provider in APIProvider:
             api_key = self.api_configs[provider].get('api_key') if hasattr(self, 'api_configs') else None
             invalid_keys = [None, '', 'your_api_key_here', f'your_{provider.value}_api_key_here',
-                          'your_gemini_api_key_here', 'your_google_api_key_here']
+                          'your_gemini_api_key_here', 'your_google_api_key_here',
+                          'your_grok_api_key_here', 'your_groq_api_key_here']
             api_key_configured = api_key and api_key not in invalid_keys
             
             provider_stats = {
