@@ -1,6 +1,6 @@
 """
-Pascal AI Assistant - Lightning-Fast Router with Streaming
-Intelligently routes requests between offline and online LLMs with Gemini priority
+Pascal AI Assistant - Lightning-Fast Router with Streaming and Groq Priority
+Intelligently routes requests between offline and online LLMs with Groq as primary provider
 """
 
 import asyncio
@@ -32,7 +32,7 @@ class RouteDecision:
         return not self.use_offline
 
 class LightningRouter:
-    """Lightning-fast router for offline/online LLM selection with streaming"""
+    """Lightning-fast router for offline/online LLM selection with streaming and Groq priority"""
     
     def __init__(self, personality_manager, memory_manager):
         self.personality_manager = personality_manager
@@ -95,10 +95,10 @@ class LightningRouter:
             
             # Initialize online LLM if API keys are available
             self.online_available = False
-            # Check for any API key
-            if (getattr(settings, 'gemini_api_key', None) or 
+            # Check for any API key (prioritizing Groq)
+            if (getattr(settings, 'groq_api_key', None) or  # Groq (using grok_api_key)
+                getattr(settings, 'gemini_api_key', None) or 
                 getattr(settings, 'google_api_key', None) or
-                getattr(settings, 'grok_api_key', None) or 
                 getattr(settings, 'openai_api_key', None)):
                 try:
                     from modules.online_llm import OnlineLLM
@@ -109,7 +109,10 @@ class LightningRouter:
                         # Show which provider is primary
                         if self.online_llm.preferred_provider:
                             provider_name = self.online_llm.preferred_provider.value.title()
-                            print(f"✅ Online LLM ready (Primary: {provider_name})")
+                            if provider_name.lower() == 'groq':
+                                print(f"✅ Online LLM ready (Primary: {provider_name} - Lightning Fast!)")
+                            else:
+                                print(f"✅ Online LLM ready (Primary: {provider_name})")
                         else:
                             print("✅ Online LLM ready")
                     else:
@@ -130,24 +133,41 @@ class LightningRouter:
             else:
                 if settings.debug_mode:
                     print("ℹ️ No online API keys configured - running offline only")
+                    print("   For best performance, consider adding Groq API key (fastest)")
                 self.online_available = False
             
             # Adjust routing mode based on availability
             if self.online_available and not self.offline_available:
                 self.mode = RouteMode.ONLINE_ONLY
-                print("ℹ️ Running in online-only mode (Gemini/other APIs)")
+                provider_info = ""
+                if self.online_llm and hasattr(self.online_llm, 'preferred_provider'):
+                    if self.online_llm.preferred_provider:
+                        provider_name = self.online_llm.preferred_provider.value.title()
+                        provider_info = f" ({provider_name})"
+                print(f"ℹ️ Running in online-only mode{provider_info}")
             elif self.offline_available and not self.online_available:
                 self.mode = RouteMode.OFFLINE_ONLY
                 print("ℹ️ Running in offline-only mode (Ollama)")
             elif self.offline_available and self.online_available:
                 # Both available - use auto mode for best performance
                 self.mode = RouteMode.AUTO
-                print("✅ Both offline and online LLMs available")
+                provider_info = ""
+                if self.online_llm and hasattr(self.online_llm, 'preferred_provider'):
+                    if self.online_llm.preferred_provider:
+                        provider_name = self.online_llm.preferred_provider.value.title()
+                        if provider_name.lower() == 'groq':
+                            provider_info = f" (Online Primary: {provider_name} ⚡)"
+                        else:
+                            provider_info = f" (Online Primary: {provider_name})"
+                print(f"✅ Both offline and online LLMs available{provider_info}")
             else:
                 print("❌ ERROR: No LLMs available!")
                 print("Solutions:")
                 print("1. For offline: sudo systemctl start ollama && ./download_models.sh")
-                print("2. For online: Configure API keys in .env file (Gemini is free)")
+                print("2. For online: Configure API keys in .env file")
+                print("   - Groq (fastest): GROQ_API_KEY=gsk-your-key")
+                print("   - Gemini (free): GEMINI_API_KEY=your-key")
+                print("   - OpenAI (reliable): OPENAI_API_KEY=sk-your-key")
             
             if settings.debug_mode:
                 print(f"Final status - Offline: {self.offline_available}, Online: {self.online_available}")
@@ -192,7 +212,7 @@ class LightningRouter:
             return 2.5
     
     def _make_lightning_decision(self, query: str, analysis: Dict[str, Any]) -> RouteDecision:
-        """Make ultra-fast routing decision"""
+        """Make ultra-fast routing decision with Groq priority consideration"""
         
         # Handle forced modes
         if self.mode == RouteMode.OFFLINE_ONLY:
@@ -208,16 +228,31 @@ class LightningRouter:
         elif not self.offline_available and self.online_available:
             return RouteDecision(False, "Only online available", 1.0)
         
-        # Both available - intelligent routing
-        # For AUTO mode, prefer online (Gemini) for better quality unless query needs speed
+        # Both available - intelligent routing with Groq consideration
+        # Check if Groq is the primary online provider
+        groq_is_primary = False
+        if (self.online_llm and hasattr(self.online_llm, 'preferred_provider') and 
+            self.online_llm.preferred_provider and 
+            self.online_llm.preferred_provider.value.lower() == 'groq'):
+            groq_is_primary = True
+        
         if self.mode == RouteMode.AUTO:
-            # Use online for most queries since Gemini is fast and high quality
-            if analysis['is_simple'] and not analysis['needs_current_info']:
-                # Very simple queries can go offline for speed
-                return RouteDecision(True, "Simple query - using offline for speed", 0.8)
+            # If Groq is available as primary, prefer online for most queries due to speed
+            if groq_is_primary:
+                if analysis['is_simple'] and not analysis['needs_current_info']:
+                    # Even simple queries can go to Groq since it's so fast
+                    return RouteDecision(False, "Using Groq (lightning fast)", 0.9)
+                else:
+                    # Everything else definitely goes to Groq
+                    return RouteDecision(False, "Using Groq for speed and quality", 0.95)
             else:
-                # Everything else goes to online (Gemini) for quality
-                return RouteDecision(False, "Using online (Gemini) for quality", 0.95)
+                # Non-Groq online providers - be more selective
+                if analysis['is_simple'] and not analysis['needs_current_info']:
+                    # Simple queries go offline for speed
+                    return RouteDecision(True, "Simple query - using offline for speed", 0.8)
+                else:
+                    # Complex or current info queries go online
+                    return RouteDecision(False, "Using online for quality", 0.85)
         
         # OFFLINE_PREFERRED mode
         elif self.mode == RouteMode.OFFLINE_PREFERRED:
@@ -228,7 +263,10 @@ class LightningRouter:
         
         # ONLINE_PREFERRED mode
         elif self.mode == RouteMode.ONLINE_PREFERRED:
-            return RouteDecision(False, "Online preferred mode", 0.95)
+            if groq_is_primary:
+                return RouteDecision(False, "Online preferred mode (Groq priority)", 0.95)
+            else:
+                return RouteDecision(False, "Online preferred mode", 0.9)
         
         # Default to offline for speed
         return RouteDecision(True, "Default to offline", 0.7)
@@ -335,7 +373,7 @@ class LightningRouter:
                         yield f"Offline service error: {str(e)}"
                         response_generated = True
                 else:
-                    yield "I'm sorry, but no AI services are currently available. Please check that Ollama is running or configure API keys."
+                    yield "I'm sorry, but no AI services are currently available. Please check that Ollama is running or configure API keys (Groq recommended for speed)."
                     response_generated = True
             
             # Track performance
@@ -404,7 +442,7 @@ class LightningRouter:
             print(f"Performance preference set to: {preference}")
     
     def get_status(self) -> Dict[str, Any]:
-        """Get router status with performance metrics"""
+        """Get router status with performance metrics and Groq priority info"""
         status = {
             'mode': self.mode.value,
             'offline_available': self.offline_available,
@@ -416,8 +454,20 @@ class LightningRouter:
         
         # Add online provider info if available
         if self.online_available and self.online_llm:
-            if hasattr(self.online_llm, 'preferred_provider'):
-                status['primary_online_provider'] = self.online_llm.preferred_provider.value if self.online_llm.preferred_provider else 'None'
+            if hasattr(self.online_llm, 'preferred_provider') and self.online_llm.preferred_provider:
+                provider_name = self.online_llm.preferred_provider.value
+                status['primary_online_provider'] = provider_name
+                
+                # Special indication for Groq
+                if provider_name.lower() == 'groq':
+                    status['groq_lightning_mode'] = True
+                    status['provider_performance'] = 'Lightning Fast ⚡'
+                else:
+                    status['groq_lightning_mode'] = False
+                    status['provider_performance'] = 'Standard'
+            else:
+                status['primary_online_provider'] = 'None'
+                status['groq_lightning_mode'] = False
         
         # Add performance metrics
         if self.response_times['offline']:
@@ -442,7 +492,14 @@ class LightningRouter:
             status['offline_model_info'] = self.offline_llm.get_performance_stats()
         
         if self.online_llm and hasattr(self.online_llm, 'get_provider_stats'):
-            status['online_provider_info'] = self.online_llm.get_provider_stats()
+            online_stats = self.online_llm.get_provider_stats()
+            status['online_provider_info'] = online_stats
+            
+            # Add Groq-specific information
+            if 'providers' in online_stats and 'groq' in online_stats['providers']:
+                groq_stats = online_stats['providers']['groq']
+                status['groq_available'] = groq_stats.get('available', False)
+                status['groq_configured'] = groq_stats.get('api_key_configured', False)
         
         return status
 
