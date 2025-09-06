@@ -46,12 +46,12 @@ class OnlineLLM:
         self.api_configs = {
             APIProvider.GROQ: {
                 'base_url': 'https://api.groq.com/openai/v1/chat/completions',
-                'model': 'llama-3.1-70b-versatile',  # Fast and capable model
+                'model': 'meta-llama/llama-4-scout-17b-16e-instruct',  # Fast and capable model
                 'api_key': getattr(settings, 'grok_api_key', None)  # Using grok_api_key for Groq
             },
             APIProvider.GEMINI: {
                 'base_url': 'https://generativelanguage.googleapis.com/v1beta/models',
-                'model': 'gemini-2.0-flash-exp',
+                'model': 'gemini-2.5-flash-preview-native-audio-dialog',
                 'api_key': getattr(settings, 'gemini_api_key', None) or getattr(settings, 'google_api_key', None)
             },
             APIProvider.OPENAI: {
