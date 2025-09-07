@@ -69,16 +69,18 @@ class Pascal:
         status_table.add_column("Status", style="green")
         status_table.add_column("Details", style="white")
         
-        # Basic info
-        status_table.add_row("Version", f"v{config['pascal_version']}", "Lightning with Grok")
+        # Basic info - FIXED: Changed display text from "Lightning with Grok" to "Lightning with Groq"
+        status_table.add_row("Version", f"v{config['pascal_version']}", "Lightning with Groq")
         status_table.add_row("Personality", config['personality'], "Active")
         status_table.add_row("Memory", "✅ Enabled" if config['memory_enabled'] else "❌ Disabled", "")
         status_table.add_row("Streaming", "⚡ Enabled" if config['streaming_enabled'] else "❌ Disabled", "Lightning responses")
         status_table.add_row("Target Response", f"{config['target_response_time']}s", "Maximum time")
         
-        # LLM status
-        if config['grok_configured']:
-            status_table.add_row("Grok API", "✅ Configured", "Primary online")
+        # LLM status - FIXED: Changed from grok_configured to groq_configured
+        if config.get('groq_configured'):
+            status_table.add_row("Groq API", "✅ Configured", "Primary online")
+        if config.get('gemini_configured'):
+            status_table.add_row("Gemini API", "✅ Configured", "Secondary online")
         status_table.add_row("Online APIs", "✅ Available" if config['online_apis_configured'] else "❌ Not configured", "")
         
         # Get Ollama-specific status
@@ -119,7 +121,12 @@ class Pascal:
   • Fallback 1: qwen3:4b-instruct
   • Fallback 2: gemma3:4b-it-q4_K_M
   • Target: 1-3 second responses
-  • Streaming enabled for instant feedback"""
+  • Streaming enabled for instant feedback
+  
+[bold]Online API Priority:[/bold]
+  • Groq: Lightning-fast inference (primary)
+  • Gemini: Free tier available (secondary)
+  • OpenAI: Reliable fallback"""
         
         self.console.print(Panel(perf_text, title="Performance", border_style="yellow"))
         
