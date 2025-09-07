@@ -1,6 +1,7 @@
 """
 Pascal AI Assistant - Online LLM Integration with Groq Priority
 Handles API calls to Groq (primary), Gemini (secondary), and OpenAI (fallback) with streaming support
+Updated with current Groq models as of 2024
 """
 
 import asyncio
@@ -46,17 +47,28 @@ class OnlineLLM:
         self.api_configs = {
             APIProvider.GROQ: {
                 'base_url': 'https://api.groq.com/openai/v1/chat/completions',
-                'model': 'llama-4-scout-17b-16e-instruct',  # Using a standard Groq model that's widely available
-                'api_key': getattr(settings, 'groq_api_key', None)  # Using groq_api_key consistently
+                'models': [
+                    'llama-3.1-70b-versatile',    # Current primary model
+                    'llama-3.1-8b-instant',       # Fast alternative
+                    'llama-3.2-90b-text-preview', # High quality
+                    'llama-3.2-11b-text-preview', # Balanced
+                    'mixtral-8x7b-32768',         # Fallback (if still available)
+                    'gemma2-9b-it',               # Google model on Groq
+                    'gemma-7b-it'                 # Smaller fallback
+                ],
+                'default_model': 'llama-3.1-8b-instant',  # Fast and reliable
+                'api_key': getattr(settings, 'groq_api_key', None)
             },
             APIProvider.GEMINI: {
                 'base_url': 'https://generativelanguage.googleapis.com/v1beta/models',
-                'model': 'gemini-2.0-flash',
+                'models': ['gemini-2.0-flash-exp', 'gemini-1.5-flash', 'gemini-1.5-pro'],
+                'default_model': 'gemini-2.0-flash-exp',
                 'api_key': getattr(settings, 'gemini_api_key', None) or getattr(settings, 'google_api_key', None)
             },
             APIProvider.OPENAI: {
                 'base_url': 'https://api.openai.com/v1/chat/completions',
-                'model': 'gpt-4o-mini',
+                'models': ['gpt-4o-mini', 'gpt-4o', 'gpt-3.5-turbo'],
+                'default_model': 'gpt-4o-mini',
                 'api_key': getattr(settings, 'openai_api_key', None)
             }
         }
@@ -76,7 +88,7 @@ class OnlineLLM:
         
         try:
             # Create aiohttp session with longer timeout
-            timeout = aiohttp.ClientTimeout(total=45, connect=15)
+            timeout = aiohttp.ClientTimeout(total=60, connect=15)
             connector = aiohttp.TCPConnector(limit=10, force_close=True)
             self.session = aiohttp.ClientSession(timeout=timeout, connector=connector)
             
@@ -130,7 +142,8 @@ class OnlineLLM:
             # Skip if no API key or placeholder
             invalid_keys = [None, '', 'your_api_key_here', f'your_{provider.value}_api_key_here', 
                           'your_gemini_api_key_here', 'your_google_api_key_here',
-                          'your_groq_api_key_here', 'your_grok_api_key_here']
+                          'your_groq_api_key_here', 'gsk-your_groq_api_key_here',
+                          'sk-your_openai_api_key_here']
             if api_key in invalid_keys:
                 if settings.debug_mode:
                     print(f"⏭️ Skipping {provider.value} - no valid API key")
@@ -158,17 +171,18 @@ class OnlineLLM:
                 # Test Gemini API - just check if we can list models
                 test_url = f"https://generativelanguage.googleapis.com/v1beta/models?key={config['api_key']}"
                 
-                test_timeout = aiohttp.ClientTimeout(total=10)
+                test_timeout = aiohttp.ClientTimeout(total=15)
                 async with self.session.get(
                     test_url,
                     timeout=test_timeout
                 ) as response:
-                    if response.status in [200, 400, 401, 403, 429]:
-                        if response.status == 401 or response.status == 403:
-                            if settings.debug_mode:
-                                print(f"⚠️ {provider.value} invalid API key")
-                            return False
+                    if response.status in [200]:
                         return True
+                    elif response.status in [400, 401, 403]:
+                        if settings.debug_mode:
+                            error_text = await response.text()
+                            print(f"⚠️ {provider.value} API key issue: {response.status} - {error_text[:100]}")
+                        return False
                     return False
                     
             else:
@@ -178,24 +192,18 @@ class OnlineLLM:
                     'Authorization': f'Bearer {config["api_key"]}'
                 }
                 
-                # For Groq, we can try multiple models if one fails
-                models_to_try = []
-                if provider == APIProvider.GROQ:
-                    models_to_try = [
-                        'llama3-8b-8192', # Depreciated model - requires replacing with currrent model
-                        'llama3-70b-8192', # Depreciated model - requires replacing with currrent model
-                        'mixtral-8x7b-32768', # Depreciated model - requires replacing with currrent model
-                        'gemma-7b-it' # Depreciated model - requires replacing with currrent model
-                    ]
-                else:
-                    models_to_try = [config['model']]
+                # For Groq, try current models in order
+                models_to_try = config.get('models', [config.get('default_model')])
                 
                 for model in models_to_try:
+                    if not model:
+                        continue
+                        
                     payload = {
                         "model": model,
-                        "messages": [{"role": "user", "content": "hi"}],
+                        "messages": [{"role": "user", "content": "test"}],
                         "max_tokens": 5,
-                        "temperature": 0.5
+                        "temperature": 0.1
                     }
                     
                     # Quick test with short timeout
@@ -207,32 +215,33 @@ class OnlineLLM:
                             json=payload,
                             timeout=test_timeout
                         ) as response:
-                            # Accept various response codes but handle quota/permission errors
                             if response.status == 200:
-                                # Update the model if this one works
-                                if provider == APIProvider.GROQ:
-                                    self.api_configs[provider]['model'] = model
-                                    if settings.debug_mode:
-                                        print(f"✅ Groq using model: {model}")
+                                # Update the working model
+                                config['current_model'] = model
+                                if settings.debug_mode:
+                                    print(f"✅ {provider.value} using model: {model}")
                                 return True
                             elif response.status == 429:
-                                # Rate limit or quota exceeded
+                                # Rate limit - provider is working but limited
                                 if settings.debug_mode:
-                                    print(f"⚠️ {provider.value} quota exceeded or rate limited")
-                                return False  # Don't use if quota exceeded
-                            elif response.status == 401:
-                                # Invalid API key
+                                    print(f"⚠️ {provider.value} rate limited but functional")
+                                config['current_model'] = model
+                                return True
+                            elif response.status in [401, 403]:
+                                # Auth issue
                                 if settings.debug_mode:
-                                    print(f"⚠️ {provider.value} invalid API key")
-                                return False
-                            elif response.status == 403:
-                                # No permission/credits
-                                if settings.debug_mode:
-                                    print(f"⚠️ {provider.value} no credits or permission denied")
+                                    error_text = await response.text()
+                                    print(f"⚠️ {provider.value} auth issue: {error_text[:100]}")
                                 return False
                             # Try next model if this one failed
-                    except:
-                        continue  # Try next model
+                    except asyncio.TimeoutError:
+                        if settings.debug_mode:
+                            print(f"⚠️ {provider.value} model {model} timeout")
+                        continue
+                    except Exception as e:
+                        if settings.debug_mode:
+                            print(f"⚠️ {provider.value} model {model} error: {str(e)[:50]}")
+                        continue
                 
                 return False  # All models failed
                     
@@ -336,6 +345,9 @@ class OnlineLLM:
         """Stream response from Google Gemini API"""
         config = self.api_configs[APIProvider.GEMINI]
         
+        # Use current model or default
+        model = config.get('current_model', config.get('default_model', 'gemini-2.0-flash-exp'))
+        
         # Build prompt with context
         prompt_parts = []
         if personality_context:
@@ -362,14 +374,13 @@ class OnlineLLM:
         }
         
         # Use streaming endpoint with API key in URL
-        stream_url = f"{config['base_url']}/{config['model']}:streamGenerateContent?key={config['api_key']}"
+        stream_url = f"{config['base_url']}/{model}:streamGenerateContent?key={config['api_key']}"
         
         headers = {
             'Content-Type': 'application/json'
         }
         
         response_received = False
-        response_text = ""
         
         try:
             async with self.session.post(stream_url, headers=headers, json=payload) as response:
@@ -381,7 +392,6 @@ class OnlineLLM:
                                 line_str = line.decode('utf-8').strip()
                                 if line_str:
                                     # Gemini sometimes sends multiple JSON objects in one line
-                                    # Split by newline and parse each
                                     for json_str in line_str.split('\n'):
                                         if json_str.strip():
                                             try:
@@ -393,7 +403,6 @@ class OnlineLLM:
                                                             for part in candidate['content']['parts']:
                                                                 if 'text' in part:
                                                                     text_chunk = part['text']
-                                                                    response_text += text_chunk
                                                                     yield text_chunk
                                                                     response_received = True
                                             except json.JSONDecodeError:
@@ -406,7 +415,6 @@ class OnlineLLM:
                     if not response_received:
                         if settings.debug_mode:
                             print(f"No valid response from Gemini")
-                        # Don't yield error message here, let the main function handle it
                         
                 else:
                     error_text = await response.text()
@@ -419,6 +427,11 @@ class OnlineLLM:
                                        personality_context: str, memory_context: str) -> AsyncGenerator[str, None]:
         """Stream response from OpenAI-compatible APIs (OpenAI, Groq)"""
         config = self.api_configs[provider]
+        
+        # Use current working model or default
+        model = config.get('current_model', config.get('default_model'))
+        if not model:
+            raise Exception(f"No working model found for {provider.value}")
         
         messages = []
         
@@ -435,7 +448,7 @@ class OnlineLLM:
         messages.append({"role": "user", "content": query})
         
         payload = {
-            "model": config['model'],
+            "model": model,
             "messages": messages,
             "max_tokens": min(getattr(settings, 'max_response_tokens', 200), 300),
             "temperature": 0.7,
@@ -448,7 +461,6 @@ class OnlineLLM:
         }
         
         response_received = False
-        response_text = ""
         
         try:
             async with self.session.post(config['base_url'], headers=headers, json=payload) as response:
@@ -466,7 +478,6 @@ class OnlineLLM:
                                         delta = data['choices'][0].get('delta', {})
                                         if 'content' in delta and delta['content']:
                                             text_chunk = delta['content']
-                                            response_text += text_chunk
                                             yield text_chunk
                                             response_received = True
                                 except json.JSONDecodeError:
@@ -475,7 +486,6 @@ class OnlineLLM:
                     if not response_received:
                         if settings.debug_mode:
                             print(f"No valid response from {provider.value}")
-                        # Don't yield error message here, let the main function handle it
                 
                 else:
                     error_content = await response.text()
@@ -483,6 +493,22 @@ class OnlineLLM:
                         raise Exception(f"Rate limited by {provider.value}")
                     elif response.status == 401:
                         raise Exception(f"Invalid API key for {provider.value}")
+                    elif response.status == 400:
+                        # Model might not exist anymore, try to find alternatives
+                        if provider == APIProvider.GROQ:
+                            available_models = config.get('models', [])
+                            current_model_index = available_models.index(model) if model in available_models else 0
+                            if current_model_index < len(available_models) - 1:
+                                # Try next model in list
+                                next_model = available_models[current_model_index + 1]
+                                config['current_model'] = next_model
+                                if settings.debug_mode:
+                                    print(f"Model {model} failed, trying {next_model}")
+                                # Retry with new model (recursive call)
+                                async for chunk in self._stream_openai_compatible(provider, query, personality_context, memory_context):
+                                    yield chunk
+                                return
+                        raise Exception(f"{provider.value} model error: {error_content[:200]}")
                     else:
                         raise Exception(f"{provider.value} API error {response.status}: {error_content[:200]}")
                         
@@ -529,7 +555,8 @@ class OnlineLLM:
             api_key = self.api_configs[provider].get('api_key') if hasattr(self, 'api_configs') else None
             invalid_keys = [None, '', 'your_api_key_here', f'your_{provider.value}_api_key_here',
                           'your_gemini_api_key_here', 'your_google_api_key_here',
-                          'your_groq_api_key_here', 'your_grok_api_key_here']
+                          'your_groq_api_key_here', 'gsk-your_groq_api_key_here',
+                          'sk-your_openai_api_key_here']
             api_key_configured = api_key and api_key not in invalid_keys
             
             provider_stats = {
@@ -537,7 +564,8 @@ class OnlineLLM:
                 'success_count': self.success_counts[provider],
                 'failure_count': self.failure_counts[provider],
                 'avg_response_time': 0,
-                'api_key_configured': api_key_configured
+                'api_key_configured': api_key_configured,
+                'current_model': self.api_configs[provider].get('current_model', 'Unknown') if hasattr(self, 'api_configs') else 'Unknown'
             }
             
             if self.response_times[provider]:
