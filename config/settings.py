@@ -36,8 +36,8 @@ class Settings:
         self.max_response_tokens = 150  # Limited for faster responses
         
         # Online LLM APIs - Groq as primary, Gemini as alternative
-        # FIXED: Changed from grok_api_key to groq_api_key
-        self.groq_api_key = os.getenv("GROQ_API_KEY")  # Fixed from GROK to GROQ
+        # FIXED: Consistent naming - using groq_api_key throughout
+        self.groq_api_key = os.getenv("GROQ_API_KEY")  # Primary online API
         self.openai_api_key = os.getenv("OPENAI_API_KEY")
         self.gemini_api_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")  # Support both names
         
@@ -88,11 +88,13 @@ class Settings:
             'prefetch_distance': 16,
         }
         
-        # Model Selection Preferences - Updated for new models
+        # Model Selection Preferences - Updated for current models
         self.preferred_models = [
-            "nemotron-mini:4b-instruct-q4_K_M",
-            "qwen3:4b-instruct",
-            "gemma3:4b-it-q4_K_M"
+            "nemotron-mini:4b-instruct-q4_K_M",  # Primary - fastest
+            "llama3.2:3b",                        # Current Llama model
+            "qwen2.5:3b",                         # Updated Qwen
+            "phi3:mini",                          # Reliable fallback
+            "gemma2:2b"                           # Lightweight option
         ]
         self.max_model_ram_usage = 6.0  # Max GB for model
         self.auto_model_selection = True
@@ -174,7 +176,7 @@ class Settings:
     def is_online_available(self) -> bool:
         """Check if any online API keys are configured"""
         return any([
-            self.groq_api_key,  # Fixed from grok_api_key
+            self.groq_api_key,  # Primary online provider
             self.openai_api_key,
             self.gemini_api_key
         ])
@@ -256,8 +258,12 @@ class Settings:
             "base_directory": str(self.base_dir),
             "personality": self.default_personality,
             "online_apis_configured": self.is_online_available(),
-            "groq_configured": bool(self.groq_api_key),  # Fixed from grok_configured
-            "gemini_configured": bool(self.gemini_api_key),
+            "groq_configured": bool(self.groq_api_key and 
+                                  self.groq_api_key not in ['', 'your_groq_api_key_here', 'gsk-your_groq_api_key_here']),
+            "gemini_configured": bool(self.gemini_api_key and 
+                                    self.gemini_api_key not in ['', 'your_gemini_api_key_here', 'your_google_api_key_here']),
+            "openai_configured": bool(self.openai_api_key and 
+                                    self.openai_api_key not in ['', 'your_openai_api_key_here', 'sk-your_openai_api_key_here']),
             "local_model_available": self.is_local_model_available(),
             "prefer_offline": self.prefer_offline,
             "debug_mode": self.debug_mode,
@@ -302,6 +308,14 @@ class Settings:
         env_keep_alive = os.getenv("KEEP_ALIVE_ENABLED")
         if env_keep_alive:
             self.keep_alive_enabled = env_keep_alive.lower() == "true"
+        
+        # Target response time
+        env_target_time = os.getenv("TARGET_RESPONSE_TIME")
+        if env_target_time:
+            try:
+                self.target_response_time = float(env_target_time)
+            except ValueError:
+                pass
     
     def save_performance_settings(self):
         """Save current performance settings to file"""
