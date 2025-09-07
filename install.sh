@@ -98,6 +98,17 @@ check_python() {
     else
         print_success "Python $PYTHON_VERSION detected"
     fi
+    
+    # Ensure pip and venv are available
+    if ! python3 -m pip --version >/dev/null 2>&1; then
+        print_status "Installing pip..."
+        sudo apt install -y python3-pip
+    fi
+    
+    if ! python3 -m venv --help >/dev/null 2>&1; then
+        print_status "Installing venv..."
+        sudo apt install -y python3-venv
+    fi
 }
 
 # Update system packages
@@ -144,31 +155,85 @@ update_system() {
     fi
 }
 
-# Create virtual environment
+# Create and activate virtual environment
 setup_venv() {
-    print_status "Creating Python virtual environment..."
+    print_status "Setting up Python virtual environment..."
     
     if [ -d "venv" ]; then
         print_warning "Virtual environment already exists, removing old one..."
         rm -rf venv
     fi
 
+    # Create virtual environment
     python3 -m venv venv
+    
+    # Test activation
+    if [ ! -f "venv/bin/activate" ]; then
+        print_error "Virtual environment creation failed"
+        exit 1
+    fi
+    
+    # Activate virtual environment
     source venv/bin/activate
+    
+    # Verify we're in the virtual environment
+    if [[ "$VIRTUAL_ENV" != "" ]]; then
+        print_success "Virtual environment created and activated"
+        print_status "Virtual environment path: $VIRTUAL_ENV"
+    else
+        print_error "Failed to activate virtual environment"
+        exit 1
+    fi
 
-    # Upgrade pip
-    print_status "Upgrading pip..."
-    pip install --upgrade pip wheel setuptools
+    # Upgrade pip in virtual environment
+    print_status "Upgrading pip in virtual environment..."
+    python -m pip install --upgrade pip wheel setuptools
+    
+    # Verify pip is working
+    pip_version=$(pip --version)
+    print_success "Pip version: $pip_version"
 }
 
 # Install Python dependencies (no longer need llama-cpp-python!)
 install_python_deps() {
     print_status "Installing Python packages (Ollama-optimized)..."
-    source venv/bin/activate
+    
+    # Ensure we're in virtual environment
+    if [[ "$VIRTUAL_ENV" == "" ]]; then
+        print_status "Activating virtual environment..."
+        source venv/bin/activate
+    fi
+    
+    # Verify we're in virtual environment
+    if [[ "$VIRTUAL_ENV" == "" ]]; then
+        print_error "Not in virtual environment"
+        exit 1
+    fi
     
     # Install requirements (much faster without llama-cpp-python)
     print_status "Installing Python dependencies..."
     pip install -r requirements.txt
+    
+    # Verify critical packages
+    print_status "Verifying critical packages..."
+    
+    # Test aiohttp (critical for online LLM functionality)
+    if python -c "import aiohttp; print(f'aiohttp {aiohttp.__version__} installed successfully')" 2>/dev/null; then
+        print_success "aiohttp installed and working"
+    else
+        print_error "aiohttp installation failed - this will break online LLM functionality"
+        exit 1
+    fi
+    
+    # Test other critical packages
+    critical_packages=("requests" "openai" "anthropic" "rich" "colorama")
+    for package in "${critical_packages[@]}"; do
+        if python -c "import $package" 2>/dev/null; then
+            print_success "$package installed"
+        else
+            print_warning "$package may not be installed correctly"
+        fi
+    done
     
     print_success "Python dependencies installed (no compilation needed with Ollama!)"
 }
@@ -197,6 +262,9 @@ set_permissions() {
     chmod +x run.sh
     chmod +x download_models.sh
     chmod +x test_performance.py
+    chmod +x diagnose_ollama.py
+    chmod +x diagnose_online_apis.py
+    chmod +x test_groq_fix.py
     
     # Make logs directory writable
     chmod 755 logs
@@ -209,37 +277,46 @@ create_config() {
     print_status "Creating initial configuration..."
     
     # Activate virtual environment for Python scripts
-    source venv/bin/activate
+    if [[ "$VIRTUAL_ENV" == "" ]]; then
+        source venv/bin/activate
+    fi
     
     # Run installer utility
-    python3 utils/installer.py
+    python utils/installer.py
     
     # Create Ollama-optimized .env if it doesn't exist
     if [ ! -f ".env" ]; then
         print_status "Creating Ollama-optimized .env configuration..."
-        cat > .env << EOF
+        cat > .env << 'EOF'
 # Pascal AI Assistant Environment Variables - Pi 5 Optimized with Ollama
 
 # Performance settings (Ollama manages local models)
 PERFORMANCE_MODE=balanced
+STREAMING_ENABLED=true
+KEEP_ALIVE_ENABLED=true
+TARGET_RESPONSE_TIME=3.0
+MAX_RESPONSE_TOKENS=200
+
+# API Keys (add your keys here for online fallback)
+# GROQ_API_KEY=gsk-your_groq_api_key_here
+# GEMINI_API_KEY=your_gemini_api_key_here
+# OPENAI_API_KEY=sk-your_openai_api_key_here
+
+# Ollama settings
+OLLAMA_HOST=http://localhost:11434
+OLLAMA_TIMEOUT=30
+OLLAMA_KEEP_ALIVE=5m
 
 # Debug settings
 DEBUG=false
 LOG_LEVEL=INFO
 PERF_LOG=false
 
-# API Keys (add your keys here for online fallback)
-# OPENAI_API_KEY=your_openai_api_key_here
-# ANTHROPIC_API_KEY=your_anthropic_api_key_here
-# GOOGLE_API_KEY=your_google_api_key_here
-
-# Ollama settings
-OLLAMA_HOST=http://localhost:11434
-OLLAMA_TIMEOUT=30
-
 # Advanced settings
 MAX_CONCURRENT_REQUESTS=2
 CACHE_EXPIRY=3600
+LLM_THREADS=4
+LLM_CONTEXT=2048
 EOF
         print_success "Created Ollama-optimized .env configuration"
     fi
@@ -248,12 +325,17 @@ EOF
 # Test installation
 test_installation() {
     print_status "Testing installation..."
-    source venv/bin/activate
+    
+    # Ensure we're in virtual environment
+    if [[ "$VIRTUAL_ENV" == "" ]]; then
+        source venv/bin/activate
+    fi
     
     # Test Python imports
-    python3 -c "
+    python -c "
 import sys
 print(f'Python version: {sys.version}')
+print(f'Virtual environment: {sys.prefix}')
 
 try:
     import aiohttp
@@ -265,9 +347,19 @@ except ImportError as e:
 try:
     from config.settings import settings
     print('✅ Pascal configuration loaded')
-    print(f'Hardware detected: {settings.get_hardware_info()}')
+    hw_info = settings.get_hardware_info()
+    print(f'Hardware detected: {hw_info}')
 except ImportError as e:
     print('❌ Pascal configuration failed:', e)
+    sys.exit(1)
+
+try:
+    import requests
+    import rich
+    import colorama
+    print('✅ Core dependencies imported successfully')
+except ImportError as e:
+    print('❌ Core dependency import failed:', e)
     sys.exit(1)
 
 print('✅ Installation test passed')
@@ -278,6 +370,22 @@ print('✅ Installation test passed')
     else
         print_error "Installation test failed"
         return 1
+    fi
+}
+
+# Test virtual environment persistence
+test_venv_persistence() {
+    print_status "Testing virtual environment persistence..."
+    
+    # Test run.sh script
+    if [ -f "run.sh" ]; then
+        # Test that run.sh can activate the virtual environment
+        bash -c "source venv/bin/activate && python -c 'import sys; print(f\"Virtual env test: {sys.prefix}\")'"
+        if [ $? -eq 0 ]; then
+            print_success "Virtual environment activation test passed"
+        else
+            print_warning "Virtual environment activation test failed"
+        fi
     fi
 }
 
@@ -297,7 +405,8 @@ offer_ollama_installation() {
         1)
             print_status "Installing Ollama and downloading models..."
             chmod +x download_models.sh
-            ./download_models.sh
+            # Run in a subshell to preserve our virtual environment
+            (./download_models.sh)
             ;;
         2)
             print_status "Ollama can be installed later with: ./download_models.sh"
@@ -325,6 +434,7 @@ show_completion() {
     echo "• RAM: ${TOTAL_RAM_GB}GB"
     echo "• Storage: ${AVAILABLE_GB}GB available"
     echo "• Python: $(python3 --version)"
+    echo "• Virtual Environment: $(pwd)/venv"
     echo ""
     
     # Show next steps
@@ -335,7 +445,9 @@ show_completion() {
     echo "2. Install Ollama and models (if not done already):"
     echo "   ./download_models.sh"
     echo ""
-    echo "3. Configure API keys in .env file (optional for online fallback)"
+    echo "3. Configure API keys in .env file (optional for online fallback):"
+    echo "   nano .env"
+    echo "   Add your GROQ_API_KEY, GEMINI_API_KEY, or OPENAI_API_KEY"
     echo ""
     
     # Show Ollama advantages
@@ -350,11 +462,18 @@ show_completion() {
     
     # Show performance tips
     print_status "Performance Tips:"
-    echo "• Use phi3:mini for fastest responses on Pi 5"
-    echo "• Use llama3.2:3b for balanced performance"
-    echo "• Use gemma2:2b for minimal resource usage"
+    echo "• Use nemotron-mini:4b-instruct-q4_K_M for fastest responses"
+    echo "• Use qwen2.5:3b for balanced performance"
+    echo "• Use phi3:mini for minimal resources"
     echo "• Monitor temperature: vcgencmd measure_temp"
     echo "• Type 'status' in Pascal to see system information"
+    echo ""
+    
+    # Show virtual environment info
+    print_status "Virtual Environment:"
+    echo "• Location: $(pwd)/venv"
+    echo "• Activation: source venv/bin/activate (done automatically by run.sh)"
+    echo "• Python: $(source venv/bin/activate && python --version)"
     echo ""
     
     if [ "$PI_VERSION" = "5" ]; then
@@ -362,6 +481,8 @@ show_completion() {
     fi
     
     print_success "Happy chatting with Pascal! 🤖"
+    echo ""
+    print_status "To start Pascal: ./run.sh"
 }
 
 # Main installation flow
@@ -371,13 +492,14 @@ main() {
     check_python
     update_system
     setup_venv
-    install_python_deps  # Much faster without llama-cpp-python!
+    install_python_deps
     setup_directories
     set_permissions
     create_config
     
     # Test installation
     if test_installation; then
+        test_venv_persistence
         offer_ollama_installation
         show_completion
     else
@@ -389,6 +511,10 @@ main() {
 # Handle interruption
 cleanup() {
     print_warning "Installation interrupted"
+    # Deactivate virtual environment if active
+    if [[ "$VIRTUAL_ENV" != "" ]]; then
+        deactivate 2>/dev/null || true
+    fi
     exit 1
 }
 
