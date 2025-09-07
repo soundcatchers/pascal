@@ -28,15 +28,16 @@ class Settings:
         
         # Pascal identity
         self.name = "Pascal"
-        self.version = "2.0.0"  # Lightning version with Grok
+        self.version = "2.0.0"  # Lightning version with Groq
         
         # LLM Configuration - Optimized for speed
         self.default_personality = "default"
         self.max_context_length = 2048
         self.max_response_tokens = 150  # Limited for faster responses
         
-        # Online LLM APIs - Grok as primary, Gemini as alternative
-        self.grok_api_key = os.getenv("GROK_API_KEY")
+        # Online LLM APIs - Groq as primary, Gemini as alternative
+        # FIXED: Changed from grok_api_key to groq_api_key
+        self.groq_api_key = os.getenv("GROQ_API_KEY")  # Fixed from GROK to GROQ
         self.openai_api_key = os.getenv("OPENAI_API_KEY")
         self.gemini_api_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")  # Support both names
         
@@ -173,7 +174,7 @@ class Settings:
     def is_online_available(self) -> bool:
         """Check if any online API keys are configured"""
         return any([
-            self.grok_api_key,
+            self.groq_api_key,  # Fixed from grok_api_key
             self.openai_api_key,
             self.gemini_api_key
         ])
@@ -255,7 +256,7 @@ class Settings:
             "base_directory": str(self.base_dir),
             "personality": self.default_personality,
             "online_apis_configured": self.is_online_available(),
-            "grok_configured": bool(self.grok_api_key),
+            "groq_configured": bool(self.groq_api_key),  # Fixed from grok_configured
             "gemini_configured": bool(self.gemini_api_key),
             "local_model_available": self.is_local_model_available(),
             "prefer_offline": self.prefer_offline,
@@ -315,7 +316,7 @@ class Settings:
             'keep_alive_enabled': self.keep_alive_enabled,
             'target_response_time': self.target_response_time,
             'preferred_models': self.preferred_models,
-            'updated_timestamp': os.time.time() if hasattr(os, 'time') else 0
+            'updated_timestamp': 0  # Simplified for compatibility
         }
         
         try:
