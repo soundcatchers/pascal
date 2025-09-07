@@ -43,16 +43,15 @@ class OnlineLLM:
             return
         
         # API configurations - Groq as primary, Gemini as secondary, OpenAI as fallback
-        # FIXED: Changed from grok_api_key to groq_api_key
         self.api_configs = {
             APIProvider.GROQ: {
                 'base_url': 'https://api.groq.com/openai/v1/chat/completions',
-                'model': 'mixtral-8x7b-32768',  # Groq's fast model
-                'api_key': getattr(settings, 'groq_api_key', None)  # Fixed from grok_api_key
+                'model': 'llama-4-scout-17b-16e-instruct',  # Using a standard Groq model that's widely available
+                'api_key': getattr(settings, 'groq_api_key', None)  # Using groq_api_key consistently
             },
             APIProvider.GEMINI: {
                 'base_url': 'https://generativelanguage.googleapis.com/v1beta/models',
-                'model': 'gemini-pro',  # Changed to stable model
+                'model': 'gemini-2.0-flash',
                 'api_key': getattr(settings, 'gemini_api_key', None) or getattr(settings, 'google_api_key', None)
             },
             APIProvider.OPENAI: {
@@ -102,7 +101,7 @@ class OnlineLLM:
             if settings.debug_mode:
                 provider_names = [p.value for p in self.available_providers]
                 print(f"✅ Online LLM initialized with: {provider_names}")
-                print(f"🎯 Primary provider: {self.preferred_provider.value}")
+                print(f"🎯 Primary provider: {self.preferred_provider.value if self.preferred_provider else 'None'}")
             
             return True
             
@@ -112,6 +111,9 @@ class OnlineLLM:
                 print(f"❌ Online LLM initialization failed: {e}")
                 import traceback
                 traceback.print_exc()
+            # Ensure session is closed on error
+            if self.session:
+                await self.session.close()
             return False
     
     async def _check_available_providers(self):
@@ -126,10 +128,9 @@ class OnlineLLM:
             api_key = config.get('api_key')
             
             # Skip if no API key or placeholder
-            # FIXED: Added groq-specific placeholder checks
             invalid_keys = [None, '', 'your_api_key_here', f'your_{provider.value}_api_key_here', 
                           'your_gemini_api_key_here', 'your_google_api_key_here',
-                          'your_groq_api_key_here', 'your_grok_api_key_here']  # Added both variants
+                          'your_groq_api_key_here', 'your_grok_api_key_here']
             if api_key in invalid_keys:
                 if settings.debug_mode:
                     print(f"⏭️ Skipping {provider.value} - no valid API key")
@@ -176,41 +177,64 @@ class OnlineLLM:
                     'Content-Type': 'application/json',
                     'Authorization': f'Bearer {config["api_key"]}'
                 }
-                payload = {
-                    "model": config['model'],
-                    "messages": [{"role": "user", "content": "hi"}],
-                    "max_tokens": 5,
-                    "temperature": 0.5
-                }
                 
-                # Quick test with short timeout
-                test_timeout = aiohttp.ClientTimeout(total=20)
-                async with self.session.post(
-                    config['base_url'],
-                    headers=headers,
-                    json=payload,
-                    timeout=test_timeout
-                ) as response:
-                    # Accept various response codes but handle quota/permission errors
-                    if response.status == 200:
-                        return True
-                    elif response.status == 429:
-                        # Rate limit or quota exceeded
-                        if settings.debug_mode:
-                            print(f"⚠️ {provider.value} quota exceeded or rate limited")
-                        return False  # Don't use if quota exceeded
-                    elif response.status == 401:
-                        # Invalid API key
-                        if settings.debug_mode:
-                            print(f"⚠️ {provider.value} invalid API key")
-                        return False
-                    elif response.status == 403:
-                        # No permission/credits
-                        if settings.debug_mode:
-                            print(f"⚠️ {provider.value} no credits or permission denied")
-                        return False
-                    else:
-                        return False
+                # For Groq, we can try multiple models if one fails
+                models_to_try = []
+                if provider == APIProvider.GROQ:
+                    models_to_try = [
+                        'llama3-8b-8192', # Depreciated model - requires replacing with currrent model
+                        'llama3-70b-8192', # Depreciated model - requires replacing with currrent model
+                        'mixtral-8x7b-32768', # Depreciated model - requires replacing with currrent model
+                        'gemma-7b-it' # Depreciated model - requires replacing with currrent model
+                    ]
+                else:
+                    models_to_try = [config['model']]
+                
+                for model in models_to_try:
+                    payload = {
+                        "model": model,
+                        "messages": [{"role": "user", "content": "hi"}],
+                        "max_tokens": 5,
+                        "temperature": 0.5
+                    }
+                    
+                    # Quick test with short timeout
+                    test_timeout = aiohttp.ClientTimeout(total=20)
+                    try:
+                        async with self.session.post(
+                            config['base_url'],
+                            headers=headers,
+                            json=payload,
+                            timeout=test_timeout
+                        ) as response:
+                            # Accept various response codes but handle quota/permission errors
+                            if response.status == 200:
+                                # Update the model if this one works
+                                if provider == APIProvider.GROQ:
+                                    self.api_configs[provider]['model'] = model
+                                    if settings.debug_mode:
+                                        print(f"✅ Groq using model: {model}")
+                                return True
+                            elif response.status == 429:
+                                # Rate limit or quota exceeded
+                                if settings.debug_mode:
+                                    print(f"⚠️ {provider.value} quota exceeded or rate limited")
+                                return False  # Don't use if quota exceeded
+                            elif response.status == 401:
+                                # Invalid API key
+                                if settings.debug_mode:
+                                    print(f"⚠️ {provider.value} invalid API key")
+                                return False
+                            elif response.status == 403:
+                                # No permission/credits
+                                if settings.debug_mode:
+                                    print(f"⚠️ {provider.value} no credits or permission denied")
+                                return False
+                            # Try next model if this one failed
+                    except:
+                        continue  # Try next model
+                
+                return False  # All models failed
                     
         except asyncio.TimeoutError:
             if settings.debug_mode:
@@ -333,4 +357,201 @@ class OnlineLLM:
                 "temperature": 0.7,
                 "maxOutputTokens": min(getattr(settings, 'max_response_tokens', 200), 300),
                 "topP": 0.9,
-                "topK":
+                "topK": 40
+            }
+        }
+        
+        # Use streaming endpoint with API key in URL
+        stream_url = f"{config['base_url']}/{config['model']}:streamGenerateContent?key={config['api_key']}"
+        
+        headers = {
+            'Content-Type': 'application/json'
+        }
+        
+        response_received = False
+        response_text = ""
+        
+        try:
+            async with self.session.post(stream_url, headers=headers, json=payload) as response:
+                if response.status == 200:
+                    async for line in response.content:
+                        if line:
+                            try:
+                                # Parse the JSON response
+                                line_str = line.decode('utf-8').strip()
+                                if line_str:
+                                    # Gemini sometimes sends multiple JSON objects in one line
+                                    # Split by newline and parse each
+                                    for json_str in line_str.split('\n'):
+                                        if json_str.strip():
+                                            try:
+                                                data = json.loads(json_str)
+                                                # Extract text from Gemini response format
+                                                if 'candidates' in data:
+                                                    for candidate in data['candidates']:
+                                                        if 'content' in candidate and 'parts' in candidate['content']:
+                                                            for part in candidate['content']['parts']:
+                                                                if 'text' in part:
+                                                                    text_chunk = part['text']
+                                                                    response_text += text_chunk
+                                                                    yield text_chunk
+                                                                    response_received = True
+                                            except json.JSONDecodeError:
+                                                continue
+                            except Exception as parse_error:
+                                if settings.debug_mode:
+                                    print(f"Parse error in Gemini response: {parse_error}")
+                                continue
+                    
+                    if not response_received:
+                        if settings.debug_mode:
+                            print(f"No valid response from Gemini")
+                        # Don't yield error message here, let the main function handle it
+                        
+                else:
+                    error_text = await response.text()
+                    raise Exception(f"Gemini API error {response.status}: {error_text[:200]}")
+                    
+        except aiohttp.ClientError as e:
+            raise Exception(f"Gemini connection failed: {str(e)}")
+    
+    async def _stream_openai_compatible(self, provider: APIProvider, query: str, 
+                                       personality_context: str, memory_context: str) -> AsyncGenerator[str, None]:
+        """Stream response from OpenAI-compatible APIs (OpenAI, Groq)"""
+        config = self.api_configs[provider]
+        
+        messages = []
+        
+        # Build system message
+        system_parts = []
+        if personality_context:
+            system_parts.append(personality_context[:600])
+        if memory_context:
+            system_parts.append(f"Recent context: {memory_context[:300]}")
+        
+        if system_parts:
+            messages.append({"role": "system", "content": "\n\n".join(system_parts)})
+        
+        messages.append({"role": "user", "content": query})
+        
+        payload = {
+            "model": config['model'],
+            "messages": messages,
+            "max_tokens": min(getattr(settings, 'max_response_tokens', 200), 300),
+            "temperature": 0.7,
+            "stream": True
+        }
+        
+        headers = {
+            'Content-Type': 'application/json',
+            'Authorization': f'Bearer {config["api_key"]}'
+        }
+        
+        response_received = False
+        response_text = ""
+        
+        try:
+            async with self.session.post(config['base_url'], headers=headers, json=payload) as response:
+                if response.status == 200:
+                    async for line in response.content:
+                        if line:
+                            line_str = line.decode('utf-8').strip()
+                            if line_str.startswith('data: '):
+                                line_str = line_str[6:]
+                                if line_str == '[DONE]':
+                                    break
+                                try:
+                                    data = json.loads(line_str)
+                                    if 'choices' in data and data['choices']:
+                                        delta = data['choices'][0].get('delta', {})
+                                        if 'content' in delta and delta['content']:
+                                            text_chunk = delta['content']
+                                            response_text += text_chunk
+                                            yield text_chunk
+                                            response_received = True
+                                except json.JSONDecodeError:
+                                    continue
+                    
+                    if not response_received:
+                        if settings.debug_mode:
+                            print(f"No valid response from {provider.value}")
+                        # Don't yield error message here, let the main function handle it
+                
+                else:
+                    error_content = await response.text()
+                    if response.status == 429:
+                        raise Exception(f"Rate limited by {provider.value}")
+                    elif response.status == 401:
+                        raise Exception(f"Invalid API key for {provider.value}")
+                    else:
+                        raise Exception(f"{provider.value} API error {response.status}: {error_content[:200]}")
+                        
+        except aiohttp.ClientError as e:
+            raise Exception(f"{provider.value} connection failed: {str(e)}")
+    
+    async def generate_response(self, query: str, personality_context: str, memory_context: str) -> str:
+        """Generate non-streaming response (fallback)"""
+        if not self.initialization_successful or not self.available_providers:
+            return "I'm having trouble connecting to online services right now."
+        
+        # Collect streaming response
+        response_parts = []
+        try:
+            async for chunk in self.generate_response_stream(query, personality_context, memory_context):
+                response_parts.append(chunk)
+            
+            response = ''.join(response_parts)
+            
+            # Check if we got a valid response
+            if not response or response.startswith("I'm having trouble"):
+                return "I'm having trouble connecting to online services right now. Please try again."
+            
+            return response
+            
+        except Exception as e:
+            self.last_error = str(e)
+            if settings.debug_mode:
+                print(f"❌ Online response error: {str(e)[:150]}")
+            return f"I'm having trouble connecting to online services right now."
+    
+    def get_provider_stats(self) -> Dict[str, Any]:
+        """Get statistics for all providers"""
+        stats = {
+            'aiohttp_available': AIOHTTP_AVAILABLE,
+            'initialization_successful': self.initialization_successful,
+            'last_error': self.last_error,
+            'available_providers': [p.value for p in self.available_providers],
+            'preferred_provider': self.preferred_provider.value if self.preferred_provider else None,
+            'providers': {}
+        }
+        
+        for provider in APIProvider:
+            api_key = self.api_configs[provider].get('api_key') if hasattr(self, 'api_configs') else None
+            invalid_keys = [None, '', 'your_api_key_here', f'your_{provider.value}_api_key_here',
+                          'your_gemini_api_key_here', 'your_google_api_key_here',
+                          'your_groq_api_key_here', 'your_grok_api_key_here']
+            api_key_configured = api_key and api_key not in invalid_keys
+            
+            provider_stats = {
+                'available': provider in self.available_providers,
+                'success_count': self.success_counts[provider],
+                'failure_count': self.failure_counts[provider],
+                'avg_response_time': 0,
+                'api_key_configured': api_key_configured
+            }
+            
+            if self.response_times[provider]:
+                provider_stats['avg_response_time'] = sum(self.response_times[provider]) / len(self.response_times[provider])
+            
+            stats['providers'][provider.value] = provider_stats
+        
+        return stats
+    
+    def is_available(self) -> bool:
+        """Check if any online provider is available"""
+        return self.initialization_successful and len(self.available_providers) > 0
+    
+    async def close(self):
+        """Close the aiohttp session"""
+        if self.session:
+            await self.session.close()
