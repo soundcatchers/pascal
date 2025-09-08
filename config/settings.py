@@ -1,7 +1,7 @@
 """
 Pascal AI Assistant - Global Configuration
 Manages all system settings and environment variables - Lightning-fast for Pi 5
-FIXED: Consistent Groq API key naming throughout
+FIXED: Consistent API key naming and better fallback support
 """
 
 import os
@@ -36,21 +36,24 @@ class Settings:
         self.max_context_length = 2048
         self.max_response_tokens = 200  # Limited for faster responses
         
-        # Online LLM APIs - FIXED: Using consistent groq_api_key
-        # Check for GROQ_API_KEY in environment (note the Q not K)
-        self.groq_api_key = os.getenv("GROQ_API_KEY")  # Fixed: GROQ not GROK
+        # Online LLM APIs - FIXED: Support both GROQ and GROK for compatibility
+        # Check for both GROQ_API_KEY and GROK_API_KEY (user might have either)
+        self.groq_api_key = os.getenv("GROQ_API_KEY") or os.getenv("GROK_API_KEY")
         self.openai_api_key = os.getenv("OPENAI_API_KEY")
         self.gemini_api_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
         
+        # Warn about deprecated GROK naming
+        if os.getenv("GROK_API_KEY") and not os.getenv("GROQ_API_KEY"):
+            if self.is_debug_mode():
+                print("[WARNING] Found GROK_API_KEY - please rename to GROQ_API_KEY in .env file")
+        
         # Debug API key loading
-        if os.getenv("DEBUG", "false").lower() == "true":
+        if self.is_debug_mode():
             if self.groq_api_key:
                 print(f"[DEBUG] Groq API key loaded: {self.groq_api_key[:20]}...")
             else:
                 print("[DEBUG] No Groq API key found in environment")
-                # Check if user mistakenly used GROK instead of GROQ
-                if os.getenv("GROK_API_KEY"):
-                    print("[WARNING] Found GROK_API_KEY but need GROQ_API_KEY (with Q not K)")
+                print("[DEBUG] Set GROQ_API_KEY=gsk-your-key in .env file for fastest online responses")
         
         # Local LLM Settings - Lightning optimized
         self.local_model_path = self.models_dir / "local_model.gguf"
@@ -65,7 +68,7 @@ class Settings:
         self.first_token_target = 1.0  # Target 1 second to first token
         
         # Performance Settings - Pi 5 Specific
-        self.performance_mode = os.getenv("PERFORMANCE_MODE", "speed")  # Default to speed
+        self.performance_mode = os.getenv("PERFORMANCE_MODE", "balanced")  # Default to balanced
         self.use_arm_optimizations = True
         self.memory_optimization = True
         self.context_caching = True
@@ -75,9 +78,9 @@ class Settings:
         self.pi_model = self._get_pi_model()
         self.available_ram_gb = self._get_available_ram()
         
-        # Router Settings - IMPORTANT: Prefer online for current info queries
-        self.prefer_offline = False  # Changed to False to use online when needed
-        self.online_timeout = 15.0  # Increased timeout for online services
+        # Router Settings - IMPORTANT: Intelligent routing with online preference for current info
+        self.prefer_offline = False  # Changed to False to use intelligent routing
+        self.online_timeout = 30.0  # Increased timeout for online services
         self.fallback_to_offline = True
         self.smart_routing = True
         self.auto_route_current_info = True  # Automatically route current info queries to online
@@ -103,9 +106,9 @@ class Settings:
         # Model Selection Preferences - Updated for current models
         self.preferred_models = [
             "nemotron-mini:4b-instruct-q4_K_M",  # Primary - fastest
-            "llama3.2:3b",                        # Current Llama model
-            "qwen2.5:3b",                         # Updated Qwen
+            "qwen2.5:3b",                         # Updated Qwen model
             "phi3:mini",                          # Reliable fallback
+            "llama3.2:3b",                        # Current Llama model
             "gemma2:2b"                           # Lightweight option
         ]
         self.max_model_ram_usage = 6.0  # Max GB for model
@@ -127,6 +130,10 @@ class Settings:
         self.visual_display_enabled = False
         self.display_fps = 30
         self.display_resolution = (1920, 1080)
+    
+    def is_debug_mode(self) -> bool:
+        """Check if debug mode is enabled"""
+        return self.debug_mode
     
     def _create_directories(self):
         """Create necessary directories if they don't exist"""
@@ -188,7 +195,7 @@ class Settings:
     def is_online_available(self) -> bool:
         """Check if any online API keys are configured"""
         # Check if any API key is properly configured
-        has_groq = self.groq_api_key and self.groq_api_key not in ['', 'your_groq_api_key_here', 'gsk-your_groq_api_key_here']
+        has_groq = self.groq_api_key and self.groq_api_key not in ['', 'your_groq_api_key_here', 'gsk-your_groq_api_key_here', 'your_grok_api_key_here']
         has_openai = self.openai_api_key and self.openai_api_key not in ['', 'your_openai_api_key_here', 'sk-your_openai_api_key_here']
         has_gemini = self.gemini_api_key and self.gemini_api_key not in ['', 'your_gemini_api_key_here', 'your_google_api_key_here']
         
@@ -248,7 +255,7 @@ class Settings:
             }
         }
         
-        return profiles.get(self.performance_mode, profiles['speed'])
+        return profiles.get(self.performance_mode, profiles['balanced'])
     
     def set_performance_mode(self, mode: str):
         """Set performance mode (speed/balanced/quality)"""
@@ -272,9 +279,18 @@ class Settings:
     
     def get_config_summary(self) -> Dict[str, Any]:
         """Get configuration summary for status display"""
-        # Check Groq specifically
+        # Check API keys with improved validation
         groq_configured = bool(self.groq_api_key and 
-                              self.groq_api_key not in ['', 'your_groq_api_key_here', 'gsk-your_groq_api_key_here'])
+                              self.groq_api_key not in ['', 'your_groq_api_key_here', 'gsk-your_groq_api_key_here', 'your_grok_api_key_here'] and
+                              len(self.groq_api_key) > 10)
+        
+        gemini_configured = bool(self.gemini_api_key and 
+                               self.gemini_api_key not in ['', 'your_gemini_api_key_here', 'your_google_api_key_here'] and
+                               len(self.gemini_api_key) > 10)
+        
+        openai_configured = bool(self.openai_api_key and 
+                               self.openai_api_key not in ['', 'your_openai_api_key_here', 'sk-your_openai_api_key_here'] and
+                               len(self.openai_api_key) > 10)
         
         return {
             "pascal_version": self.version,
@@ -282,10 +298,8 @@ class Settings:
             "personality": self.default_personality,
             "online_apis_configured": self.is_online_available(),
             "groq_configured": groq_configured,
-            "gemini_configured": bool(self.gemini_api_key and 
-                                    self.gemini_api_key not in ['', 'your_gemini_api_key_here', 'your_google_api_key_here']),
-            "openai_configured": bool(self.openai_api_key and 
-                                    self.openai_api_key not in ['', 'your_openai_api_key_here', 'sk-your_openai_api_key_here']),
+            "gemini_configured": gemini_configured,
+            "openai_configured": openai_configured,
             "local_model_available": self.is_local_model_available(),
             "prefer_offline": self.prefer_offline,
             "auto_route_current_info": self.auto_route_current_info,
@@ -340,11 +354,13 @@ class Settings:
             except ValueError:
                 pass
         
-        # Check for Groq API key again after env update
-        if not self.groq_api_key:
-            self.groq_api_key = os.getenv("GROQ_API_KEY")
-            if self.debug_mode and self.groq_api_key:
-                print(f"[DEBUG] Groq API key loaded after env update: {self.groq_api_key[:20]}...")
+        # Re-check API keys after env update
+        self.groq_api_key = os.getenv("GROQ_API_KEY") or os.getenv("GROK_API_KEY")
+        self.gemini_api_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
+        self.openai_api_key = os.getenv("OPENAI_API_KEY")
+        
+        if self.debug_mode and self.groq_api_key:
+            print(f"[DEBUG] Groq API key updated: {self.groq_api_key[:20]}...")
     
     def save_performance_settings(self):
         """Save current performance settings to file"""
