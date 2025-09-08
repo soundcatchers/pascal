@@ -1,7 +1,7 @@
 """
 Pascal AI Assistant - Lightning-Fast Router with Streaming and Groq Priority
 Intelligently routes requests between offline and online LLMs with Groq as primary provider
-FIXED: Better routing for current information queries
+FIXED: Better routing for current information queries and API key handling
 """
 
 import asyncio
@@ -45,7 +45,7 @@ class LightningRouter:
         self.online_llm = None
         
         # Router state
-        self.mode = RouteMode.AUTO  # Changed to AUTO to use best available
+        self.mode = RouteMode.AUTO  # Default to AUTO for intelligent routing
         self.last_decision = None
         self.offline_available = False
         self.online_available = False
@@ -56,33 +56,37 @@ class LightningRouter:
         
         # Enhanced patterns for detecting current information needs
         self.current_info_patterns = [
-            # Temporal indicators
+            # Temporal indicators - more comprehensive
             r'\b(today|tonight|tomorrow|yesterday|now|current|currently|latest|recent|recently)\b',
-            r'\b(this\s+(year|month|week|morning|afternoon|evening))\b',
-            r'\b(last\s+(year|month|week|night))\b',
-            r'\b(next\s+(year|month|week))\b',
+            r'\b(this\s+(year|month|week|day|morning|afternoon|evening))\b',
+            r'\b(last\s+(year|month|week|day|night))\b',
+            r'\b(next\s+(year|month|week|day))\b',
             
-            # Date patterns
+            # Date patterns - current years
             r'\b(202[4-9]|203\d)\b',  # Years 2024-2039
             r'\b(january|february|march|april|may|june|july|august|september|october|november|december)\s+202[4-9]\b',
             r'\b\d{1,2}[/-]\d{1,2}[/-]202[4-9]\b',  # Date formats
             
-            # Question patterns about time/date
+            # Time/date questions
             r'\bwhat\s+(day|date|time|year|month)\s+(is\s+)?it\b',
             r'\bwhat\'s\s+the\s+(date|time|day)\b',
             r'\btoday\'s\s+(date|day|weather|news)\b',
+            r'\bwhat\s+(day|date)\s+is\s+(today|tomorrow|yesterday)\b',
             
             # Event/news patterns
-            r'\b(news|headlines|happening|event|announcement)\b',
-            r'\b(weather|forecast|temperature)\b',
-            r'\b(stock|market|price|trading)\b',
+            r'\b(news|headlines|happening|events?|announcement|breaking)\b',
+            r'\b(weather|forecast|temperature|climate)\b',
+            r'\b(stock|market|price|trading|economy)\b',
             r'\b(score|game|match|championship|election|results)\b',
-            r'\bwho\s+(won|lost|is\s+winning)\b',
+            r'\bwho\s+(won|lost|is\s+winning|leads)\b',
             
-            # Current affairs
-            r'\b(president|prime\s+minister|government|election)\b',
-            r'\b(covid|pandemic|outbreak)\b',
-            r'\b(update|status|situation)\b'
+            # Current affairs and people
+            r'\b(president|prime\s+minister|government|politician)\b',
+            r'\b(who\s+is\s+the\s+current|current\s+.*(president|pm|minister))\b',
+            
+            # Status and updates
+            r'\b(update|status|situation|condition)\b',
+            r'\b(live|streaming|broadcast)\b'
         ]
         
         # Compile patterns for efficiency
@@ -98,7 +102,7 @@ class LightningRouter:
             'complex_queries': [
                 'analyze', 'compare', 'evaluate', 'research', 'detailed',
                 'comprehensive', 'explain in detail', 'write code', 'debug',
-                'create', 'design', 'develop', 'implement'
+                'create', 'design', 'develop', 'implement', 'strategy', 'plan'
             ]
         }
     
@@ -212,7 +216,7 @@ class LightningRouter:
                 traceback.print_exc()
     
     def _needs_current_information(self, query: str) -> bool:
-        """Check if query requires current/recent information"""
+        """Check if query requires current/recent information - IMPROVED"""
         query_lower = query.lower()
         
         # Check all current info patterns
@@ -222,19 +226,37 @@ class LightningRouter:
                     print(f"[DEBUG] Query needs current info - matched pattern: {pattern.pattern}")
                 return True
         
-        # Additional checks for implicit current info needs
-        # Questions about specific recent events or people in news
-        recent_event_keywords = [
-            'election', 'olympics', 'world cup', 'championship',
-            'award', 'announcement', 'launch', 'release'
+        # Additional specific checks for common current info queries
+        current_info_indicators = [
+            # Direct questions about today/current time
+            ('what day is', True),
+            ('what date is', True),
+            ('what time is', True),
+            ('who is the current', True),
+            ('current prime minister', True),
+            ('current president', True),
+            
+            # Weather queries
+            ('weather', True),
+            ('temperature', True),
+            ('forecast', True),
+            
+            # News and events
+            ('latest news', True),
+            ('recent news', True),
+            ('what happened', True),
+            ('breaking news', True),
+            
+            # Market/financial data
+            ('stock price', True),
+            ('market today', True),
+            ('exchange rate', True),
         ]
         
-        current_years = ['2024', '2025', '2026']
-        
-        for keyword in recent_event_keywords:
-            if keyword in query_lower and any(year in query_lower for year in current_years):
+        for indicator, needs_current in current_info_indicators:
+            if indicator in query_lower and needs_current:
                 if settings.debug_mode:
-                    print(f"[DEBUG] Query needs current info - recent event: {keyword}")
+                    print(f"[DEBUG] Query needs current info - matched indicator: {indicator}")
                 return True
         
         return False
@@ -243,24 +265,28 @@ class LightningRouter:
         """Check if query is simple and can be handled offline quickly"""
         query_lower = query.lower().strip()
         
-        # Very short queries
+        # Very short queries that are likely greetings or simple responses
         if len(query.split()) <= 3:
-            simple_patterns = ['hi', 'hello', 'thanks', 'bye', 'yes', 'no']
+            simple_patterns = ['hi', 'hello', 'thanks', 'bye', 'yes', 'no', 'ok', 'sure']
             if any(pattern in query_lower for pattern in simple_patterns):
                 return True
         
-        # Simple factual questions
+        # Simple factual questions that don't need current info
         simple_question_patterns = [
             r'^what is \w+\?*$',
             r'^who is \w+\?*$',
             r'^define \w+$',
             r'^calculate .+$',
-            r'^what.*\d+.*\d+.*$'  # Math questions
+            r'^what.*\d+.*\d+.*$',  # Math questions
+            r'^how do you.*$',
+            r'^can you explain.*$'
         ]
         
         for pattern in simple_question_patterns:
             if re.match(pattern, query_lower):
-                return True
+                # But not if it needs current info
+                if not self._needs_current_information(query):
+                    return True
         
         return False
     
@@ -276,17 +302,22 @@ class LightningRouter:
                 return True
         
         # Long queries are often complex
-        if len(query.split()) > 20:
+        if len(query.split()) > 25:
             return True
         
         # Multiple questions
         if query.count('?') > 1:
             return True
         
+        # Code-related queries
+        code_indicators = ['function', 'class', 'method', 'algorithm', 'implement', 'debug', 'syntax']
+        if any(indicator in query_lower for indicator in code_indicators):
+            return True
+        
         return False
     
     def _decide_route(self, query: str) -> RouteDecision:
-        """Decide whether to use offline or online LLM"""
+        """Decide whether to use offline or online LLM - IMPROVED LOGIC"""
         
         # Force offline if no online available
         if not self.online_available:
@@ -304,7 +335,7 @@ class LightningRouter:
             return RouteDecision(False, "Online-only mode")
         
         elif self.mode == RouteMode.OFFLINE_PREFERRED:
-            # Use offline unless it needs current info
+            # Use offline unless it absolutely needs current info
             if self._needs_current_information(query):
                 return RouteDecision(False, "Query requires current information")
             return RouteDecision(True, "Offline preferred")
@@ -315,20 +346,26 @@ class LightningRouter:
                 return RouteDecision(True, "Simple query - offline faster")
             return RouteDecision(False, "Online preferred")
         
-        else:  # AUTO mode - intelligent routing
-            # Priority 1: Current information queries go online
+        else:  # AUTO mode - intelligent routing with priority rules
+            
+            # PRIORITY 1: Current information queries ALWAYS go online
             if self._needs_current_information(query):
                 return RouteDecision(False, "Query requires current information")
             
-            # Priority 2: Very simple queries go offline for speed
+            # PRIORITY 2: Very simple queries go offline for speed
             if self._is_simple_query(query):
                 return RouteDecision(True, "Simple query - offline faster")
             
-            # Priority 3: Complex queries benefit from online (especially Groq)
+            # PRIORITY 3: Complex analysis/research queries benefit from online
             if self._is_complex_query(query):
                 return RouteDecision(False, "Complex query - online better")
             
-            # Default: Use offline for general queries (faster on local)
+            # PRIORITY 4: Code generation/debugging often better online
+            code_patterns = ['write', 'code', 'function', 'script', 'program', 'debug', 'fix']
+            if any(pattern in query.lower() for pattern in code_patterns):
+                return RouteDecision(False, "Code-related query - online better")
+            
+            # DEFAULT: Use offline for general queries (faster locally)
             return RouteDecision(True, "General query - using offline")
     
     async def get_response(self, query: str) -> str:
@@ -364,11 +401,15 @@ class LightningRouter:
                         query, personality_context, memory_context
                     )
                     route_used = 'offline'
+                    if settings.debug_mode:
+                        print("[ROUTER] Using offline fallback")
                 elif self.online_llm:
                     response = await self.online_llm.generate_response(
                         query, personality_context, memory_context
                     )
                     route_used = 'online'
+                    if settings.debug_mode:
+                        print("[ROUTER] Using online fallback")
                 else:
                     return "I'm sorry, but I'm unable to process your request right now. Please check that either Ollama is running or API keys are configured."
             
@@ -384,18 +425,22 @@ class LightningRouter:
             
         except Exception as e:
             if settings.debug_mode:
-                print(f"❌ Error in {route_used} LLM: {e}")
+                print(f"❌ Error in {route_used if 'route_used' in locals() else 'unknown'} LLM: {e}")
             
             # Try fallback
             try:
                 if decision.use_offline and self.online_llm:
                     # Offline failed, try online
+                    if settings.debug_mode:
+                        print("[ROUTER] Offline failed, trying online fallback")
                     response = await self.online_llm.generate_response(
                         query, personality_context, memory_context
                     )
                     return response
                 elif decision.use_online and self.offline_llm:
                     # Online failed, try offline
+                    if settings.debug_mode:
+                        print("[ROUTER] Online failed, trying offline fallback")
                     response = await self.offline_llm.generate_response(
                         query, personality_context, memory_context
                     )
@@ -421,6 +466,7 @@ class LightningRouter:
         
         start_time = time.time()
         first_token_received = False
+        response_generated = False
         
         try:
             if decision.use_offline and self.offline_llm:
@@ -433,6 +479,7 @@ class LightningRouter:
                         self.first_token_times[route_used].append(first_token_time)
                         first_token_received = True
                     yield chunk
+                    response_generated = True
                     
             elif decision.use_online and self.online_llm:
                 route_used = 'online'
@@ -444,32 +491,40 @@ class LightningRouter:
                         self.first_token_times[route_used].append(first_token_time)
                         first_token_received = True
                     yield chunk
+                    response_generated = True
                     
             else:
                 # Fallback logic
                 if self.offline_llm:
                     route_used = 'offline'
+                    if settings.debug_mode:
+                        print("[ROUTER] Using offline fallback for streaming")
                     async for chunk in self.offline_llm.generate_response_stream(
                         query, personality_context, memory_context
                     ):
                         yield chunk
+                        response_generated = True
                 elif self.online_llm:
                     route_used = 'online'
+                    if settings.debug_mode:
+                        print("[ROUTER] Using online fallback for streaming")
                     async for chunk in self.online_llm.generate_response_stream(
                         query, personality_context, memory_context
                     ):
                         yield chunk
+                        response_generated = True
                 else:
                     yield "I'm sorry, but I'm unable to process your request right now."
                     return
             
             # Track total response time
-            total_time = time.time() - start_time
-            self.response_times[route_used].append(total_time)
-            
-            # Keep only last 20 measurements
-            if len(self.response_times[route_used]) > 20:
-                self.response_times[route_used] = self.response_times[route_used][-20:]
+            if response_generated:
+                total_time = time.time() - start_time
+                self.response_times[route_used].append(total_time)
+                
+                # Keep only last 20 measurements
+                if len(self.response_times[route_used]) > 20:
+                    self.response_times[route_used] = self.response_times[route_used][-20:]
                 
         except Exception as e:
             if settings.debug_mode:
@@ -478,11 +533,15 @@ class LightningRouter:
             # Try fallback (non-streaming)
             try:
                 if decision.use_offline and self.online_llm:
+                    if settings.debug_mode:
+                        print("[ROUTER] Streaming offline failed, trying online fallback")
                     response = await self.online_llm.generate_response(
                         query, personality_context, memory_context
                     )
                     yield response
                 elif decision.use_online and self.offline_llm:
+                    if settings.debug_mode:
+                        print("[ROUTER] Streaming online failed, trying offline fallback")
                     response = await self.offline_llm.generate_response(
                         query, personality_context, memory_context
                     )
