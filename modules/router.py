@@ -1,10 +1,12 @@
 """
 Pascal AI Assistant - Lightning-Fast Router with Streaming and Groq Priority
 Intelligently routes requests between offline and online LLMs with Groq as primary provider
+FIXED: Better routing for current information queries
 """
 
 import asyncio
 import time
+import re
 from typing import Optional, Dict, Any, AsyncGenerator
 from enum import Enum
 
@@ -52,20 +54,51 @@ class LightningRouter:
         self.response_times = {'offline': [], 'online': []}
         self.first_token_times = {'offline': [], 'online': []}
         
+        # Enhanced patterns for detecting current information needs
+        self.current_info_patterns = [
+            # Temporal indicators
+            r'\b(today|tonight|tomorrow|yesterday|now|current|currently|latest|recent|recently)\b',
+            r'\b(this\s+(year|month|week|morning|afternoon|evening))\b',
+            r'\b(last\s+(year|month|week|night))\b',
+            r'\b(next\s+(year|month|week))\b',
+            
+            # Date patterns
+            r'\b(202[4-9]|203\d)\b',  # Years 2024-2039
+            r'\b(january|february|march|april|may|june|july|august|september|october|november|december)\s+202[4-9]\b',
+            r'\b\d{1,2}[/-]\d{1,2}[/-]202[4-9]\b',  # Date formats
+            
+            # Question patterns about time/date
+            r'\bwhat\s+(day|date|time|year|month)\s+(is\s+)?it\b',
+            r'\bwhat\'s\s+the\s+(date|time|day)\b',
+            r'\btoday\'s\s+(date|day|weather|news)\b',
+            
+            # Event/news patterns
+            r'\b(news|headlines|happening|event|announcement)\b',
+            r'\b(weather|forecast|temperature)\b',
+            r'\b(stock|market|price|trading)\b',
+            r'\b(score|game|match|championship|election|results)\b',
+            r'\bwho\s+(won|lost|is\s+winning)\b',
+            
+            # Current affairs
+            r'\b(president|prime\s+minister|government|election)\b',
+            r'\b(covid|pandemic|outbreak)\b',
+            r'\b(update|status|situation)\b'
+        ]
+        
+        # Compile patterns for efficiency
+        self.current_info_regex = [re.compile(pattern, re.IGNORECASE) for pattern in self.current_info_patterns]
+        
         # Query complexity patterns for fast routing
         self.complexity_patterns = {
-            'needs_current_info': [
-                'current', 'latest', 'recent', 'today', 'now', 'news', 'update', 
-                'weather', '2024', '2025', 'this year', 'this month', 'what day',
-                'what date', 'current date', 'current time', 'happening now'
-            ],
             'simple_queries': [
-                'hi', 'hello', 'hey', 'thanks', 'bye', 'yes', 'no', 'ok', 
-                'what is', 'who is', 'how far', 'distance', 'define', 'meaning'
+                'hi', 'hello', 'hey', 'thanks', 'bye', 'yes', 'no', 'ok',
+                'what is', 'who is', 'how far', 'distance', 'define', 'meaning',
+                'calculate', 'count', 'add', 'subtract', 'multiply', 'divide'
             ],
             'complex_queries': [
-                'analyze', 'compare', 'evaluate', 'research', 'detailed', 
-                'comprehensive', 'explain in detail', 'write code', 'debug'
+                'analyze', 'compare', 'evaluate', 'research', 'detailed',
+                'comprehensive', 'explain in detail', 'write code', 'debug',
+                'create', 'design', 'develop', 'implement'
             ]
         }
     
@@ -95,11 +128,9 @@ class LightningRouter:
             
             # Initialize online LLM if API keys are available
             self.online_available = False
-            # Check for any API key (prioritizing Groq)
-            if (getattr(settings, 'groq_api_key', None) or  # Groq (using grok_api_key)
-                getattr(settings, 'gemini_api_key', None) or 
-                getattr(settings, 'google_api_key', None) or
-                getattr(settings, 'openai_api_key', None)):
+            
+            # Check if online APIs are configured
+            if settings.is_online_available():
                 try:
                     from modules.online_llm import OnlineLLM
                     self.online_llm = OnlineLLM()
@@ -134,6 +165,7 @@ class LightningRouter:
                 if settings.debug_mode:
                     print("ℹ️ No online API keys configured - running offline only")
                     print("   For best performance, consider adding Groq API key (fastest)")
+                    print("   GROQ_API_KEY=gsk-... in your .env file")
                 self.online_available = False
             
             # Adjust routing mode based on availability
@@ -149,7 +181,7 @@ class LightningRouter:
                 self.mode = RouteMode.OFFLINE_ONLY
                 print("ℹ️ Running in offline-only mode (Ollama)")
             elif self.offline_available and self.online_available:
-                # Both available - use auto mode for best performance
+                # Both available - use auto mode for intelligent routing
                 self.mode = RouteMode.AUTO
                 provider_info = ""
                 if self.online_llm and hasattr(self.online_llm, 'preferred_provider'):
@@ -179,329 +211,23 @@ class LightningRouter:
                 import traceback
                 traceback.print_exc()
     
-    def _analyze_query_speed(self, query: str) -> Dict[str, Any]:
-        """Fast query analysis for immediate routing decision"""
+    def _needs_current_information(self, query: str) -> bool:
+        """Check if query requires current/recent information"""
         query_lower = query.lower()
         
-        # Quick pattern matching
-        needs_current = any(pattern in query_lower for pattern in self.complexity_patterns['needs_current_info'])
-        is_simple = any(pattern in query_lower for pattern in self.complexity_patterns['simple_queries'])
-        is_complex = any(pattern in query_lower for pattern in self.complexity_patterns['complex_queries'])
+        # Check all current info patterns
+        for pattern in self.current_info_regex:
+            if pattern.search(query_lower):
+                if settings.debug_mode:
+                    print(f"[DEBUG] Query needs current info - matched pattern: {pattern.pattern}")
+                return True
         
-        word_count = len(query.split())
+        # Additional checks for implicit current info needs
+        # Questions about specific recent events or people in news
+        recent_event_keywords = [
+            'election', 'olympics', 'world cup', 'championship',
+            'award', 'announcement', 'launch', 'release'
+        ]
         
-        return {
-            'needs_current_info': needs_current,
-            'is_simple': is_simple,
-            'is_complex': is_complex,
-            'word_count': word_count,
-            'estimated_offline_time': self._estimate_response_time(is_simple, is_complex, word_count)
-        }
-    
-    def _estimate_response_time(self, is_simple: bool, is_complex: bool, word_count: int) -> float:
-        """Estimate response time for offline processing"""
-        if is_simple:
-            return 1.0
-        elif is_complex:
-            return 3.0
-        elif word_count <= 10:
-            return 1.5
-        elif word_count <= 30:
-            return 2.0
-        else:
-            return 2.5
-    
-    def _make_lightning_decision(self, query: str, analysis: Dict[str, Any]) -> RouteDecision:
-        """Make ultra-fast routing decision with Groq priority consideration"""
-        
-        # Handle forced modes
-        if self.mode == RouteMode.OFFLINE_ONLY:
-            return RouteDecision(True, "Forced offline mode", 1.0)
-        elif self.mode == RouteMode.ONLINE_ONLY:
-            return RouteDecision(False, "Forced online mode", 1.0)
-        
-        # Handle availability constraints
-        if not self.offline_available and not self.online_available:
-            return RouteDecision(True, "No LLMs available (will show error)", 0.1)
-        elif self.offline_available and not self.online_available:
-            return RouteDecision(True, "Only offline available", 1.0)
-        elif not self.offline_available and self.online_available:
-            return RouteDecision(False, "Only online available", 1.0)
-        
-        # Both available - intelligent routing with Groq consideration
-        # Check if Groq is the primary online provider
-        groq_is_primary = False
-        if (self.online_llm and hasattr(self.online_llm, 'preferred_provider') and 
-            self.online_llm.preferred_provider and 
-            self.online_llm.preferred_provider.value.lower() == 'groq'):
-            groq_is_primary = True
-        
-        if self.mode == RouteMode.AUTO:
-            # If Groq is available as primary, prefer online for most queries due to speed
-            if groq_is_primary:
-                if analysis['is_simple'] and not analysis['needs_current_info']:
-                    # Even simple queries can go to Groq since it's so fast
-                    return RouteDecision(False, "Using Groq (lightning fast)", 0.9)
-                else:
-                    # Everything else definitely goes to Groq
-                    return RouteDecision(False, "Using Groq for speed and quality", 0.95)
-            else:
-                # Non-Groq online providers - be more selective
-                if analysis['is_simple'] and not analysis['needs_current_info']:
-                    # Simple queries go offline for speed
-                    return RouteDecision(True, "Simple query - using offline for speed", 0.8)
-                else:
-                    # Complex or current info queries go online
-                    return RouteDecision(False, "Using online for quality", 0.85)
-        
-        # OFFLINE_PREFERRED mode
-        elif self.mode == RouteMode.OFFLINE_PREFERRED:
-            if analysis['needs_current_info']:
-                return RouteDecision(False, "Query needs current information", 0.9)
-            else:
-                return RouteDecision(True, "Offline preferred mode", 0.95)
-        
-        # ONLINE_PREFERRED mode
-        elif self.mode == RouteMode.ONLINE_PREFERRED:
-            if groq_is_primary:
-                return RouteDecision(False, "Online preferred mode (Groq priority)", 0.95)
-            else:
-                return RouteDecision(False, "Online preferred mode", 0.9)
-        
-        # Default to offline for speed
-        return RouteDecision(True, "Default to offline", 0.7)
-    
-    async def get_streaming_response(self, query: str) -> AsyncGenerator[str, None]:
-        """Get streaming response for instant feedback"""
-        start_time = time.time()
-        first_token_time = None
-        response_generated = False
-        
-        try:
-            # Fast analysis and routing
-            analysis = self._analyze_query_speed(query)
-            decision = self._make_lightning_decision(query, analysis)
-            self.last_decision = decision
-            
-            if settings.debug_mode:
-                print(f"⚡ Query: '{query[:50]}...'")
-                print(f"⚡ Routing: {'Offline' if decision.use_offline else 'Online'} - {decision.reason}")
-            
-            # Get context (minimal for speed)
-            personality_context = await self.personality_manager.get_system_prompt()
-            memory_context = ""
-            if not analysis['is_simple']:
-                memory_context = await self.memory_manager.get_context()
-            
-            # Route to appropriate LLM
-            if decision.use_offline and self.offline_available and self.offline_llm:
-                try:
-                    async for chunk in self.offline_llm.generate_response_stream(
-                        query, personality_context, memory_context
-                    ):
-                        if not first_token_time:
-                            first_token_time = time.time() - start_time
-                            self.first_token_times['offline'].append(first_token_time)
-                        yield chunk
-                        response_generated = True
-                except Exception as e:
-                    if settings.debug_mode:
-                        print(f"❌ Offline error: {e}")
-                    # Try online fallback
-                    if self.online_available and self.online_llm:
-                        try:
-                            async for chunk in self.online_llm.generate_response_stream(
-                                query, personality_context, memory_context
-                            ):
-                                yield chunk
-                                response_generated = True
-                        except Exception as online_e:
-                            yield f"I'm having trouble processing your request. Error: {str(e)[:100]}"
-                            response_generated = True
-                    else:
-                        yield f"I'm having trouble processing your request: {str(e)}"
-                        response_generated = True
-            
-            elif decision.use_online and self.online_available and self.online_llm:
-                try:
-                    async for chunk in self.online_llm.generate_response_stream(
-                        query, personality_context, memory_context
-                    ):
-                        if not first_token_time:
-                            first_token_time = time.time() - start_time
-                            self.first_token_times['online'].append(first_token_time)
-                        yield chunk
-                        response_generated = True
-                except Exception as e:
-                    if settings.debug_mode:
-                        print(f"❌ Online error: {e}")
-                    # Try offline fallback
-                    if self.offline_available and self.offline_llm:
-                        try:
-                            async for chunk in self.offline_llm.generate_response_stream(
-                                query, personality_context, memory_context
-                            ):
-                                yield chunk
-                                response_generated = True
-                        except Exception as offline_e:
-                            yield f"I'm having trouble with both services. Error: {str(e)[:100]}"
-                            response_generated = True
-                    else:
-                        yield f"I'm having trouble connecting to online services: {str(e)[:100]}"
-                        response_generated = True
-            
-            else:
-                # Final fallback - try whatever is available
-                if self.online_available and self.online_llm:
-                    try:
-                        async for chunk in self.online_llm.generate_response_stream(
-                            query, personality_context, memory_context
-                        ):
-                            yield chunk
-                            response_generated = True
-                    except Exception as e:
-                        yield f"Online service error: {str(e)}"
-                        response_generated = True
-                elif self.offline_available and self.offline_llm:
-                    try:
-                        async for chunk in self.offline_llm.generate_response_stream(
-                            query, personality_context, memory_context
-                        ):
-                            yield chunk
-                            response_generated = True
-                    except Exception as e:
-                        yield f"Offline service error: {str(e)}"
-                        response_generated = True
-                else:
-                    yield "I'm sorry, but no AI services are currently available. Please check that Ollama is running or configure API keys (Groq recommended for speed)."
-                    response_generated = True
-            
-            # Track performance
-            if response_generated:
-                total_time = time.time() - start_time
-                source = 'offline' if decision.use_offline else 'online'
-                self.response_times[source].append(total_time)
-                
-                # Keep recent measurements
-                if len(self.response_times[source]) > 20:
-                    self.response_times[source] = self.response_times[source][-20:]
-                if first_token_time and len(self.first_token_times[source]) > 20:
-                    self.first_token_times[source] = self.first_token_times[source][-20:]
-                
-                if settings.debug_mode and first_token_time:
-                    print(f"⚡ Performance: {first_token_time:.2f}s first token, {total_time:.2f}s total")
-            
-        except Exception as e:
-            if settings.debug_mode:
-                print(f"❌ Router streaming error: {e}")
-                import traceback
-                traceback.print_exc()
-            yield f"I encountered an error: {str(e)}"
-    
-    async def get_response(self, query: str) -> str:
-        """Get complete response (non-streaming fallback)"""
-        try:
-            # Collect streaming response
-            response_parts = []
-            async for chunk in self.get_streaming_response(query):
-                response_parts.append(chunk)
-            
-            response = ''.join(response_parts)
-            
-            # Store in memory if valid response
-            if (response and 
-                not response.startswith("I'm sorry") and 
-                not response.startswith("Error") and 
-                not response.startswith("I'm having trouble") and
-                not response.startswith("I encountered an error") and
-                not response.startswith("Online service error") and
-                not response.startswith("Offline service error")):
-                await self.memory_manager.add_interaction(query, response)
-            
-            return response
-            
-        except Exception as e:
-            if settings.debug_mode:
-                print(f"Router error: {e}")
-                import traceback
-                traceback.print_exc()
-            
-            return f"I encountered an error processing your request: {str(e)}"
-    
-    def set_mode(self, mode: RouteMode):
-        """Set routing mode"""
-        self.mode = mode
-        print(f"Routing mode set to: {mode.value}")
-    
-    def set_performance_preference(self, preference: str):
-        """Set performance preference"""
-        if preference in ['speed', 'balanced', 'quality']:
-            settings.set_performance_mode(preference)
-            if self.offline_llm and hasattr(self.offline_llm, 'set_performance_profile'):
-                self.offline_llm.set_performance_profile(preference)
-            print(f"Performance preference set to: {preference}")
-    
-    def get_status(self) -> Dict[str, Any]:
-        """Get router status with performance metrics and Groq priority info"""
-        status = {
-            'mode': self.mode.value,
-            'offline_available': self.offline_available,
-            'online_available': self.online_available,
-            'hardware_info': settings.get_hardware_info(),
-            'performance_mode': getattr(settings, 'performance_mode', 'balanced'),
-            'streaming_enabled': getattr(settings, 'streaming_enabled', True)
-        }
-        
-        # Add online provider info if available
-        if self.online_available and self.online_llm:
-            if hasattr(self.online_llm, 'preferred_provider') and self.online_llm.preferred_provider:
-                provider_name = self.online_llm.preferred_provider.value
-                status['primary_online_provider'] = provider_name
-                
-                # Special indication for Groq
-                if provider_name.lower() == 'groq':
-                    status['groq_lightning_mode'] = True
-                    status['provider_performance'] = 'Lightning Fast ⚡'
-                else:
-                    status['groq_lightning_mode'] = False
-                    status['provider_performance'] = 'Standard'
-            else:
-                status['primary_online_provider'] = 'None'
-                status['groq_lightning_mode'] = False
-        
-        # Add performance metrics
-        if self.response_times['offline']:
-            status['avg_offline_time'] = f"{sum(self.response_times['offline']) / len(self.response_times['offline']):.2f}s"
-        if self.response_times['online']:
-            status['avg_online_time'] = f"{sum(self.response_times['online']) / len(self.response_times['online']):.2f}s"
-        
-        if self.first_token_times['offline']:
-            status['avg_offline_first_token'] = f"{sum(self.first_token_times['offline']) / len(self.first_token_times['offline']):.2f}s"
-        if self.first_token_times['online']:
-            status['avg_online_first_token'] = f"{sum(self.first_token_times['online']) / len(self.first_token_times['online']):.2f}s"
-        
-        if self.last_decision:
-            status['last_decision'] = {
-                'use_offline': self.last_decision.use_offline,
-                'reason': self.last_decision.reason,
-                'confidence': self.last_decision.confidence
-            }
-        
-        # Get component stats
-        if self.offline_llm and hasattr(self.offline_llm, 'get_performance_stats'):
-            status['offline_model_info'] = self.offline_llm.get_performance_stats()
-        
-        if self.online_llm and hasattr(self.online_llm, 'get_provider_stats'):
-            online_stats = self.online_llm.get_provider_stats()
-            status['online_provider_info'] = online_stats
-            
-            # Add Groq-specific information
-            if 'providers' in online_stats and 'groq' in online_stats['providers']:
-                groq_stats = online_stats['providers']['groq']
-                status['groq_available'] = groq_stats.get('available', False)
-                status['groq_configured'] = groq_stats.get('api_key_configured', False)
-        
-        return status
-
-# For backwards compatibility
-Router = LightningRouter
+        for keyword in recent_event_keywords:
+            if keyword in query_lower and any(year in query_lower for year in
