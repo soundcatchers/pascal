@@ -229,5 +229,319 @@ class LightningRouter:
             'award', 'announcement', 'launch', 'release'
         ]
         
+        current_years = ['2024', '2025', '2026']
+        
         for keyword in recent_event_keywords:
-            if keyword in query_lower and any(year in query_lower for year in
+            if keyword in query_lower and any(year in query_lower for year in current_years):
+                if settings.debug_mode:
+                    print(f"[DEBUG] Query needs current info - recent event: {keyword}")
+                return True
+        
+        return False
+    
+    def _is_simple_query(self, query: str) -> bool:
+        """Check if query is simple and can be handled offline quickly"""
+        query_lower = query.lower().strip()
+        
+        # Very short queries
+        if len(query.split()) <= 3:
+            simple_patterns = ['hi', 'hello', 'thanks', 'bye', 'yes', 'no']
+            if any(pattern in query_lower for pattern in simple_patterns):
+                return True
+        
+        # Simple factual questions
+        simple_question_patterns = [
+            r'^what is \w+\?*$',
+            r'^who is \w+\?*$',
+            r'^define \w+$',
+            r'^calculate .+$',
+            r'^what.*\d+.*\d+.*$'  # Math questions
+        ]
+        
+        for pattern in simple_question_patterns:
+            if re.match(pattern, query_lower):
+                return True
+        
+        return False
+    
+    def _is_complex_query(self, query: str) -> bool:
+        """Check if query is complex and benefits from online processing"""
+        query_lower = query.lower()
+        
+        # Check for complexity indicators
+        complex_keywords = self.complexity_patterns['complex_queries']
+        
+        for keyword in complex_keywords:
+            if keyword in query_lower:
+                return True
+        
+        # Long queries are often complex
+        if len(query.split()) > 20:
+            return True
+        
+        # Multiple questions
+        if query.count('?') > 1:
+            return True
+        
+        return False
+    
+    def _decide_route(self, query: str) -> RouteDecision:
+        """Decide whether to use offline or online LLM"""
+        
+        # Force offline if no online available
+        if not self.online_available:
+            return RouteDecision(True, "No online LLM available")
+        
+        # Force online if no offline available
+        if not self.offline_available:
+            return RouteDecision(False, "No offline LLM available")
+        
+        # Handle different routing modes
+        if self.mode == RouteMode.OFFLINE_ONLY:
+            return RouteDecision(True, "Offline-only mode")
+        
+        elif self.mode == RouteMode.ONLINE_ONLY:
+            return RouteDecision(False, "Online-only mode")
+        
+        elif self.mode == RouteMode.OFFLINE_PREFERRED:
+            # Use offline unless it needs current info
+            if self._needs_current_information(query):
+                return RouteDecision(False, "Query requires current information")
+            return RouteDecision(True, "Offline preferred")
+        
+        elif self.mode == RouteMode.ONLINE_PREFERRED:
+            # Use online unless it's a very simple query
+            if self._is_simple_query(query):
+                return RouteDecision(True, "Simple query - offline faster")
+            return RouteDecision(False, "Online preferred")
+        
+        else:  # AUTO mode - intelligent routing
+            # Priority 1: Current information queries go online
+            if self._needs_current_information(query):
+                return RouteDecision(False, "Query requires current information")
+            
+            # Priority 2: Very simple queries go offline for speed
+            if self._is_simple_query(query):
+                return RouteDecision(True, "Simple query - offline faster")
+            
+            # Priority 3: Complex queries benefit from online (especially Groq)
+            if self._is_complex_query(query):
+                return RouteDecision(False, "Complex query - online better")
+            
+            # Default: Use offline for general queries (faster on local)
+            return RouteDecision(True, "General query - using offline")
+    
+    async def get_response(self, query: str) -> str:
+        """Get response using appropriate LLM (non-streaming)"""
+        decision = self._decide_route(query)
+        self.last_decision = decision
+        
+        if settings.debug_mode:
+            route_type = "Offline" if decision.use_offline else "Online"
+            print(f"[ROUTER] Decision: {route_type} - {decision.reason}")
+        
+        # Get context
+        personality_context = await self.personality_manager.get_system_prompt()
+        memory_context = await self.memory_manager.get_context()
+        
+        start_time = time.time()
+        
+        try:
+            if decision.use_offline and self.offline_llm:
+                response = await self.offline_llm.generate_response(
+                    query, personality_context, memory_context
+                )
+                route_used = 'offline'
+            elif decision.use_online and self.online_llm:
+                response = await self.online_llm.generate_response(
+                    query, personality_context, memory_context
+                )
+                route_used = 'online'
+            else:
+                # Fallback logic
+                if self.offline_llm:
+                    response = await self.offline_llm.generate_response(
+                        query, personality_context, memory_context
+                    )
+                    route_used = 'offline'
+                elif self.online_llm:
+                    response = await self.online_llm.generate_response(
+                        query, personality_context, memory_context
+                    )
+                    route_used = 'online'
+                else:
+                    return "I'm sorry, but I'm unable to process your request right now. Please check that either Ollama is running or API keys are configured."
+            
+            # Track response time
+            response_time = time.time() - start_time
+            self.response_times[route_used].append(response_time)
+            
+            # Keep only last 20 measurements
+            if len(self.response_times[route_used]) > 20:
+                self.response_times[route_used] = self.response_times[route_used][-20:]
+            
+            return response
+            
+        except Exception as e:
+            if settings.debug_mode:
+                print(f"❌ Error in {route_used} LLM: {e}")
+            
+            # Try fallback
+            try:
+                if decision.use_offline and self.online_llm:
+                    # Offline failed, try online
+                    response = await self.online_llm.generate_response(
+                        query, personality_context, memory_context
+                    )
+                    return response
+                elif decision.use_online and self.offline_llm:
+                    # Online failed, try offline
+                    response = await self.offline_llm.generate_response(
+                        query, personality_context, memory_context
+                    )
+                    return response
+            except Exception as fallback_error:
+                if settings.debug_mode:
+                    print(f"❌ Fallback also failed: {fallback_error}")
+            
+            return f"I'm having trouble processing your request right now. Error: {str(e)}"
+    
+    async def get_streaming_response(self, query: str) -> AsyncGenerator[str, None]:
+        """Get streaming response using appropriate LLM"""
+        decision = self._decide_route(query)
+        self.last_decision = decision
+        
+        if settings.debug_mode:
+            route_type = "Offline" if decision.use_offline else "Online"
+            print(f"[ROUTER] Decision: {route_type} - {decision.reason}")
+        
+        # Get context
+        personality_context = await self.personality_manager.get_system_prompt()
+        memory_context = await self.memory_manager.get_context()
+        
+        start_time = time.time()
+        first_token_received = False
+        
+        try:
+            if decision.use_offline and self.offline_llm:
+                route_used = 'offline'
+                async for chunk in self.offline_llm.generate_response_stream(
+                    query, personality_context, memory_context
+                ):
+                    if not first_token_received:
+                        first_token_time = time.time() - start_time
+                        self.first_token_times[route_used].append(first_token_time)
+                        first_token_received = True
+                    yield chunk
+                    
+            elif decision.use_online and self.online_llm:
+                route_used = 'online'
+                async for chunk in self.online_llm.generate_response_stream(
+                    query, personality_context, memory_context
+                ):
+                    if not first_token_received:
+                        first_token_time = time.time() - start_time
+                        self.first_token_times[route_used].append(first_token_time)
+                        first_token_received = True
+                    yield chunk
+                    
+            else:
+                # Fallback logic
+                if self.offline_llm:
+                    route_used = 'offline'
+                    async for chunk in self.offline_llm.generate_response_stream(
+                        query, personality_context, memory_context
+                    ):
+                        yield chunk
+                elif self.online_llm:
+                    route_used = 'online'
+                    async for chunk in self.online_llm.generate_response_stream(
+                        query, personality_context, memory_context
+                    ):
+                        yield chunk
+                else:
+                    yield "I'm sorry, but I'm unable to process your request right now."
+                    return
+            
+            # Track total response time
+            total_time = time.time() - start_time
+            self.response_times[route_used].append(total_time)
+            
+            # Keep only last 20 measurements
+            if len(self.response_times[route_used]) > 20:
+                self.response_times[route_used] = self.response_times[route_used][-20:]
+                
+        except Exception as e:
+            if settings.debug_mode:
+                print(f"❌ Streaming error: {e}")
+            
+            # Try fallback (non-streaming)
+            try:
+                if decision.use_offline and self.online_llm:
+                    response = await self.online_llm.generate_response(
+                        query, personality_context, memory_context
+                    )
+                    yield response
+                elif decision.use_online and self.offline_llm:
+                    response = await self.offline_llm.generate_response(
+                        query, personality_context, memory_context
+                    )
+                    yield response
+                else:
+                    yield f"I'm having trouble processing your request. Error: {str(e)}"
+            except Exception as fallback_error:
+                if settings.debug_mode:
+                    print(f"❌ Fallback streaming failed: {fallback_error}")
+                yield f"I'm experiencing technical difficulties right now."
+    
+    def set_mode(self, mode: RouteMode):
+        """Set routing mode"""
+        self.mode = mode
+        if settings.debug_mode:
+            print(f"Router mode set to: {mode.value}")
+    
+    def set_performance_preference(self, preference: str):
+        """Set performance preference (speed/balanced/quality)"""
+        if preference == 'speed':
+            self.mode = RouteMode.OFFLINE_PREFERRED
+        elif preference == 'balanced':
+            self.mode = RouteMode.AUTO
+        elif preference == 'quality':
+            self.mode = RouteMode.ONLINE_PREFERRED
+        
+        # Also pass to LLM modules if available
+        if self.offline_llm:
+            self.offline_llm.set_performance_profile(preference)
+    
+    def get_router_stats(self) -> Dict[str, Any]:
+        """Get router performance statistics"""
+        stats = {
+            'mode': self.mode.value,
+            'offline_available': self.offline_available,
+            'online_available': self.online_available,
+            'last_decision': {
+                'use_offline': self.last_decision.use_offline,
+                'reason': self.last_decision.reason,
+                'confidence': self.last_decision.confidence
+            } if self.last_decision else None
+        }
+        
+        # Add performance metrics
+        for route_type in ['offline', 'online']:
+            if self.response_times[route_type]:
+                avg_time = sum(self.response_times[route_type]) / len(self.response_times[route_type])
+                stats[f'{route_type}_avg_response_time'] = f"{avg_time:.2f}s"
+                stats[f'{route_type}_total_requests'] = len(self.response_times[route_type])
+            
+            if self.first_token_times[route_type]:
+                avg_first_token = sum(self.first_token_times[route_type]) / len(self.first_token_times[route_type])
+                stats[f'{route_type}_avg_first_token_time'] = f"{avg_first_token:.2f}s"
+        
+        return stats
+    
+    async def close(self):
+        """Close all LLM connections"""
+        if self.offline_llm:
+            await self.offline_llm.close()
+        if self.online_llm:
+            await self.online_llm.close()
