@@ -1,6 +1,7 @@
 """
 Pascal AI Assistant - Global Configuration
 Manages all system settings and environment variables - Lightning-fast for Pi 5
+FIXED: Consistent Groq API key naming throughout
 """
 
 import os
@@ -28,18 +29,28 @@ class Settings:
         
         # Pascal identity
         self.name = "Pascal"
-        self.version = "2.0.0"  # Lightning version with Groq
+        self.version = "2.0.1"  # Fixed version with Groq integration
         
         # LLM Configuration - Optimized for speed
         self.default_personality = "default"
         self.max_context_length = 2048
-        self.max_response_tokens = 150  # Limited for faster responses
+        self.max_response_tokens = 200  # Limited for faster responses
         
-        # Online LLM APIs - Groq as primary, Gemini as alternative
-        # FIXED: Consistent naming - using groq_api_key throughout
-        self.groq_api_key = os.getenv("GROQ_API_KEY")  # Primary online API
+        # Online LLM APIs - FIXED: Using consistent groq_api_key
+        # Check for GROQ_API_KEY in environment (note the Q not K)
+        self.groq_api_key = os.getenv("GROQ_API_KEY")  # Fixed: GROQ not GROK
         self.openai_api_key = os.getenv("OPENAI_API_KEY")
-        self.gemini_api_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")  # Support both names
+        self.gemini_api_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
+        
+        # Debug API key loading
+        if os.getenv("DEBUG", "false").lower() == "true":
+            if self.groq_api_key:
+                print(f"[DEBUG] Groq API key loaded: {self.groq_api_key[:20]}...")
+            else:
+                print("[DEBUG] No Groq API key found in environment")
+                # Check if user mistakenly used GROK instead of GROQ
+                if os.getenv("GROK_API_KEY"):
+                    print("[WARNING] Found GROK_API_KEY but need GROQ_API_KEY (with Q not K)")
         
         # Local LLM Settings - Lightning optimized
         self.local_model_path = self.models_dir / "local_model.gguf"
@@ -64,11 +75,12 @@ class Settings:
         self.pi_model = self._get_pi_model()
         self.available_ram_gb = self._get_available_ram()
         
-        # Router Settings
-        self.prefer_offline = True  # Default to offline for speed
-        self.online_timeout = 10.0  # Seconds
+        # Router Settings - IMPORTANT: Prefer online for current info queries
+        self.prefer_offline = False  # Changed to False to use online when needed
+        self.online_timeout = 15.0  # Increased timeout for online services
         self.fallback_to_offline = True
         self.smart_routing = True
+        self.auto_route_current_info = True  # Automatically route current info queries to online
         
         # Memory Settings
         self.short_term_memory_limit = 5  # Keep recent context
@@ -175,11 +187,18 @@ class Settings:
     
     def is_online_available(self) -> bool:
         """Check if any online API keys are configured"""
-        return any([
-            self.groq_api_key,  # Primary online provider
-            self.openai_api_key,
-            self.gemini_api_key
-        ])
+        # Check if any API key is properly configured
+        has_groq = self.groq_api_key and self.groq_api_key not in ['', 'your_groq_api_key_here', 'gsk-your_groq_api_key_here']
+        has_openai = self.openai_api_key and self.openai_api_key not in ['', 'your_openai_api_key_here', 'sk-your_openai_api_key_here']
+        has_gemini = self.gemini_api_key and self.gemini_api_key not in ['', 'your_gemini_api_key_here', 'your_google_api_key_here']
+        
+        if self.debug_mode:
+            print(f"[DEBUG] Online availability check:")
+            print(f"  Groq configured: {has_groq}")
+            print(f"  OpenAI configured: {has_openai}")
+            print(f"  Gemini configured: {has_gemini}")
+        
+        return has_groq or has_openai or has_gemini
     
     def is_local_model_available(self) -> bool:
         """Check if any local model files exist"""
@@ -253,19 +272,23 @@ class Settings:
     
     def get_config_summary(self) -> Dict[str, Any]:
         """Get configuration summary for status display"""
+        # Check Groq specifically
+        groq_configured = bool(self.groq_api_key and 
+                              self.groq_api_key not in ['', 'your_groq_api_key_here', 'gsk-your_groq_api_key_here'])
+        
         return {
             "pascal_version": self.version,
             "base_directory": str(self.base_dir),
             "personality": self.default_personality,
             "online_apis_configured": self.is_online_available(),
-            "groq_configured": bool(self.groq_api_key and 
-                                  self.groq_api_key not in ['', 'your_groq_api_key_here', 'gsk-your_groq_api_key_here']),
+            "groq_configured": groq_configured,
             "gemini_configured": bool(self.gemini_api_key and 
                                     self.gemini_api_key not in ['', 'your_gemini_api_key_here', 'your_google_api_key_here']),
             "openai_configured": bool(self.openai_api_key and 
                                     self.openai_api_key not in ['', 'your_openai_api_key_here', 'sk-your_openai_api_key_here']),
             "local_model_available": self.is_local_model_available(),
             "prefer_offline": self.prefer_offline,
+            "auto_route_current_info": self.auto_route_current_info,
             "debug_mode": self.debug_mode,
             "memory_enabled": self.long_term_memory_enabled,
             "performance_mode": self.performance_mode,
@@ -316,6 +339,12 @@ class Settings:
                 self.target_response_time = float(env_target_time)
             except ValueError:
                 pass
+        
+        # Check for Groq API key again after env update
+        if not self.groq_api_key:
+            self.groq_api_key = os.getenv("GROQ_API_KEY")
+            if self.debug_mode and self.groq_api_key:
+                print(f"[DEBUG] Groq API key loaded after env update: {self.groq_api_key[:20]}...")
     
     def save_performance_settings(self):
         """Save current performance settings to file"""
@@ -330,6 +359,7 @@ class Settings:
             'keep_alive_enabled': self.keep_alive_enabled,
             'target_response_time': self.target_response_time,
             'preferred_models': self.preferred_models,
+            'auto_route_current_info': self.auto_route_current_info,
             'updated_timestamp': 0  # Simplified for compatibility
         }
         
@@ -360,6 +390,7 @@ class Settings:
             self.keep_alive_enabled = settings_data.get('keep_alive_enabled', self.keep_alive_enabled)
             self.target_response_time = settings_data.get('target_response_time', self.target_response_time)
             self.preferred_models = settings_data.get('preferred_models', self.preferred_models)
+            self.auto_route_current_info = settings_data.get('auto_route_current_info', self.auto_route_current_info)
             
         except Exception as e:
             if self.debug_mode:
