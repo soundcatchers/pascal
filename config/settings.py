@@ -36,6 +36,12 @@ class Settings:
         self.max_context_length = 2048
         self.max_response_tokens = 200  # Limited for faster responses
         
+        # Debug Settings - MOVED BEFORE FIRST USE
+        self.debug_mode = os.getenv("DEBUG", "false").lower() == "true"
+        self.log_level = os.getenv("LOG_LEVEL", "INFO")
+        self.verbose_logging = self.debug_mode
+        self.performance_logging = os.getenv("PERF_LOG", "false").lower() == "true"
+        
         # Online LLM APIs - FIXED: Support both GROQ and GROK for compatibility
         # Check for both GROQ_API_KEY and GROK_API_KEY (user might have either)
         self.groq_api_key = os.getenv("GROQ_API_KEY") or os.getenv("GROK_API_KEY")
@@ -113,12 +119,6 @@ class Settings:
         ]
         self.max_model_ram_usage = 6.0  # Max GB for model
         self.auto_model_selection = True
-        
-        # Debug Settings
-        self.debug_mode = os.getenv("DEBUG", "false").lower() == "true"
-        self.log_level = os.getenv("LOG_LEVEL", "INFO")
-        self.verbose_logging = self.debug_mode
-        self.performance_logging = os.getenv("PERF_LOG", "false").lower() == "true"
         
         # Voice Settings (for future phases)
         self.voice_enabled = False
