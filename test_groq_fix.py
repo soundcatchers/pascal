@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Enhanced debug test script for Groq API integration with current models
-Updated for 2024 Groq API models and endpoints
+Updated for 2024 Groq API models and endpoints - FIXED for API key compatibility
 """
 
 import asyncio
@@ -38,23 +38,39 @@ async def test_groq_debug():
         # Enable debug mode
         settings.debug_mode = True
         
-        # Check settings
+        # Check settings - FIXED: Check both GROQ and GROK for compatibility
         print("\n📋 Settings Check:")
         groq_key = getattr(settings, 'groq_api_key', None)
         print(f"  groq_api_key exists: {groq_key is not None}")
+        
+        # Check environment variables directly
+        env_groq = os.getenv("GROQ_API_KEY")
+        env_grok = os.getenv("GROK_API_KEY")  # Legacy support
+        
+        print(f"  GROQ_API_KEY in env: {env_groq is not None}")
+        print(f"  GROK_API_KEY in env: {env_grok is not None}")
+        
         if groq_key:
             print(f"  groq_api_key starts with: {groq_key[:15]}...")
             print(f"  groq_api_key length: {len(groq_key)}")
             
             # Check for common invalid values
-            invalid_values = ['', 'your_groq_api_key_here', 'gsk-your_groq_api_key_here']
+            invalid_values = ['', 'your_groq_api_key_here', 'gsk-your_groq_api_key_here', 'your_grok_api_key_here']
             if groq_key in invalid_values:
                 print("  ❌ API key appears to be placeholder/invalid")
                 return False
             elif not groq_key.startswith('gsk-'):
                 print("  ⚠️ API key doesn't start with 'gsk-' (expected Groq format)")
+                print(f"  Actual start: {groq_key[:10]}...")
             else:
                 print("  ✅ API key format looks correct")
+        else:
+            print("  ❌ No Groq API key found")
+            print("\n🔧 API Key Setup:")
+            print("  1. Get API key from: https://console.groq.com/")
+            print("  2. Add to .env file: GROQ_API_KEY=gsk-your-actual-key")
+            print("  3. Make sure .env file is in the pascal directory")
+            return False
         
         # Test direct Groq API call with current models
         print("\n🔧 Testing Direct Groq API Call with Current Models:")
@@ -135,6 +151,38 @@ async def test_groq_debug():
             if working_model:
                 print(f"\n✅ Found working Groq model: {working_model}")
                 
+                # Test current info query that should route to Groq
+                print(f"\n🧪 Testing Current Info Query:")
+                current_info_payload = {
+                    "model": working_model,
+                    "messages": [
+                        {"role": "user", "content": "What day is today?"}
+                    ],
+                    "max_tokens": 50,
+                    "temperature": 0.1,
+                    "stream": False
+                }
+                
+                try:
+                    async with session.post(
+                        'https://api.groq.com/openai/v1/chat/completions',
+                        headers=headers,
+                        json=current_info_payload,
+                        timeout=aiohttp.ClientTimeout(total=30)
+                    ) as response:
+                        if response.status == 200:
+                            data = await response.json()
+                            if 'choices' in data and data['choices']:
+                                content = data['choices'][0]['message']['content']
+                                print(f"    ✅ Current info response: {content}")
+                            else:
+                                print(f"    ⚠️ Unexpected response format")
+                        else:
+                            print(f"    ❌ Current info test failed: {response.status}")
+                            
+                except Exception as e:
+                    print(f"    ❌ Current info test error: {str(e)}")
+                
                 # Test streaming with working model
                 print(f"\n🔄 Testing streaming with {working_model}:")
                 
@@ -183,6 +231,10 @@ async def test_groq_debug():
                     print(f"    ❌ Streaming error: {str(e)}")
             else:
                 print("\n❌ No Groq models worked with this API key")
+                print("\n🔧 Troubleshooting:")
+                print("  1. Verify API key at: https://console.groq.com/")
+                print("  2. Check if account has quota/credits")
+                print("  3. Try regenerating the API key")
                 return False
                 
         finally:
@@ -200,9 +252,10 @@ async def test_groq_debug():
             # Check if Groq config exists
             if APIProvider.GROQ in online_llm.api_configs:
                 groq_config = online_llm.api_configs[APIProvider.GROQ]
-                print(f"  Groq config exists: {groq_config}")
+                print(f"  Groq config exists: True")
                 print(f"  Groq models: {groq_config.get('models', [])}")
                 print(f"  Groq default model: {groq_config.get('default_model', 'None')}")
+                print(f"  Groq API key configured: {groq_config.get('api_key') is not None}")
         
         # Initialize
         success = await online_llm.initialize()
@@ -241,26 +294,41 @@ async def test_groq_debug():
                     if response and not response.startswith("I'm having trouble"):
                         print("  ✅ Groq response generation successful!")
                         
+                        # Test current info routing
+                        print(f"\n🧪 Testing Current Info Routing:")
+                        current_info_response = await online_llm.generate_response(
+                            "What day is today?",
+                            "You are a helpful assistant.",
+                            ""
+                        )
+                        print(f"  Current info response: {current_info_response}")
+                        
                         # Test streaming
                         print(f"\n🌊 Testing Groq Streaming:")
                         print("  Streaming response: ", end='')
+                        stream_response = ""
                         async for chunk in online_llm.generate_response_stream(
                             "Count from 1 to 3",
                             "You are a helpful assistant.",
                             ""
                         ):
                             print(chunk, end='')
-                        print("\n  ✅ Streaming test complete!")
+                            stream_response += chunk
+                        print(f"\n  ✅ Streaming test complete! Total: {len(stream_response)} chars")
                         
                         await online_llm.close()
                         return True
                     else:
                         print("  ❌ Groq failed to generate proper response")
+                        print(f"  Response was: {response}")
                         
                 except Exception as e:
                     print(f"  ❌ Generation error: {e}")
                     import traceback
                     traceback.print_exc()
+            else:
+                print("  ❌ Groq not in available providers")
+                print(f"  Available: {stats['available_providers']}")
         
         await online_llm.close()
         
@@ -290,7 +358,11 @@ async def test_env_file():
         with open(env_file, 'r') as f:
             content = f.read()
         
-        if 'GROQ_API_KEY=' in content:
+        # Check for both GROQ and GROK (legacy support)
+        has_groq = 'GROQ_API_KEY=' in content
+        has_grok = 'GROK_API_KEY=' in content
+        
+        if has_groq:
             print("  ✅ GROQ_API_KEY found in .env")
             
             # Extract the key
@@ -305,9 +377,23 @@ async def test_env_file():
                         return True
                     else:
                         print("  ⚠️ GROQ_API_KEY doesn't start with 'gsk-'")
+                        print(f"  Key starts with: {key_value[:10]}...")
                         return True  # Still might work
+        elif has_grok:
+            print("  ⚠️ Found GROK_API_KEY (legacy) - should rename to GROQ_API_KEY")
+            
+            # Extract the key
+            for line in content.split('\n'):
+                if line.startswith('GROK_API_KEY='):
+                    key_value = line.split('=', 1)[1].strip()
+                    if key_value in ['', 'your_grok_api_key_here']:
+                        print("  ❌ GROK_API_KEY is placeholder/empty")
+                        return False
+                    else:
+                        print("  ✅ GROK_API_KEY has value (will work as fallback)")
+                        return True
         else:
-            print("  ❌ GROQ_API_KEY not found in .env")
+            print("  ❌ Neither GROQ_API_KEY nor GROK_API_KEY found in .env")
             return False
             
     except Exception as e:
@@ -316,11 +402,55 @@ async def test_env_file():
     
     return True
 
+async def test_pascal_router():
+    """Test Pascal's routing logic"""
+    print("\n🧭 Testing Pascal Router Logic:")
+    
+    try:
+        from modules.router import LightningRouter
+        from modules.personality import PersonalityManager
+        from modules.memory import MemoryManager
+        
+        # Create router components
+        personality_manager = PersonalityManager()
+        memory_manager = MemoryManager()
+        router = LightningRouter(personality_manager, memory_manager)
+        
+        # Initialize
+        await router._check_llm_availability()
+        
+        print(f"  Offline available: {router.offline_available}")
+        print(f"  Online available: {router.online_available}")
+        print(f"  Router mode: {router.mode.value}")
+        
+        # Test routing decisions
+        test_queries = [
+            ("Hello, how are you?", "Should route to offline (simple)"),
+            ("What day is today?", "Should route to online (current info)"),
+            ("Explain quantum computing", "Should route based on complexity"),
+            ("Who is the current Prime Minister?", "Should route to online (current info)")
+        ]
+        
+        for query, expected in test_queries:
+            decision = router._decide_route(query)
+            route_type = "offline" if decision.use_offline else "online"
+            print(f"  Query: '{query}'")
+            print(f"    Decision: {route_type} ({decision.reason})")
+            print(f"    Expected: {expected}")
+            print()
+        
+        await router.close()
+        return True
+        
+    except Exception as e:
+        print(f"  ❌ Router test error: {e}")
+        return False
+
 def main():
     """Main test function"""
     try:
-        print("🚀 Pascal Groq Integration Test Suite")
-        print("=" * 50)
+        print("🚀 Pascal Groq Integration Test Suite (Fixed)")
+        print("=" * 60)
         
         # Test environment
         env_ok = asyncio.run(test_env_file())
@@ -331,16 +461,21 @@ def main():
             print("1. Create or edit .env file: nano .env")
             print("2. Add your Groq API key: GROQ_API_KEY=gsk-your-actual-key")
             print("3. Get API key from: https://console.groq.com/")
+            print("4. If you have GROK_API_KEY, rename it to GROQ_API_KEY")
             return 1
+        
+        # Test router logic
+        router_ok = asyncio.run(test_pascal_router())
         
         # Run main test
         result = asyncio.run(test_groq_debug())
         
-        print("\n" + "=" * 50)
+        print("\n" + "=" * 60)
         if result:
             print("🎉 GROQ API WORKING PERFECTLY!")
             print("\nYour Groq integration is fully functional with current models.")
             print("Pascal will use Groq as the primary online provider.")
+            print("Current information queries will automatically route to Groq.")
             print("\nRun Pascal with: ./run.sh")
         else:
             print("❌ GROQ API ISSUES DETECTED")
@@ -354,7 +489,8 @@ def main():
             print("2. Verify your API key is active and has credits")
             print("3. Try regenerating your API key")
             print("4. Check your internet connection")
-            print("5. If issues persist, Pascal will fall back to other providers")
+            print("5. Make sure you're using GROQ_API_KEY not GROK_API_KEY")
+            print("6. If issues persist, Pascal will fall back to other providers")
         
         return 0 if result else 1
         
