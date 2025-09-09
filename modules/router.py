@@ -56,7 +56,14 @@ class LightningRouter:
         
         # Enhanced patterns for detecting current information needs
         self.current_info_patterns = [
-            # Temporal indicators - more comprehensive
+            # Direct date/time questions - HIGHEST PRIORITY
+            r'\bwhat\s+(day|date|time|year|month)\s+(is\s+)?(it|today|tomorrow|yesterday)\b',
+            r'\bwhat\'s\s+the\s+(date|time|day|year|month)\b',
+            r'\bwhat\s+is\s+(the\s+)?(current|today\'s)\s+(date|day|time|year|month)\b',
+            r'\btoday\'s\s+(date|day|weather|news)\b',
+            r'\bcurrent\s+(date|day|time|year|month)\b',
+            
+            # Temporal indicators
             r'\b(today|tonight|tomorrow|yesterday|now|current|currently|latest|recent|recently)\b',
             r'\b(this\s+(year|month|week|day|morning|afternoon|evening))\b',
             r'\b(last\s+(year|month|week|day|night))\b',
@@ -66,12 +73,6 @@ class LightningRouter:
             r'\b(202[4-9]|203\d)\b',  # Years 2024-2039
             r'\b(january|february|march|april|may|june|july|august|september|october|november|december)\s+202[4-9]\b',
             r'\b\d{1,2}[/-]\d{1,2}[/-]202[4-9]\b',  # Date formats
-            
-            # Time/date questions
-            r'\bwhat\s+(day|date|time|year|month)\s+(is\s+)?it\b',
-            r'\bwhat\'s\s+the\s+(date|time|day)\b',
-            r'\btoday\'s\s+(date|day|weather|news)\b',
-            r'\bwhat\s+(day|date)\s+is\s+(today|tomorrow|yesterday)\b',
             
             # Event/news patterns
             r'\b(news|headlines|happening|events?|announcement|breaking)\b',
@@ -83,6 +84,7 @@ class LightningRouter:
             # Current affairs and people
             r'\b(president|prime\s+minister|government|politician)\b',
             r'\b(who\s+is\s+the\s+current|current\s+.*(president|pm|minister))\b',
+            r'\bwho\s+is\s+(now|currently|presently)\b',
             
             # Status and updates
             r'\b(update|status|situation|condition)\b',
@@ -96,8 +98,7 @@ class LightningRouter:
         self.complexity_patterns = {
             'simple_queries': [
                 'hi', 'hello', 'hey', 'thanks', 'bye', 'yes', 'no', 'ok',
-                'what is', 'who is', 'how far', 'distance', 'define', 'meaning',
-                'calculate', 'count', 'add', 'subtract', 'multiply', 'divide'
+                'what is 2+2', 'calculate', 'count', 'add', 'subtract', 'multiply', 'divide'
             ],
             'complex_queries': [
                 'analyze', 'compare', 'evaluate', 'research', 'detailed',
@@ -185,8 +186,8 @@ class LightningRouter:
                 self.mode = RouteMode.OFFLINE_ONLY
                 print("ℹ️ Running in offline-only mode (Ollama)")
             elif self.offline_available and self.online_available:
-                # Both available - use auto mode for intelligent routing
-                self.mode = RouteMode.AUTO
+                # Both available - PREFER ONLINE for current info
+                self.mode = RouteMode.ONLINE_PREFERRED  # Changed from AUTO
                 provider_info = ""
                 if self.online_llm and hasattr(self.online_llm, 'preferred_provider'):
                     if self.online_llm.preferred_provider:
@@ -219,6 +220,27 @@ class LightningRouter:
         """Check if query requires current/recent information - IMPROVED"""
         query_lower = query.lower()
         
+        # PRIORITY CHECK: Direct date/time questions ALWAYS need current info
+        direct_date_patterns = [
+            'what day is',
+            'what date is',
+            'what time is',
+            'what\'s the date',
+            'what\'s the day',
+            'what\'s the time',
+            'current date',
+            'current day',
+            'current time',
+            'today\'s date',
+            'today\'s day'
+        ]
+        
+        for pattern in direct_date_patterns:
+            if pattern in query_lower:
+                if settings.debug_mode:
+                    print(f"[DEBUG] Query needs current info - direct date/time question: {pattern}")
+                return True
+        
         # Check all current info patterns
         for pattern in self.current_info_regex:
             if pattern.search(query_lower):
@@ -229,12 +251,10 @@ class LightningRouter:
         # Additional specific checks for common current info queries
         current_info_indicators = [
             # Direct questions about today/current time
-            ('what day is', True),
-            ('what date is', True),
-            ('what time is', True),
             ('who is the current', True),
             ('current prime minister', True),
             ('current president', True),
+            ('who is the president', True),  # Added
             
             # Weather queries
             ('weather', True),
@@ -246,6 +266,8 @@ class LightningRouter:
             ('recent news', True),
             ('what happened', True),
             ('breaking news', True),
+            ('in the news', True),  # Added
+            ('happening today', True),  # Added
             
             # Market/financial data
             ('stock price', True),
@@ -265,16 +287,22 @@ class LightningRouter:
         """Check if query is simple and can be handled offline quickly"""
         query_lower = query.lower().strip()
         
+        # NEVER treat date/time questions as simple
+        if self._needs_current_information(query):
+            return False
+        
         # Very short queries that are likely greetings or simple responses
         if len(query.split()) <= 3:
             simple_patterns = ['hi', 'hello', 'thanks', 'bye', 'yes', 'no', 'ok', 'sure']
             if any(pattern in query_lower for pattern in simple_patterns):
                 return True
         
+        # Simple math
+        if 'what is 2+2' in query_lower or 'what is 2 + 2' in query_lower:
+            return True
+        
         # Simple factual questions that don't need current info
         simple_question_patterns = [
-            r'^what is \w+\?*$',
-            r'^who is \w+\?*$',
             r'^define \w+$',
             r'^calculate .+$',
             r'^what.*\d+.*\d+.*$',  # Math questions
@@ -317,7 +345,7 @@ class LightningRouter:
         return False
     
     def _decide_route(self, query: str) -> RouteDecision:
-        """Decide whether to use offline or online LLM - IMPROVED LOGIC"""
+        """Decide whether to use offline or online LLM - FIXED LOGIC"""
         
         # Force offline if no online available
         if not self.online_available:
@@ -341,10 +369,16 @@ class LightningRouter:
             return RouteDecision(True, "Offline preferred")
         
         elif self.mode == RouteMode.ONLINE_PREFERRED:
-            # Use online unless it's a very simple query
+            # PRIORITY: Current information MUST go online
+            if self._needs_current_information(query):
+                return RouteDecision(False, "Query requires current information")
+            
+            # Only use offline for very simple queries
             if self._is_simple_query(query):
                 return RouteDecision(True, "Simple query - offline faster")
-            return RouteDecision(False, "Online preferred")
+            
+            # Everything else goes online when in ONLINE_PREFERRED mode
+            return RouteDecision(False, "Online preferred mode")
         
         else:  # AUTO mode - intelligent routing with priority rules
             
