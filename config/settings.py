@@ -1,7 +1,7 @@
 """
 Pascal AI Assistant - Global Configuration
 Manages all system settings and environment variables - Lightning-fast for Pi 5
-FIXED: Consistent API key naming and better fallback support
+FIXED: Updated API key validation for new gsk_ format and better current info handling
 """
 
 import os
@@ -29,7 +29,7 @@ class Settings:
         
         # Pascal identity
         self.name = "Pascal"
-        self.version = "2.0.1"  # Fixed version with Groq integration
+        self.version = "2.0.2"  # Updated version with gsk_ fix
         
         # LLM Configuration - Optimized for speed
         self.default_personality = "default"
@@ -42,7 +42,7 @@ class Settings:
         self.verbose_logging = self.debug_mode
         self.performance_logging = os.getenv("PERF_LOG", "false").lower() == "true"
         
-        # Online LLM APIs - FIXED: Support both GROQ and GROK for compatibility
+        # Online LLM APIs - FIXED: Support new gsk_ format for Groq
         # Check for both GROQ_API_KEY and GROK_API_KEY (user might have either)
         self.groq_api_key = os.getenv("GROQ_API_KEY") or os.getenv("GROK_API_KEY")
         self.openai_api_key = os.getenv("OPENAI_API_KEY")
@@ -53,13 +53,16 @@ class Settings:
             if self.is_debug_mode():
                 print("[WARNING] Found GROK_API_KEY - please rename to GROQ_API_KEY in .env file")
         
-        # Debug API key loading
+        # Debug API key loading with new format validation
         if self.is_debug_mode():
             if self.groq_api_key:
                 print(f"[DEBUG] Groq API key loaded: {self.groq_api_key[:20]}...")
+                if not self.groq_api_key.startswith('gsk_'):
+                    print(f"[DEBUG] WARNING: Groq API key should start with 'gsk_' (found: {self.groq_api_key[:10]}...)")
+                    print("[DEBUG] New Groq API keys use 'gsk_' prefix, not 'gsk-'")
             else:
                 print("[DEBUG] No Groq API key found in environment")
-                print("[DEBUG] Set GROQ_API_KEY=gsk-your-key in .env file for fastest online responses")
+                print("[DEBUG] Set GROQ_API_KEY=gsk_your-key in .env file for fastest online responses")
         
         # Local LLM Settings - Lightning optimized
         self.local_model_path = self.models_dir / "local_model.gguf"
@@ -90,6 +93,10 @@ class Settings:
         self.fallback_to_offline = True
         self.smart_routing = True
         self.auto_route_current_info = True  # Automatically route current info queries to online
+        
+        # NEW: Current Information Settings
+        self.enhance_current_info_prompts = True  # Add date/time context to online prompts
+        self.current_info_system_instructions = True  # Tell models they have current access
         
         # Memory Settings
         self.short_term_memory_limit = 5  # Keep recent context
@@ -192,12 +199,40 @@ class Settings:
         """Get path to memory file for a session"""
         return self.memory_dir / f"{session_id}_memory.json"
     
+    def validate_groq_api_key(self, api_key: str) -> bool:
+        """Validate Groq API key format - UPDATED for new gsk_ format"""
+        if not api_key:
+            return False
+        
+        # Check for placeholder values
+        invalid_values = [
+            '', 'your_groq_api_key_here', 'gsk-your_groq_api_key_here', 
+            'your_grok_api_key_here', 'gsk_your_groq_api_key_here'
+        ]
+        
+        if api_key in invalid_values:
+            return False
+        
+        # NEW: Accept both gsk_ and gsk- for backward compatibility
+        # But warn about gsk- being deprecated
+        if api_key.startswith('gsk-'):
+            if self.debug_mode:
+                print("[DEBUG] WARNING: Groq API key uses deprecated 'gsk-' format")
+                print("[DEBUG] New Groq keys use 'gsk_' format - consider updating")
+            return True
+        elif api_key.startswith('gsk_'):
+            return True
+        else:
+            if self.debug_mode:
+                print(f"[DEBUG] Invalid Groq API key format. Expected 'gsk_' or 'gsk-', got: {api_key[:10]}...")
+            return False
+    
     def is_online_available(self) -> bool:
-        """Check if any online API keys are configured"""
-        # Check if any API key is properly configured
-        has_groq = self.groq_api_key and self.groq_api_key not in ['', 'your_groq_api_key_here', 'gsk-your_groq_api_key_here', 'your_grok_api_key_here']
-        has_openai = self.openai_api_key and self.openai_api_key not in ['', 'your_openai_api_key_here', 'sk-your_openai_api_key_here']
-        has_gemini = self.gemini_api_key and self.gemini_api_key not in ['', 'your_gemini_api_key_here', 'your_google_api_key_here']
+        """Check if any online API keys are configured - UPDATED validation"""
+        # Use new validation methods
+        has_groq = self.validate_groq_api_key(self.groq_api_key)
+        has_openai = self.validate_openai_api_key(self.openai_api_key)
+        has_gemini = self.validate_gemini_api_key(self.gemini_api_key)
         
         if self.debug_mode:
             print(f"[DEBUG] Online availability check:")
@@ -206,6 +241,28 @@ class Settings:
             print(f"  Gemini configured: {has_gemini}")
         
         return has_groq or has_openai or has_gemini
+    
+    def validate_openai_api_key(self, api_key: str) -> bool:
+        """Validate OpenAI API key format"""
+        if not api_key:
+            return False
+        
+        invalid_values = ['', 'your_openai_api_key_here', 'sk-your_openai_api_key_here']
+        if api_key in invalid_values:
+            return False
+        
+        return api_key.startswith('sk-') and len(api_key) > 20
+    
+    def validate_gemini_api_key(self, api_key: str) -> bool:
+        """Validate Gemini API key format"""
+        if not api_key:
+            return False
+        
+        invalid_values = ['', 'your_gemini_api_key_here', 'your_google_api_key_here']
+        if api_key in invalid_values:
+            return False
+        
+        return len(api_key) > 20  # Gemini keys don't have a specific prefix
     
     def is_local_model_available(self) -> bool:
         """Check if any local model files exist"""
@@ -280,17 +337,9 @@ class Settings:
     def get_config_summary(self) -> Dict[str, Any]:
         """Get configuration summary for status display"""
         # Check API keys with improved validation
-        groq_configured = bool(self.groq_api_key and 
-                              self.groq_api_key not in ['', 'your_groq_api_key_here', 'gsk-your_groq_api_key_here', 'your_grok_api_key_here'] and
-                              len(self.groq_api_key) > 10)
-        
-        gemini_configured = bool(self.gemini_api_key and 
-                               self.gemini_api_key not in ['', 'your_gemini_api_key_here', 'your_google_api_key_here'] and
-                               len(self.gemini_api_key) > 10)
-        
-        openai_configured = bool(self.openai_api_key and 
-                               self.openai_api_key not in ['', 'your_openai_api_key_here', 'sk-your_openai_api_key_here'] and
-                               len(self.openai_api_key) > 10)
+        groq_configured = self.validate_groq_api_key(self.groq_api_key)
+        gemini_configured = self.validate_gemini_api_key(self.gemini_api_key)
+        openai_configured = self.validate_openai_api_key(self.openai_api_key)
         
         return {
             "pascal_version": self.version,
@@ -303,6 +352,7 @@ class Settings:
             "local_model_available": self.is_local_model_available(),
             "prefer_offline": self.prefer_offline,
             "auto_route_current_info": self.auto_route_current_info,
+            "enhance_current_info_prompts": self.enhance_current_info_prompts,
             "debug_mode": self.debug_mode,
             "memory_enabled": self.long_term_memory_enabled,
             "performance_mode": self.performance_mode,
@@ -376,6 +426,7 @@ class Settings:
             'target_response_time': self.target_response_time,
             'preferred_models': self.preferred_models,
             'auto_route_current_info': self.auto_route_current_info,
+            'enhance_current_info_prompts': self.enhance_current_info_prompts,
             'updated_timestamp': 0  # Simplified for compatibility
         }
         
@@ -407,6 +458,7 @@ class Settings:
             self.target_response_time = settings_data.get('target_response_time', self.target_response_time)
             self.preferred_models = settings_data.get('preferred_models', self.preferred_models)
             self.auto_route_current_info = settings_data.get('auto_route_current_info', self.auto_route_current_info)
+            self.enhance_current_info_prompts = settings_data.get('enhance_current_info_prompts', self.enhance_current_info_prompts)
             
         except Exception as e:
             if self.debug_mode:
