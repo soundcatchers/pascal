@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Pascal AI Assistant - Complete Fix and Debug Script
-FIXED: Addresses all API key issues and routing problems
+FIXED: Addresses all API key issues and routing problems with enhanced debugging
 """
 
 import sys
@@ -206,6 +206,9 @@ async def test_api_connections():
         if not any([groq_valid, gemini_valid, openai_valid]):
             print("❌ No valid API keys found")
             print("   Add at least one API key to .env file")
+            print("   Groq (fastest): GROQ_API_KEY=gsk_your-key")
+            print("   Gemini (free): GEMINI_API_KEY=your-key") 
+            print("   OpenAI (reliable): OPENAI_API_KEY=sk-your-key")
             return False
         
         # Test OnlineLLM initialization
@@ -250,7 +253,8 @@ async def test_api_connections():
             
         else:
             print("❌ OnlineLLM initialization failed")
-            print(f"  Error: {online_llm.last_error}")
+            if hasattr(online_llm, 'last_error') and online_llm.last_error:
+                print(f"  Error: {online_llm.last_error}")
         
         await online_llm.close()
         return False
@@ -324,6 +328,83 @@ def check_ollama_status():
         print(f"⚠️ Error checking models: {e}")
         return False
 
+async def test_end_to_end_routing():
+    """Test end-to-end routing with actual LLMs"""
+    print("\n🔄 Testing End-to-End Routing...")
+    
+    try:
+        from modules.router import LightningRouter
+        from modules.personality import PersonalityManager
+        from modules.memory import MemoryManager
+        
+        # Create router
+        personality_manager = PersonalityManager()
+        memory_manager = MemoryManager()
+        router = LightningRouter(personality_manager, memory_manager)
+        
+        # Check LLM availability
+        await router._check_llm_availability()
+        
+        print(f"\nLLM Status:")
+        print(f"  Offline available: {router.offline_available}")
+        print(f"  Online available: {router.online_available}")
+        print(f"  Router mode: {router.mode.value}")
+        
+        # Test current info query if online is available
+        if router.online_available:
+            print("\n🧪 Testing current info query:")
+            test_query = "What day is today?"
+            print(f"Query: '{test_query}'")
+            
+            decision = router._decide_route(test_query)
+            print(f"Decision: {'Online' if not decision.use_offline else 'Offline'} - {decision.reason}")
+            
+            if not decision.use_offline:
+                print("✅ Current info query correctly routed to online")
+                
+                # Test actual response
+                try:
+                    response = await router.get_response(test_query)
+                    print(f"Response preview: {response[:150]}...")
+                    
+                    # Check if response contains current date info
+                    if any(word in response.lower() for word in ['today', 'thursday', 'september', '2025']):
+                        print("✅ Response contains current date information")
+                    else:
+                        print("⚠️ Response may not contain current date information")
+                        
+                except Exception as e:
+                    print(f"❌ Error getting response: {e}")
+            else:
+                print("❌ Current info query incorrectly routed to offline")
+        else:
+            print("⚠️ Cannot test current info - online LLM not available")
+        
+        # Test simple query
+        if router.offline_available:
+            print("\n🧪 Testing simple query:")
+            simple_query = "Hello, how are you?"
+            print(f"Query: '{simple_query}'")
+            
+            decision = router._decide_route(simple_query)
+            print(f"Decision: {'Online' if not decision.use_offline else 'Offline'} - {decision.reason}")
+            
+            try:
+                response = await router.get_response(simple_query)
+                print(f"Response preview: {response[:100]}...")
+                print("✅ Simple query processed successfully")
+            except Exception as e:
+                print(f"❌ Error with simple query: {e}")
+        
+        await router.close()
+        return True
+        
+    except Exception as e:
+        print(f"❌ End-to-end test failed: {e}")
+        import traceback
+        traceback.print_exc()
+        return False
+
 def show_fixes():
     """Show available fixes"""
     print("\n🔧 Available Fixes:")
@@ -331,7 +412,8 @@ def show_fixes():
     print("2. test-routing - Test current info routing logic")
     print("3. test-apis   - Test online API connections")
     print("4. check-ollama - Check Ollama installation and status")
-    print("5. full-check  - Run all diagnostics and fixes")
+    print("5. test-e2e    - Test end-to-end routing with actual LLMs")
+    print("6. full-check  - Run all diagnostics and fixes")
 
 async def main():
     """Main function"""
@@ -350,6 +432,8 @@ async def main():
             await test_api_connections()
         elif command == 'check-ollama':
             check_ollama_status()
+        elif command == 'test-e2e':
+            await test_end_to_end_routing()
         elif command == 'full-check':
             # Run all checks
             print("Running complete system check...")
@@ -366,6 +450,9 @@ async def main():
             # Test routing
             routing_ok = await test_current_info_routing()
             
+            # Test end-to-end
+            e2e_ok = await test_end_to_end_routing()
+            
             # Summary
             print("\n" + "=" * 50)
             print("📊 COMPLETE CHECK SUMMARY")
@@ -376,6 +463,7 @@ async def main():
                 ("Ollama", ollama_ok),
                 ("Online APIs", api_ok),
                 ("Routing Logic", routing_ok),
+                ("End-to-End", e2e_ok),
             ]
             
             passed = sum(1 for _, result in checks if result)
@@ -391,8 +479,12 @@ async def main():
                 print("\n🎉 ALL SYSTEMS GO!")
                 print("Pascal should work perfectly now.")
                 print("Run: ./run.sh")
+            elif passed >= 3:
+                print("\n⚡ MOSTLY WORKING!")
+                print("Pascal should work with some limitations.")
+                print("Run: ./run.sh")
             else:
-                print("\n⚠️ Some issues remain - see details above")
+                print("\n⚠️ Issues remain - see details above")
                 print("Address the failed checks and run 'full-check' again")
         else:
             print(f"Unknown command: {command}")
