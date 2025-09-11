@@ -19,11 +19,11 @@ class PersonalityManager:
         self.available_personalities = []
         self.personality_cache = {}
         
-        # Initialize by scanning for available personalities
-        asyncio.create_task(self._scan_personalities())
+        # Initialize by scanning for available personalities (sync)
+        self._scan_personalities_sync()
     
-    async def _scan_personalities(self):
-        """Scan for available personality files"""
+    def _scan_personalities_sync(self):
+        """Scan for available personality files (synchronous version)"""
         personalities_dir = settings.config_dir / "personalities"
         
         if not personalities_dir.exists():
@@ -39,6 +39,10 @@ class PersonalityManager:
             
             if settings.debug_mode:
                 print(f"Found personality: {personality_name}")
+    
+    async def _scan_personalities(self):
+        """Scan for available personality files (async version for compatibility)"""
+        self._scan_personalities_sync()
     
     async def load_personality(self, personality_name: str) -> bool:
         """Load a personality configuration"""
