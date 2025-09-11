@@ -57,7 +57,7 @@ class OnlineLLM:
                     'mixtral-8x7b-32768'          # Fallback if available
                 ],
                 'default_model': 'llama-3.1-8b-instant',
-                'api_key': getattr(settings, 'groq_api_key', None),
+                'api_key': settings.groq_api_key,
                 'supports_current_info': True,
                 'real_time_capable': True
             },
@@ -65,7 +65,7 @@ class OnlineLLM:
                 'base_url': 'https://generativelanguage.googleapis.com/v1beta/models',
                 'models': ['gemini-2.0-flash-exp', 'gemini-1.5-flash', 'gemini-1.5-pro'],
                 'default_model': 'gemini-2.0-flash-exp',
-                'api_key': getattr(settings, 'gemini_api_key', None) or getattr(settings, 'google_api_key', None),
+                'api_key': settings.gemini_api_key,
                 'supports_current_info': True,
                 'real_time_capable': True
             },
@@ -73,7 +73,7 @@ class OnlineLLM:
                 'base_url': 'https://api.openai.com/v1/chat/completions',
                 'models': ['gpt-4o-mini', 'gpt-4o', 'gpt-3.5-turbo'],
                 'default_model': 'gpt-4o-mini',
-                'api_key': getattr(settings, 'openai_api_key', None),
+                'api_key': settings.openai_api_key,
                 'supports_current_info': True,
                 'real_time_capable': True
             }
@@ -120,7 +120,7 @@ INSTRUCTIONS:
         """Detect if query requires current information"""
         query_lower = query.lower().strip()
         
-        # Direct date/time patterns
+        # Direct date/time patterns - MUST detect these
         current_info_patterns = [
             'what day is today', 'what day is it', 'today is what day',
             'what date is today', 'what date is it', 'what\'s the date',
@@ -138,7 +138,7 @@ INSTRUCTIONS:
         for pattern in current_info_patterns:
             if pattern in query_lower:
                 if settings.debug_mode:
-                    print(f"[DEBUG] Current info query detected: '{pattern}' in '{query}'")
+                    print(f"[ONLINE_LLM] Current info query detected: '{pattern}' in '{query}'")
                 return True
         
         return False
@@ -210,7 +210,7 @@ INSTRUCTIONS:
             if provider == APIProvider.GROQ:
                 if not settings.validate_groq_api_key(api_key):
                     if settings.debug_mode:
-                        print(f"⏭️ Skipping {provider.value} - invalid API key format (should start with 'gsk_')")
+                        print(f"⏭️ Skipping {provider.value} - invalid API key format (should start with 'gsk_' or 'gsk-')")
                     continue
             elif provider == APIProvider.OPENAI:
                 if not settings.validate_openai_api_key(api_key):
@@ -339,7 +339,7 @@ INSTRUCTIONS:
         is_current_info = self._detect_current_info_query(query)
         
         if settings.debug_mode and is_current_info:
-            print(f"[DEBUG] Current info query detected, enhancing prompt")
+            print(f"[ONLINE_LLM] Current info query detected, enhancing prompt")
         
         # Try providers in priority order: Groq -> Gemini -> OpenAI
         providers_to_try = []
