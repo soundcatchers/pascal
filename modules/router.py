@@ -1,6 +1,6 @@
 """
-Pascal AI Assistant - Lightning-Fast Router with Streaming and Groq Priority
-Intelligently routes requests between offline and online LLMs with Groq as primary provider
+Pascal AI Assistant - FIXED: Lightning-Fast Router with Enhanced Current Info Detection
+Intelligently routes requests between offline and online LLMs with Groq priority
 FIXED: Better routing for current information queries and API key handling
 """
 
@@ -34,7 +34,7 @@ class RouteDecision:
         return not self.use_offline
 
 class LightningRouter:
-    """Lightning-fast router for offline/online LLM selection with streaming and Groq priority"""
+    """FIXED: Lightning-fast router for offline/online LLM selection"""
     
     def __init__(self, personality_manager, memory_manager):
         self.personality_manager = personality_manager
@@ -54,58 +54,63 @@ class LightningRouter:
         self.response_times = {'offline': [], 'online': []}
         self.first_token_times = {'offline': [], 'online': []}
         
-        # Enhanced patterns for detecting current information needs
+        # FIXED: Enhanced patterns for detecting current information needs
         self.current_info_patterns = [
-            # Direct date/time questions - HIGHEST PRIORITY
-            r'\bwhat\s+(day|date|time|year|month)\s+(is\s+)?(it|today|tomorrow|yesterday)\b',
-            r'\bwhat\'s\s+the\s+(date|time|day|year|month)\b',
-            r'\bwhat\s+is\s+(the\s+)?(current|today\'s)\s+(date|day|time|year|month)\b',
-            r'\btoday\'s\s+(date|day|weather|news)\b',
-            r'\bcurrent\s+(date|day|time|year|month)\b',
+            # PRIORITY 1: Direct date/time questions (MUST route online)
+            r'\b(?:what\s+)?(?:day|date|time)\s+(?:is\s+)?(?:it|today|now)\b',
+            r'\bwhat\'?s\s+(?:the\s+)?(?:date|day|time)(?:\s+today)?\b',
+            r'\btoday\'?s\s+(?:date|day)\b',
+            r'\bcurrent\s+(?:date|day|time)\b',
+            r'\bwhat\s+(?:day|date|time|year|month)\s+(?:is\s+)?(?:it|today)\b',
             
-            # Temporal indicators
-            r'\b(today|tonight|tomorrow|yesterday|now|current|currently|latest|recent|recently)\b',
-            r'\b(this\s+(year|month|week|day|morning|afternoon|evening))\b',
-            r'\b(last\s+(year|month|week|day|night))\b',
-            r'\b(next\s+(year|month|week|day))\b',
+            # PRIORITY 2: Current events and news
+            r'\b(?:today\'?s|latest|recent|current|breaking)\s+(?:news|events?)\b',
+            r'\bwhat\'?s\s+happening\s+(?:today|now|currently)\b',
+            r'\bnews\s+(?:today|now|currently)\b',
+            r'\bin\s+the\s+news\b',
             
-            # Date patterns - current years
-            r'\b(202[4-9]|203\d)\b',  # Years 2024-2039
-            r'\b(january|february|march|april|may|june|july|august|september|october|november|december)\s+202[4-9]\b',
-            r'\b\d{1,2}[/-]\d{1,2}[/-]202[4-9]\b',  # Date formats
+            # PRIORITY 3: Current status queries
+            r'\bwho\s+is\s+(?:the\s+)?current\s+(?:president|pm|prime\s+minister)\b',
+            r'\bcurrent\s+(?:president|prime\s+minister|government|leader)\b',
+            r'\bwho\s+is\s+(?:president|pm)\s+(?:now|currently|today)\b',
             
-            # Event/news patterns
-            r'\b(news|headlines|happening|events?|announcement|breaking)\b',
-            r'\b(weather|forecast|temperature|climate)\b',
-            r'\b(stock|market|price|trading|economy)\b',
-            r'\b(score|game|match|championship|election|results)\b',
-            r'\bwho\s+(won|lost|is\s+winning|leads)\b',
+            # PRIORITY 4: Weather and conditions
+            r'\bweather\s+(?:today|now|currently)\b',
+            r'\btoday\'?s\s+weather\b',
+            r'\bcurrent\s+(?:weather|temperature|conditions)\b',
             
-            # Current affairs and people
-            r'\b(president|prime\s+minister|government|politician)\b',
-            r'\b(who\s+is\s+the\s+current|current\s+.*(president|pm|minister))\b',
-            r'\bwho\s+is\s+(now|currently|presently)\b',
+            # PRIORITY 5: Live data queries
+            r'\b(?:stock|market|price|exchange\s+rate)\s+(?:today|now|currently)\b',
+            r'\bscore\s+(?:today|now|live)\b',
+            r'\blive\s+(?:score|results|updates)\b',
             
-            # Status and updates
-            r'\b(update|status|situation|condition)\b',
-            r'\b(live|streaming|broadcast)\b'
+            # PRIORITY 6: Temporal indicators suggesting current info
+            r'\b(?:right\s+now|at\s+this\s+moment|currently|presently)\b',
+            r'\bas\s+of\s+(?:today|now)\b',
+            r'\bup\s+to\s+date\b',
         ]
         
         # Compile patterns for efficiency
         self.current_info_regex = [re.compile(pattern, re.IGNORECASE) for pattern in self.current_info_patterns]
         
-        # Query complexity patterns for fast routing
-        self.complexity_patterns = {
-            'simple_queries': [
-                'hi', 'hello', 'hey', 'thanks', 'bye', 'yes', 'no', 'ok',
-                'what is 2+2', 'calculate', 'count', 'add', 'subtract', 'multiply', 'divide'
-            ],
-            'complex_queries': [
-                'analyze', 'compare', 'evaluate', 'research', 'detailed',
-                'comprehensive', 'explain in detail', 'write code', 'debug',
-                'create', 'design', 'develop', 'implement', 'strategy', 'plan'
-            ]
-        }
+        # Query complexity patterns for smart routing
+        self.simple_query_patterns = [
+            r'^(?:hi|hello|hey|thanks|thank\s+you|bye|goodbye)\.?$',
+            r'^(?:yes|no|ok|okay|sure)\.?$',
+            r'^\d+\s*[\+\-\*\/]\s*\d+\s*=?\s*\??$',  # Simple math
+            r'^what\s+is\s+\d+\s*[\+\-\*\/]\s*\d+\??$',
+        ]
+        
+        self.complex_query_patterns = [
+            r'\b(?:analyze|compare|evaluate|research|detailed|comprehensive)\b',
+            r'\b(?:explain\s+in\s+detail|write\s+code|debug|create|design|develop)\b',
+            r'\b(?:strategy|plan|implementation|algorithm)\b',
+            r'\bstep\s+by\s+step\b',
+        ]
+        
+        # Compile for efficiency
+        self.simple_regex = [re.compile(pattern, re.IGNORECASE) for pattern in self.simple_query_patterns]
+        self.complex_regex = [re.compile(pattern, re.IGNORECASE) for pattern in self.complex_query_patterns]
     
     async def _check_llm_availability(self):
         """Check which LLM options are available"""
@@ -170,7 +175,7 @@ class LightningRouter:
                 if settings.debug_mode:
                     print("ℹ️ No online API keys configured - running offline only")
                     print("   For best performance, consider adding Groq API key (fastest)")
-                    print("   GROQ_API_KEY=gsk-... in your .env file")
+                    print("   GROQ_API_KEY=gsk_... in your .env file")
                 self.online_available = False
             
             # Adjust routing mode based on availability
@@ -187,7 +192,7 @@ class LightningRouter:
                 print("ℹ️ Running in offline-only mode (Ollama)")
             elif self.offline_available and self.online_available:
                 # Both available - PREFER ONLINE for current info
-                self.mode = RouteMode.ONLINE_PREFERRED  # Changed from AUTO
+                self.mode = RouteMode.ONLINE_PREFERRED
                 provider_info = ""
                 if self.online_llm and hasattr(self.online_llm, 'preferred_provider'):
                     if self.online_llm.preferred_provider:
@@ -202,7 +207,7 @@ class LightningRouter:
                 print("Solutions:")
                 print("1. For offline: sudo systemctl start ollama && ./download_models.sh")
                 print("2. For online: Configure API keys in .env file")
-                print("   - Groq (fastest): GROQ_API_KEY=gsk-your-key")
+                print("   - Groq (fastest): GROQ_API_KEY=gsk_your-key")
                 print("   - Gemini (free): GEMINI_API_KEY=your-key")
                 print("   - OpenAI (reliable): OPENAI_API_KEY=sk-your-key")
             
@@ -217,11 +222,11 @@ class LightningRouter:
                 traceback.print_exc()
     
     def _needs_current_information(self, query: str) -> bool:
-        """Check if query requires current/recent information - IMPROVED"""
-        query_lower = query.lower()
+        """FIXED: Enhanced detection of queries requiring current/recent information"""
+        query_lower = query.lower().strip()
         
         # PRIORITY CHECK: Direct date/time questions ALWAYS need current info
-        direct_date_patterns = [
+        direct_patterns = [
             'what day is',
             'what date is',
             'what time is',
@@ -232,53 +237,47 @@ class LightningRouter:
             'current day',
             'current time',
             'today\'s date',
-            'today\'s day'
+            'today\'s day',
+            'what day today',
+            'what date today',
+            'today is what',
         ]
         
-        for pattern in direct_date_patterns:
+        for pattern in direct_patterns:
             if pattern in query_lower:
                 if settings.debug_mode:
-                    print(f"[DEBUG] Query needs current info - direct date/time question: {pattern}")
+                    print(f"[DEBUG] CURRENT INFO REQUIRED - direct pattern: {pattern}")
                 return True
         
-        # Check all current info patterns
+        # Check compiled regex patterns
         for pattern in self.current_info_regex:
             if pattern.search(query_lower):
                 if settings.debug_mode:
-                    print(f"[DEBUG] Query needs current info - matched pattern: {pattern.pattern}")
+                    print(f"[DEBUG] CURRENT INFO REQUIRED - regex pattern: {pattern.pattern}")
                 return True
         
-        # Additional specific checks for common current info queries
-        current_info_indicators = [
-            # Direct questions about today/current time
+        # Additional high-priority current info indicators
+        current_indicators = [
             ('who is the current', True),
             ('current prime minister', True),
             ('current president', True),
-            ('who is the president', True),  # Added
-            
-            # Weather queries
-            ('weather', True),
-            ('temperature', True),
-            ('forecast', True),
-            
-            # News and events
+            ('who is the president', True),
             ('latest news', True),
             ('recent news', True),
-            ('what happened', True),
             ('breaking news', True),
-            ('in the news', True),  # Added
-            ('happening today', True),  # Added
-            
-            # Market/financial data
-            ('stock price', True),
+            ('what happened today', True),
+            ('happening today', True),
+            ('in the news', True),
+            ('weather today', True),
+            ('today\'s weather', True),
+            ('stock price today', True),
             ('market today', True),
-            ('exchange rate', True),
         ]
         
-        for indicator, needs_current in current_info_indicators:
+        for indicator, needs_current in current_indicators:
             if indicator in query_lower and needs_current:
                 if settings.debug_mode:
-                    print(f"[DEBUG] Query needs current info - matched indicator: {indicator}")
+                    print(f"[DEBUG] CURRENT INFO REQUIRED - indicator: {indicator}")
                 return True
         
         return False
@@ -291,30 +290,16 @@ class LightningRouter:
         if self._needs_current_information(query):
             return False
         
-        # Very short queries that are likely greetings or simple responses
-        if len(query.split()) <= 3:
-            simple_patterns = ['hi', 'hello', 'thanks', 'bye', 'yes', 'no', 'ok', 'sure']
-            if any(pattern in query_lower for pattern in simple_patterns):
+        # Check compiled simple patterns
+        for pattern in self.simple_regex:
+            if pattern.match(query_lower):
                 return True
         
-        # Simple math
-        if 'what is 2+2' in query_lower or 'what is 2 + 2' in query_lower:
-            return True
-        
-        # Simple factual questions that don't need current info
-        simple_question_patterns = [
-            r'^define \w+$',
-            r'^calculate .+$',
-            r'^what.*\d+.*\d+.*$',  # Math questions
-            r'^how do you.*$',
-            r'^can you explain.*$'
-        ]
-        
-        for pattern in simple_question_patterns:
-            if re.match(pattern, query_lower):
-                # But not if it needs current info
-                if not self._needs_current_information(query):
-                    return True
+        # Very short queries that are likely greetings
+        if len(query.split()) <= 3:
+            simple_words = ['hi', 'hello', 'thanks', 'bye', 'yes', 'no', 'ok', 'sure']
+            if any(word in query_lower for word in simple_words):
+                return True
         
         return False
     
@@ -322,11 +307,9 @@ class LightningRouter:
         """Check if query is complex and benefits from online processing"""
         query_lower = query.lower()
         
-        # Check for complexity indicators
-        complex_keywords = self.complexity_patterns['complex_queries']
-        
-        for keyword in complex_keywords:
-            if keyword in query_lower:
+        # Check compiled complex patterns
+        for pattern in self.complex_regex:
+            if pattern.search(query_lower):
                 return True
         
         # Long queries are often complex
@@ -345,7 +328,7 @@ class LightningRouter:
         return False
     
     def _decide_route(self, query: str) -> RouteDecision:
-        """Decide whether to use offline or online LLM - FIXED LOGIC"""
+        """FIXED: Decide whether to use offline or online LLM with enhanced logic"""
         
         # Force offline if no online available
         if not self.online_available:
@@ -362,29 +345,29 @@ class LightningRouter:
         elif self.mode == RouteMode.ONLINE_ONLY:
             return RouteDecision(False, "Online-only mode")
         
-        elif self.mode == RouteMode.OFFLINE_PREFERRED:
-            # Use offline unless it absolutely needs current info
-            if self._needs_current_information(query):
-                return RouteDecision(False, "Query requires current information")
-            return RouteDecision(True, "Offline preferred")
+        # CRITICAL: Current information queries ALWAYS go online (highest priority)
+        if self._needs_current_information(query):
+            return RouteDecision(False, "Query requires current information (PRIORITY)")
+        
+        # Handle preference modes
+        if self.mode == RouteMode.OFFLINE_PREFERRED:
+            # Use offline unless complex
+            if self._is_complex_query(query):
+                return RouteDecision(False, "Complex query needs online quality")
+            return RouteDecision(True, "Offline preferred mode")
         
         elif self.mode == RouteMode.ONLINE_PREFERRED:
-            # PRIORITY: Current information MUST go online
-            if self._needs_current_information(query):
-                return RouteDecision(False, "Query requires current information")
-            
             # Only use offline for very simple queries
             if self._is_simple_query(query):
                 return RouteDecision(True, "Simple query - offline faster")
-            
-            # Everything else goes online when in ONLINE_PREFERRED mode
+            # Everything else goes online
             return RouteDecision(False, "Online preferred mode")
         
-        else:  # AUTO mode - intelligent routing with priority rules
+        else:  # AUTO mode - intelligent routing with enhanced logic
             
             # PRIORITY 1: Current information queries ALWAYS go online
             if self._needs_current_information(query):
-                return RouteDecision(False, "Query requires current information")
+                return RouteDecision(False, "Current information required (AUTO)")
             
             # PRIORITY 2: Very simple queries go offline for speed
             if self._is_simple_query(query):
