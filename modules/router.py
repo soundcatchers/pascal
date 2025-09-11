@@ -55,39 +55,47 @@ class LightningRouter:
         self.first_token_times = {'offline': [], 'online': []}
         
         # FIXED: Enhanced patterns for detecting current information needs
+        self.current_info_direct_patterns = [
+            # Exact phrases that MUST route online
+            'what day is today',
+            'what day is it', 
+            'what date is today',
+            'what date is it',
+            'what\'s the date',
+            'what\'s the day',
+            'what\'s today\'s date',
+            'today\'s date',
+            'current date',
+            'current day',
+            'what time is it',
+            'current time',
+            'what\'s the time',
+        ]
+        
+        # Regex patterns for current info
         self.current_info_patterns = [
-            # PRIORITY 1: Direct date/time questions (MUST route online)
+            # Date/time patterns
             r'\b(?:what\s+)?(?:day|date|time)\s+(?:is\s+)?(?:it|today|now)\b',
             r'\bwhat\'?s\s+(?:the\s+)?(?:date|day|time)(?:\s+today)?\b',
             r'\btoday\'?s\s+(?:date|day)\b',
             r'\bcurrent\s+(?:date|day|time)\b',
             r'\bwhat\s+(?:day|date|time|year|month)\s+(?:is\s+)?(?:it|today)\b',
             
-            # PRIORITY 2: Current events and news
+            # Current events and news
             r'\b(?:today\'?s|latest|recent|current|breaking)\s+(?:news|events?)\b',
             r'\bwhat\'?s\s+happening\s+(?:today|now|currently)\b',
             r'\bnews\s+(?:today|now|currently)\b',
             r'\bin\s+the\s+news\b',
             
-            # PRIORITY 3: Current status queries
+            # Current status queries
             r'\bwho\s+is\s+(?:the\s+)?current\s+(?:president|pm|prime\s+minister)\b',
             r'\bcurrent\s+(?:president|prime\s+minister|government|leader)\b',
             r'\bwho\s+is\s+(?:president|pm)\s+(?:now|currently|today)\b',
             
-            # PRIORITY 4: Weather and conditions
+            # Weather and conditions
             r'\bweather\s+(?:today|now|currently)\b',
             r'\btoday\'?s\s+weather\b',
             r'\bcurrent\s+(?:weather|temperature|conditions)\b',
-            
-            # PRIORITY 5: Live data queries
-            r'\b(?:stock|market|price|exchange\s+rate)\s+(?:today|now|currently)\b',
-            r'\bscore\s+(?:today|now|live)\b',
-            r'\blive\s+(?:score|results|updates)\b',
-            
-            # PRIORITY 6: Temporal indicators suggesting current info
-            r'\b(?:right\s+now|at\s+this\s+moment|currently|presently)\b',
-            r'\bas\s+of\s+(?:today|now)\b',
-            r'\bup\s+to\s+date\b',
         ]
         
         # Compile patterns for efficiency
@@ -116,7 +124,7 @@ class LightningRouter:
         """Check which LLM options are available"""
         try:
             if settings.debug_mode:
-                print("⚡ Lightning Router checking LLM availability...")
+                print("[ROUTER] ⚡ Lightning Router checking LLM availability...")
             
             # Initialize offline LLM first (for fallback)
             try:
@@ -173,7 +181,7 @@ class LightningRouter:
                     self.online_available = False
             else:
                 if settings.debug_mode:
-                    print("ℹ️ No online API keys configured - running offline only")
+                    print("[ROUTER] ℹ️ No online API keys configured - running offline only")
                     print("   For best performance, consider adding Groq API key (fastest)")
                     print("   GROQ_API_KEY=gsk_... in your .env file")
                 self.online_available = False
@@ -191,8 +199,8 @@ class LightningRouter:
                 self.mode = RouteMode.OFFLINE_ONLY
                 print("ℹ️ Running in offline-only mode (Ollama)")
             elif self.offline_available and self.online_available:
-                # Both available - PREFER ONLINE for current info
-                self.mode = RouteMode.ONLINE_PREFERRED
+                # Both available - prefer online for current info, offline for general
+                self.mode = RouteMode.AUTO
                 provider_info = ""
                 if self.online_llm and hasattr(self.online_llm, 'preferred_provider'):
                     if self.online_llm.preferred_provider:
@@ -212,8 +220,8 @@ class LightningRouter:
                 print("   - OpenAI (reliable): OPENAI_API_KEY=sk-your-key")
             
             if settings.debug_mode:
-                print(f"Final status - Offline: {self.offline_available}, Online: {self.online_available}")
-                print(f"Routing mode: {self.mode.value}")
+                print(f"[ROUTER] Final status - Offline: {self.offline_available}, Online: {self.online_available}")
+                print(f"[ROUTER] Routing mode: {self.mode.value}")
             
         except Exception as e:
             print(f"❌ Critical error in LLM availability check: {e}")
@@ -225,59 +233,42 @@ class LightningRouter:
         """FIXED: Enhanced detection of queries requiring current/recent information"""
         query_lower = query.lower().strip()
         
-        # PRIORITY CHECK: Direct date/time questions ALWAYS need current info
-        direct_patterns = [
-            'what day is',
-            'what date is',
-            'what time is',
-            'what\'s the date',
-            'what\'s the day',
-            'what\'s the time',
-            'current date',
-            'current day',
-            'current time',
-            'today\'s date',
-            'today\'s day',
-            'what day today',
-            'what date today',
-            'today is what',
-        ]
-        
-        for pattern in direct_patterns:
+        # PRIORITY CHECK: Direct exact phrase matching
+        for pattern in self.current_info_direct_patterns:
             if pattern in query_lower:
                 if settings.debug_mode:
-                    print(f"[DEBUG] CURRENT INFO REQUIRED - direct pattern: {pattern}")
+                    print(f"[ROUTER] CURRENT INFO REQUIRED - direct pattern: {pattern}")
                 return True
         
         # Check compiled regex patterns
         for pattern in self.current_info_regex:
             if pattern.search(query_lower):
                 if settings.debug_mode:
-                    print(f"[DEBUG] CURRENT INFO REQUIRED - regex pattern: {pattern.pattern}")
+                    print(f"[ROUTER] CURRENT INFO REQUIRED - regex pattern: {pattern.pattern}")
                 return True
         
         # Additional high-priority current info indicators
         current_indicators = [
-            ('who is the current', True),
-            ('current prime minister', True),
-            ('current president', True),
-            ('who is the president', True),
-            ('latest news', True),
-            ('recent news', True),
-            ('breaking news', True),
-            ('what happened today', True),
-            ('happening today', True),
-            ('in the news', True),
-            ('weather today', True),
-            ('today\'s weather', True),
-            ('stock price today', True),
-            ('market today', True),
+            'who is the current',
+            'current prime minister', 
+            'current president',
+            'who is the president',
+            'latest news',
+            'recent news', 
+            'breaking news',
+            'what happened today',
+            'happening today',
+            'in the news',
+            'weather today',
+            'today\'s weather',
+            'stock price today',
+            'market today',
         ]
         
-        for indicator, needs_current in current_indicators:
-            if indicator in query_lower and needs_current:
+        for indicator in current_indicators:
+            if indicator in query_lower:
                 if settings.debug_mode:
-                    print(f"[DEBUG] CURRENT INFO REQUIRED - indicator: {indicator}")
+                    print(f"[ROUTER] CURRENT INFO REQUIRED - indicator: {indicator}")
                 return True
         
         return False
