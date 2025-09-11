@@ -1,6 +1,7 @@
 """
-Pascal AI Assistant - Main Entry Point (Lightning Version)
+Pascal AI Assistant - Main Entry Point (Fixed)
 A lightning-fast, streaming AI assistant for Raspberry Pi 5
+FIXED: Corrected async issues and module imports
 """
 
 import sys
@@ -57,6 +58,9 @@ class Pascal:
             
         except Exception as e:
             self.console.print(f"❌ Initialization failed: {e}", style="red")
+            if settings.debug_mode:
+                import traceback
+                traceback.print_exc()
             return False
     
     def display_status(self):
@@ -69,7 +73,7 @@ class Pascal:
         status_table.add_column("Status", style="green")
         status_table.add_column("Details", style="white")
         
-        # Basic info - FIXED: Changed display text from "Lightning with Grok" to "Lightning with Groq"
+        # Basic info - FIXED: Changed display text to "Lightning with Groq"
         status_table.add_row("Version", f"v{config['pascal_version']}", "Lightning with Groq")
         status_table.add_row("Personality", config['personality'], "Active")
         status_table.add_row("Memory", "✅ Enabled" if config['memory_enabled'] else "❌ Disabled", "")
@@ -81,23 +85,28 @@ class Pascal:
             status_table.add_row("Groq API", "✅ Configured", "Primary online")
         if config.get('gemini_configured'):
             status_table.add_row("Gemini API", "✅ Configured", "Secondary online")
+        if config.get('openai_configured'):
+            status_table.add_row("OpenAI API", "✅ Configured", "Fallback online")
         status_table.add_row("Online APIs", "✅ Available" if config['online_apis_configured'] else "❌ Not configured", "")
         
         # Get Ollama-specific status
         if self.router and self.router.offline_llm:
-            offline_stats = self.router.offline_llm.get_performance_stats()
-            if offline_stats.get('ollama_enabled'):
-                current_model = offline_stats.get('current_model', 'None')
-                status_table.add_row("Ollama", "⚡ Connected", f"Keep-alive: {offline_stats.get('keep_alive_active', False)}")
-                status_table.add_row("Current Model", current_model, f"Priority: {offline_stats.get('model_priority', 'N/A')}")
-                
-                # Performance metrics
-                if 'avg_inference_time' in offline_stats:
-                    status_table.add_row("Avg Response", offline_stats['avg_inference_time'], "")
-                if 'avg_first_token_time' in offline_stats:
-                    status_table.add_row("First Token", offline_stats['avg_first_token_time'], "⚡ Speed metric")
-            else:
-                status_table.add_row("Ollama", "❌ Not available", "Run ./download_models.sh")
+            try:
+                offline_stats = self.router.offline_llm.get_performance_stats()
+                if offline_stats.get('ollama_enabled'):
+                    current_model = offline_stats.get('current_model', 'None')
+                    status_table.add_row("Ollama", "⚡ Connected", f"Keep-alive: {offline_stats.get('keep_alive_active', False)}")
+                    status_table.add_row("Current Model", current_model, f"Priority: {offline_stats.get('model_priority', 'N/A')}")
+                    
+                    # Performance metrics
+                    if 'avg_inference_time' in offline_stats:
+                        status_table.add_row("Avg Response", offline_stats['avg_inference_time'], "")
+                    if 'avg_first_token_time' in offline_stats:
+                        status_table.add_row("First Token", offline_stats['avg_first_token_time'], "⚡ Speed metric")
+                else:
+                    status_table.add_row("Ollama", "❌ Not available", "Run ./download_models.sh")
+            except Exception as e:
+                status_table.add_row("Ollama", "❌ Error checking", str(e)[:50])
         else:
             status_table.add_row("Ollama", "❌ Not initialized", "")
         
@@ -118,8 +127,8 @@ class Pascal:
         # Performance tips
         perf_text = """[bold]⚡ Lightning Performance Tips:[/bold]
   • Primary model: nemotron-mini:4b-instruct-q4_K_M (fastest)
-  • Fallback 1: qwen3:4b-instruct
-  • Fallback 2: gemma3:4b-it-q4_K_M
+  • Fallback 1: qwen2.5:3b
+  • Fallback 2: phi3:mini
   • Target: 1-3 second responses
   • Streaming enabled for instant feedback
   
@@ -222,33 +231,36 @@ class Pascal:
             self.console.print("❌ Ollama not available", style="red")
             return
         
-        models = self.router.offline_llm.list_available_models()
-        
-        if not models:
-            self.console.print("No models available. Download with: download [model_name]", style="yellow")
-            self.console.print("Recommended: download nemotron-mini:4b-instruct-q4_K_M", style="cyan")
-            return
-        
-        # Create models table
-        models_table = Table(title="⚡ Available Models", border_style="green")
-        models_table.add_column("Model", style="cyan", no_wrap=True)
-        models_table.add_column("Size", style="white")
-        models_table.add_column("Priority", style="yellow")
-        models_table.add_column("Type", style="blue")
-        models_table.add_column("Status", style="magenta")
-        
-        for model in models:
-            status = "⚡ LOADED" if model['loaded'] else "⚪ Available"
-            model_type = "Primary" if model['is_primary'] else ("Fallback" if model['is_fallback'] else "Other")
-            models_table.add_row(
-                model['name'],
-                model['size'],
-                str(model['priority']),
-                model_type,
-                status
-            )
-        
-        self.console.print(models_table)
+        try:
+            models = self.router.offline_llm.list_available_models()
+            
+            if not models:
+                self.console.print("No models available. Download with: download [model_name]", style="yellow")
+                self.console.print("Recommended: download nemotron-mini:4b-instruct-q4_K_M", style="cyan")
+                return
+            
+            # Create models table
+            models_table = Table(title="⚡ Available Models", border_style="green")
+            models_table.add_column("Model", style="cyan", no_wrap=True)
+            models_table.add_column("Size", style="white")
+            models_table.add_column("Priority", style="yellow")
+            models_table.add_column("Type", style="blue")
+            models_table.add_column("Status", style="magenta")
+            
+            for model in models:
+                status = "⚡ LOADED" if model['loaded'] else "⚪ Available"
+                model_type = "Primary" if model['is_primary'] else ("Fallback" if model['is_fallback'] else "Other")
+                models_table.add_row(
+                    model['name'],
+                    model['size'],
+                    str(model['priority']),
+                    model_type,
+                    status
+                )
+            
+            self.console.print(models_table)
+        except Exception as e:
+            self.console.print(f"❌ Error listing models: {e}", style="red")
     
     async def _switch_model(self, model_name: str):
         """Switch to a different Ollama model"""
@@ -310,7 +322,7 @@ class Pascal:
             else:
                 self.console.print(f"❌ Failed to remove: {model_name}", style="red")
         except Exception as e:
-            self.console.print(f"❌ Remove error: {e}")
+            self.console.print(f"❌ Remove error: {e}", style="red")
     
     async def chat_loop(self):
         """Main chat interaction loop with streaming support"""
@@ -354,6 +366,10 @@ class Pascal:
                         # Non-streaming fallback
                         response = await self.router.get_response(user_input)
                         self.console.print(response, style="white")
+                        
+                        # Store response in memory
+                        if response:
+                            await self.memory_manager.add_interaction(user_input, response)
                 
                 except Exception as e:
                     self.console.print(f"\nSorry, I encountered an error: {e}", style="red")
@@ -367,26 +383,31 @@ class Pascal:
                 break
             except EOFError:
                 break
+            except Exception as e:
+                self.console.print(f"\nUnexpected error: {e}", style="red")
+                if settings.debug_mode:
+                    import traceback
+                    traceback.print_exc()
     
     async def shutdown(self):
         """Graceful shutdown"""
         self.console.print("\n🔄 Shutting down Pascal...", style="yellow")
         
-        if self.memory_manager:
-            await self.memory_manager.save_session()
-        
-        if self.router and self.router.offline_llm:
-            await self.router.offline_llm.close()
-        
-        if self.router and self.router.online_llm:
-            await self.router.online_llm.close()
-        
-        self.running = False
-        self.console.print("👋 Goodbye!", style="cyan")
+        try:
+            if self.memory_manager:
+                await self.memory_manager.save_session()
+            
+            if self.router:
+                await self.router.close()
+            
+            self.running = False
+            self.console.print("👋 Goodbye!", style="cyan")
+        except Exception as e:
+            self.console.print(f"Error during shutdown: {e}", style="red")
     
     async def run(self):
         """Main run method"""
-        # Setup signal handlers
+        # Setup signal handlers for graceful shutdown
         def signal_handler(signum, frame):
             asyncio.create_task(self.shutdown())
         
