@@ -277,7 +277,7 @@ class LightningRouter:
         """Check if query is simple and can be handled offline quickly"""
         query_lower = query.lower().strip()
         
-        # NEVER treat date/time questions as simple
+        # NEVER treat date/time questions as simple - they MUST go online
         if self._needs_current_information(query):
             return False
         
