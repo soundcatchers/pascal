@@ -29,7 +29,7 @@ class Settings:
         
         # Pascal identity
         self.name = "Pascal"
-        self.version = "2.0.2"  # Updated version with gsk_ fix
+        self.version = "2.0.3"  # Updated version with gsk_ fix
         
         # LLM Configuration - Optimized for speed
         self.default_personality = "default"
@@ -200,7 +200,7 @@ class Settings:
         return self.memory_dir / f"{session_id}_memory.json"
     
     def validate_groq_api_key(self, api_key: str) -> bool:
-        """Validate Groq API key format - UPDATED for new gsk_ format"""
+        """Validate Groq API key format - UPDATED for new gsk_ format ONLY"""
         if not api_key:
             return False
         
@@ -213,18 +213,18 @@ class Settings:
         if api_key in invalid_values:
             return False
         
-        # NEW: Accept both gsk_ and gsk- for backward compatibility
-        # But warn about gsk- being deprecated
-        if api_key.startswith('gsk-'):
+        # ONLY accept gsk_ format (gsk- is deprecated)
+        if api_key.startswith('gsk_'):
+            return True
+        elif api_key.startswith('gsk-'):
             if self.debug_mode:
                 print("[DEBUG] WARNING: Groq API key uses deprecated 'gsk-' format")
-                print("[DEBUG] New Groq keys use 'gsk_' format - consider updating")
-            return True
-        elif api_key.startswith('gsk_'):
+                print("[DEBUG] Please update to new 'gsk_' format from https://console.groq.com/")
+            # Still return True for backward compatibility, but warn
             return True
         else:
             if self.debug_mode:
-                print(f"[DEBUG] Invalid Groq API key format. Expected 'gsk_' or 'gsk-', got: {api_key[:10]}...")
+                print(f"[DEBUG] Invalid Groq API key format. Expected 'gsk_', got: {api_key[:10]}...")
             return False
     
     def is_online_available(self) -> bool:
