@@ -37,28 +37,24 @@ class Settings:
         self.performance_logging = os.getenv("PERF_LOG", "false").lower() == "true"
         
         # FIXED: API Key Loading with proper gsk_ support
-        self.groq_api_key = os.getenv("GROQ_API_KEY")
+        self.groq_api_key = self._load_groq_api_key()
         self.openai_api_key = os.getenv("OPENAI_API_KEY")
         self.gemini_api_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
         
-        # Legacy support: Check for old GROK_API_KEY if GROQ_API_KEY is not set
-        if not self.groq_api_key:
-            legacy_key = os.getenv("GROK_API_KEY")
-            if legacy_key:
-                self.groq_api_key = legacy_key
-                if self.debug_mode:
-                    print("[WARNING] Using legacy GROK_API_KEY - please rename to GROQ_API_KEY in .env file")
-        
         # Debug API key loading
         if self.debug_mode:
+            print(f"[DEBUG] API Keys Status:")
+            print(f"  Groq: {'✅ Loaded' if self.groq_api_key else '❌ Missing'}")
+            print(f"  OpenAI: {'✅ Loaded' if self.openai_api_key else '❌ Missing'}")
+            print(f"  Gemini: {'✅ Loaded' if self.gemini_api_key else '❌ Missing'}")
+            
             if self.groq_api_key:
-                print(f"[DEBUG] Groq API key loaded: {self.groq_api_key[:20]}...")
-                if not self.groq_api_key.startswith('gsk_'):
-                    print(f"[DEBUG] WARNING: Groq API key should start with 'gsk_' (found: {self.groq_api_key[:10]}...)")
-                    print("[DEBUG] New Groq API keys use 'gsk_' prefix, not 'gsk-'")
-            else:
-                print("[DEBUG] No Groq API key found in environment")
-                print("[DEBUG] Set GROQ_API_KEY=gsk_your-key in .env file for fastest online responses")
+                if self.groq_api_key.startswith('gsk_'):
+                    print(f"  Groq format: ✅ Correct (gsk_)")
+                elif self.groq_api_key.startswith('gsk-'):
+                    print(f"  Groq format: ⚠️ Deprecated (gsk-) - still works")
+                else:
+                    print(f"  Groq format: ❌ Invalid - should start with gsk_")
         
         # LLM Configuration
         self.default_personality = "default"
@@ -115,6 +111,25 @@ class Settings:
         self.voice_model = "whisper-tiny"
         self.tts_model = "coqui-tts"
     
+    def _load_groq_api_key(self) -> Optional[str]:
+        """Load Groq API key with proper fallback handling"""
+        # First try GROQ_API_KEY (preferred)
+        groq_key = os.getenv("GROQ_API_KEY")
+        
+        if groq_key and groq_key not in ['', 'your_groq_api_key_here', 'gsk_your_groq_api_key_here']:
+            if self.debug_mode:
+                print(f"[DEBUG] Using GROQ_API_KEY: {groq_key[:20]}...")
+            return groq_key
+        
+        # Fallback to legacy GROK_API_KEY
+        legacy_key = os.getenv("GROK_API_KEY")
+        if legacy_key and legacy_key not in ['', 'your_grok_api_key_here']:
+            if self.debug_mode:
+                print(f"[DEBUG] Using legacy GROK_API_KEY (rename to GROQ_API_KEY): {legacy_key[:20]}...")
+            return legacy_key
+        
+        return None
+    
     def _create_directories(self):
         """Create necessary directories if they don't exist"""
         directories = [
@@ -165,7 +180,7 @@ class Settings:
         return 8.0
     
     def validate_groq_api_key(self, api_key: str) -> bool:
-        """FIXED: Validate Groq API key format - ONLY accepts gsk_ format"""
+        """FIXED: Validate Groq API key format"""
         if not api_key:
             return False
         
@@ -178,19 +193,11 @@ class Settings:
         if api_key in invalid_values:
             return False
         
-        # FIXED: Only accept gsk_ format (gsk- is deprecated)
-        if api_key.startswith('gsk_'):
-            return True
-        elif api_key.startswith('gsk-'):
-            if self.debug_mode:
-                print("[DEBUG] WARNING: Groq API key uses deprecated 'gsk-' format")
-                print("[DEBUG] New Groq keys use 'gsk_' format - please update your key")
-            # Still allow old format for backward compatibility
-            return True
-        else:
-            if self.debug_mode:
-                print(f"[DEBUG] Invalid Groq API key format. Expected 'gsk_', got: {api_key[:10]}...")
-            return False
+        # Accept both gsk_ (new) and gsk- (deprecated but working)
+        if api_key.startswith('gsk_') or api_key.startswith('gsk-'):
+            return len(api_key) > 20  # Reasonable minimum length
+        
+        return False
     
     def validate_openai_api_key(self, api_key: str) -> bool:
         """Validate OpenAI API key format"""
