@@ -1,7 +1,6 @@
 """
 Pascal AI Assistant - Global Configuration
-Manages all system settings and environment variables - Lightning-fast for Pi 5
-FIXED: Updated API key validation for new gsk_ format and better current info handling
+FIXED: Updated for new gsk_ API key format and enhanced current info handling
 """
 
 import os
@@ -29,12 +28,7 @@ class Settings:
         
         # Pascal identity
         self.name = "Pascal"
-        self.version = "2.0.3"  # Updated version with gsk_ fix
-        
-        # LLM Configuration - Optimized for speed
-        self.default_personality = "default"
-        self.max_context_length = 2048
-        self.max_response_tokens = 200  # Limited for faster responses
+        self.version = "2.1.0"  # Updated version with fixed API key support
         
         # Debug Settings - MOVED BEFORE FIRST USE
         self.debug_mode = os.getenv("DEBUG", "false").lower() == "true"
@@ -42,19 +36,21 @@ class Settings:
         self.verbose_logging = self.debug_mode
         self.performance_logging = os.getenv("PERF_LOG", "false").lower() == "true"
         
-        # Online LLM APIs - FIXED: Support new gsk_ format for Groq
-        # Check for both GROQ_API_KEY and GROK_API_KEY (user might have either)
-        self.groq_api_key = os.getenv("GROQ_API_KEY") or os.getenv("GROK_API_KEY")
+        # FIXED: API Key Loading with proper gsk_ support
+        self.groq_api_key = os.getenv("GROQ_API_KEY")
         self.openai_api_key = os.getenv("OPENAI_API_KEY")
         self.gemini_api_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
         
-        # Warn about deprecated GROK naming
-        if os.getenv("GROK_API_KEY") and not os.getenv("GROQ_API_KEY"):
-            if self.is_debug_mode():
-                print("[WARNING] Found GROK_API_KEY - please rename to GROQ_API_KEY in .env file")
+        # Legacy support: Check for old GROK_API_KEY if GROQ_API_KEY is not set
+        if not self.groq_api_key:
+            legacy_key = os.getenv("GROK_API_KEY")
+            if legacy_key:
+                self.groq_api_key = legacy_key
+                if self.debug_mode:
+                    print("[WARNING] Using legacy GROK_API_KEY - please rename to GROQ_API_KEY in .env file")
         
-        # Debug API key loading with new format validation
-        if self.is_debug_mode():
+        # Debug API key loading
+        if self.debug_mode:
             if self.groq_api_key:
                 print(f"[DEBUG] Groq API key loaded: {self.groq_api_key[:20]}...")
                 if not self.groq_api_key.startswith('gsk_'):
@@ -64,83 +60,60 @@ class Settings:
                 print("[DEBUG] No Groq API key found in environment")
                 print("[DEBUG] Set GROQ_API_KEY=gsk_your-key in .env file for fastest online responses")
         
-        # Local LLM Settings - Lightning optimized
+        # LLM Configuration
+        self.default_personality = "default"
+        self.max_context_length = 2048
+        self.max_response_tokens = 200
+        
+        # Local LLM Settings
         self.local_model_path = self.models_dir / "local_model.gguf"
-        self.local_model_threads = 4  # Use all Pi 5 cores
+        self.local_model_threads = 4
         self.local_model_context = 2048
-        self.streaming_enabled = True  # Enable streaming for perceived speed
-        self.keep_alive_enabled = True  # Keep models loaded
+        self.streaming_enabled = True
+        self.keep_alive_enabled = True
         
-        # Lightning Performance Settings
-        self.target_response_time = 3.0  # Target max 3 seconds
+        # Performance Settings
+        self.performance_mode = os.getenv("PERFORMANCE_MODE", "balanced")
+        self.target_response_time = 3.0
         self.enable_streaming = True
-        self.first_token_target = 1.0  # Target 1 second to first token
-        
-        # Performance Settings - Pi 5 Specific
-        self.performance_mode = os.getenv("PERFORMANCE_MODE", "balanced")  # Default to balanced
-        self.use_arm_optimizations = True
-        self.memory_optimization = True
-        self.context_caching = True
+        self.first_token_target = 1.0
         
         # Pi 5 Hardware Detection
         self.is_raspberry_pi = self._detect_raspberry_pi()
         self.pi_model = self._get_pi_model()
         self.available_ram_gb = self._get_available_ram()
         
-        # Router Settings - IMPORTANT: Intelligent routing with online preference for current info
-        self.prefer_offline = False  # Changed to False to use intelligent routing
-        self.online_timeout = 30.0  # Increased timeout for online services
+        # Router Settings - Enhanced for current info
+        self.prefer_offline = False
+        self.online_timeout = 30.0
         self.fallback_to_offline = True
         self.smart_routing = True
-        self.auto_route_current_info = True  # Automatically route current info queries to online
+        self.auto_route_current_info = True
         
-        # NEW: Current Information Settings
-        self.enhance_current_info_prompts = True  # Add date/time context to online prompts
-        self.current_info_system_instructions = True  # Tell models they have current access
+        # Enhanced Current Information Settings
+        self.enhance_current_info_prompts = True
+        self.current_info_system_instructions = True
         
         # Memory Settings
-        self.short_term_memory_limit = 5  # Keep recent context
+        self.short_term_memory_limit = 5
         self.long_term_memory_enabled = True
-        self.memory_save_interval = 300  # Seconds
+        self.memory_save_interval = 300
         
-        # Performance Settings
-        self.enable_caching = True
-        self.cache_expiry = 3600  # Seconds
-        self.max_concurrent_requests = 2  # Limited for Pi 5
-        
-        # ARM-specific optimizations
-        self.arm_cpu_optimization = {
-            'enable_neon': True,
-            'thread_affinity': True,
-            'cache_line_size': 64,
-            'prefetch_distance': 16,
-        }
-        
-        # Model Selection Preferences - Updated for current models
+        # Model Preferences
         self.preferred_models = [
-            "nemotron-mini:4b-instruct-q4_K_M",  # Primary - fastest
-            "qwen2.5:3b",                         # Updated Qwen model
-            "phi3:mini",                          # Reliable fallback
-            "llama3.2:3b",                        # Current Llama model
-            "gemma2:2b"                           # Lightweight option
+            "nemotron-mini:4b-instruct-q4_K_M",
+            "qwen2.5:3b",
+            "phi3:mini",
+            "llama3.2:3b",
+            "gemma2:2b"
         ]
-        self.max_model_ram_usage = 6.0  # Max GB for model
+        self.max_model_ram_usage = 6.0
         self.auto_model_selection = True
         
-        # Voice Settings (for future phases)
+        # Voice Settings (future)
         self.voice_enabled = False
         self.voice_model = "whisper-tiny"
         self.tts_model = "coqui-tts"
-        self.voice_activation_threshold = 0.7
-        
-        # Display Settings (for future visual phase)
-        self.visual_display_enabled = False
-        self.display_fps = 30
-        self.display_resolution = (1920, 1080)
-    
-    def is_debug_mode(self) -> bool:
-        """Check if debug mode is enabled"""
-        return self.debug_mode
     
     def _create_directories(self):
         """Create necessary directories if they don't exist"""
@@ -186,61 +159,38 @@ class Settings:
                 for line in f:
                     if line.startswith('MemTotal:'):
                         kb = int(line.split()[1])
-                        return round(kb / 1024 / 1024, 1)  # Convert KB to GB
+                        return round(kb / 1024 / 1024, 1)
         except FileNotFoundError:
-            return 8.0  # Default assumption
+            return 8.0
         return 8.0
     
-    def get_personality_path(self, personality_name: str) -> Path:
-        """Get path to personality configuration file"""
-        return self.config_dir / "personalities" / f"{personality_name}.json"
-    
-    def get_memory_path(self, session_id: str = "default") -> Path:
-        """Get path to memory file for a session"""
-        return self.memory_dir / f"{session_id}_memory.json"
-    
     def validate_groq_api_key(self, api_key: str) -> bool:
-        """Validate Groq API key format - UPDATED for new gsk_ format ONLY"""
+        """FIXED: Validate Groq API key format - ONLY accepts gsk_ format"""
         if not api_key:
             return False
         
         # Check for placeholder values
         invalid_values = [
-            '', 'your_groq_api_key_here', 'gsk-your_groq_api_key_here', 
-            'your_grok_api_key_here', 'gsk_your_groq_api_key_here'
+            '', 'your_groq_api_key_here', 'gsk_your_groq_api_key_here',
+            'your_grok_api_key_here', 'gsk-your_groq_api_key_here'
         ]
         
         if api_key in invalid_values:
             return False
         
-        # ONLY accept gsk_ format (gsk- is deprecated)
+        # FIXED: Only accept gsk_ format (gsk- is deprecated)
         if api_key.startswith('gsk_'):
             return True
         elif api_key.startswith('gsk-'):
             if self.debug_mode:
                 print("[DEBUG] WARNING: Groq API key uses deprecated 'gsk-' format")
-                print("[DEBUG] Please update to new 'gsk_' format from https://console.groq.com/")
-            # Still return True for backward compatibility, but warn
+                print("[DEBUG] New Groq keys use 'gsk_' format - please update your key")
+            # Still allow old format for backward compatibility
             return True
         else:
             if self.debug_mode:
                 print(f"[DEBUG] Invalid Groq API key format. Expected 'gsk_', got: {api_key[:10]}...")
             return False
-    
-    def is_online_available(self) -> bool:
-        """Check if any online API keys are configured - UPDATED validation"""
-        # Use new validation methods
-        has_groq = self.validate_groq_api_key(self.groq_api_key)
-        has_openai = self.validate_openai_api_key(self.openai_api_key)
-        has_gemini = self.validate_gemini_api_key(self.gemini_api_key)
-        
-        if self.debug_mode:
-            print(f"[DEBUG] Online availability check:")
-            print(f"  Groq configured: {has_groq}")
-            print(f"  OpenAI configured: {has_openai}")
-            print(f"  Gemini configured: {has_gemini}")
-        
-        return has_groq or has_openai or has_gemini
     
     def validate_openai_api_key(self, api_key: str) -> bool:
         """Validate OpenAI API key format"""
@@ -262,64 +212,33 @@ class Settings:
         if api_key in invalid_values:
             return False
         
-        return len(api_key) > 20  # Gemini keys don't have a specific prefix
+        return len(api_key) > 20
     
-    def is_local_model_available(self) -> bool:
-        """Check if any local model files exist"""
-        if not self.models_dir.exists():
-            return False
+    def is_online_available(self) -> bool:
+        """Check if any online API keys are configured"""
+        has_groq = self.validate_groq_api_key(self.groq_api_key)
+        has_openai = self.validate_openai_api_key(self.openai_api_key)
+        has_gemini = self.validate_gemini_api_key(self.gemini_api_key)
         
-        # Check for any GGUF files
-        gguf_files = list(self.models_dir.glob("*.gguf"))
-        return len(gguf_files) > 0
-    
-    def get_optimal_context_size(self, model_ram_usage: float) -> int:
-        """Calculate optimal context size based on available RAM"""
-        available_for_context = self.available_ram_gb - model_ram_usage - 2  # Reserve 2GB for system
+        if self.debug_mode:
+            print(f"[DEBUG] Online availability check:")
+            print(f"  Groq configured: {has_groq}")
+            print(f"  OpenAI configured: {has_openai}")
+            print(f"  Gemini configured: {has_gemini}")
         
-        if available_for_context <= 2:
-            return 1024
-        elif available_for_context <= 4:
-            return 2048
-        elif available_for_context <= 6:
-            return 3072
-        else:
-            return 4096
+        return has_groq or has_openai or has_gemini
     
-    def get_performance_profile(self) -> Dict[str, Any]:
-        """Get current performance profile settings optimized for speed"""
-        profiles = {
-            'speed': {
-                'max_tokens': 100,
-                'context_size': 1024,
-                'temperature': 0.5,
-                'priority': 'response_time',
-                'streaming': True
-            },
-            'balanced': {
-                'max_tokens': 150,
-                'context_size': 2048,
-                'temperature': 0.7,
-                'priority': 'balanced',
-                'streaming': True
-            },
-            'quality': {
-                'max_tokens': 200,
-                'context_size': 2048,
-                'temperature': 0.8,
-                'priority': 'output_quality',
-                'streaming': False
-            }
-        }
-        
-        return profiles.get(self.performance_mode, profiles['balanced'])
+    def get_personality_path(self, personality_name: str) -> Path:
+        """Get path to personality configuration file"""
+        return self.config_dir / "personalities" / f"{personality_name}.json"
     
-    def set_performance_mode(self, mode: str):
-        """Set performance mode (speed/balanced/quality)"""
-        if mode in ['speed', 'balanced', 'quality']:
-            self.performance_mode = mode
-            if self.debug_mode:
-                print(f"Performance mode set to: {mode}")
+    def get_memory_path(self, session_id: str = "default") -> Path:
+        """Get path to memory file for a session"""
+        return self.memory_dir / f"{session_id}_memory.json"
+    
+    def is_debug_mode(self) -> bool:
+        """Check if debug mode is enabled"""
+        return self.debug_mode
     
     def get_hardware_info(self) -> Dict[str, Any]:
         """Get hardware information for optimization"""
@@ -328,7 +247,6 @@ class Settings:
             'pi_model': self.pi_model,
             'available_ram_gb': self.available_ram_gb,
             'cpu_cores': self.local_model_threads,
-            'arm_optimizations_enabled': self.use_arm_optimizations,
             'performance_mode': self.performance_mode,
             'streaming_enabled': self.streaming_enabled,
             'keep_alive_enabled': self.keep_alive_enabled
@@ -336,142 +254,37 @@ class Settings:
     
     def get_config_summary(self) -> Dict[str, Any]:
         """Get configuration summary for status display"""
-        # Check API keys with improved validation
         groq_configured = self.validate_groq_api_key(self.groq_api_key)
         gemini_configured = self.validate_gemini_api_key(self.gemini_api_key)
         openai_configured = self.validate_openai_api_key(self.openai_api_key)
         
         return {
             "pascal_version": self.version,
-            "base_directory": str(self.base_dir),
             "personality": self.default_personality,
             "online_apis_configured": self.is_online_available(),
             "groq_configured": groq_configured,
             "gemini_configured": gemini_configured,
             "openai_configured": openai_configured,
-            "local_model_available": self.is_local_model_available(),
-            "prefer_offline": self.prefer_offline,
             "auto_route_current_info": self.auto_route_current_info,
             "enhance_current_info_prompts": self.enhance_current_info_prompts,
             "debug_mode": self.debug_mode,
             "memory_enabled": self.long_term_memory_enabled,
             "performance_mode": self.performance_mode,
             "hardware_info": self.get_hardware_info(),
-            "arm_optimizations": self.use_arm_optimizations,
             "streaming_enabled": self.streaming_enabled,
             "target_response_time": self.target_response_time,
-            "preferred_models": self.preferred_models,
-            "available_models": len(list(self.models_dir.glob("*.gguf"))) if self.models_dir.exists() else 0
+            "preferred_models": self.preferred_models
         }
     
-    def update_from_env(self):
-        """Update settings from environment variables"""
-        # Performance mode
-        env_perf_mode = os.getenv("PERFORMANCE_MODE")
-        if env_perf_mode in ['speed', 'balanced', 'quality']:
-            self.performance_mode = env_perf_mode
-        
-        # Thread count
-        env_threads = os.getenv("LLM_THREADS")
-        if env_threads and env_threads.isdigit():
-            self.local_model_threads = min(int(env_threads), 4)  # Max 4 for Pi 5
-        
-        # Context size
-        env_context = os.getenv("LLM_CONTEXT")
-        if env_context and env_context.isdigit():
-            self.local_model_context = int(env_context)
-        
-        # Max response tokens
-        env_max_tokens = os.getenv("MAX_RESPONSE_TOKENS")
-        if env_max_tokens and env_max_tokens.isdigit():
-            self.max_response_tokens = int(env_max_tokens)
-        
-        # Streaming
-        env_streaming = os.getenv("STREAMING_ENABLED")
-        if env_streaming:
-            self.streaming_enabled = env_streaming.lower() == "true"
-        
-        # Keep alive
-        env_keep_alive = os.getenv("KEEP_ALIVE_ENABLED")
-        if env_keep_alive:
-            self.keep_alive_enabled = env_keep_alive.lower() == "true"
-        
-        # Target response time
-        env_target_time = os.getenv("TARGET_RESPONSE_TIME")
-        if env_target_time:
-            try:
-                self.target_response_time = float(env_target_time)
-            except ValueError:
-                pass
-        
-        # Re-check API keys after env update
-        self.groq_api_key = os.getenv("GROQ_API_KEY") or os.getenv("GROK_API_KEY")
-        self.gemini_api_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
-        self.openai_api_key = os.getenv("OPENAI_API_KEY")
-        
-        if self.debug_mode and self.groq_api_key:
-            print(f"[DEBUG] Groq API key updated: {self.groq_api_key[:20]}...")
-    
-    def save_performance_settings(self):
-        """Save current performance settings to file"""
-        settings_file = self.config_dir / "performance_settings.json"
-        settings_data = {
-            'performance_mode': self.performance_mode,
-            'local_model_threads': self.local_model_threads,
-            'local_model_context': self.local_model_context,
-            'max_response_tokens': self.max_response_tokens,
-            'use_arm_optimizations': self.use_arm_optimizations,
-            'streaming_enabled': self.streaming_enabled,
-            'keep_alive_enabled': self.keep_alive_enabled,
-            'target_response_time': self.target_response_time,
-            'preferred_models': self.preferred_models,
-            'auto_route_current_info': self.auto_route_current_info,
-            'enhance_current_info_prompts': self.enhance_current_info_prompts,
-            'updated_timestamp': 0  # Simplified for compatibility
-        }
-        
-        try:
-            with open(settings_file, 'w') as f:
-                json.dump(settings_data, f, indent=2)
-        except Exception as e:
+    def set_performance_mode(self, mode: str):
+        """Set performance mode"""
+        if mode in ['speed', 'balanced', 'quality']:
+            self.performance_mode = mode
             if self.debug_mode:
-                print(f"Failed to save performance settings: {e}")
-    
-    def load_performance_settings(self):
-        """Load performance settings from file"""
-        settings_file = self.config_dir / "performance_settings.json"
-        
-        if not settings_file.exists():
-            return
-        
-        try:
-            with open(settings_file, 'r') as f:
-                settings_data = json.load(f)
-            
-            self.performance_mode = settings_data.get('performance_mode', self.performance_mode)
-            self.local_model_threads = settings_data.get('local_model_threads', self.local_model_threads)
-            self.local_model_context = settings_data.get('local_model_context', self.local_model_context)
-            self.max_response_tokens = settings_data.get('max_response_tokens', self.max_response_tokens)
-            self.use_arm_optimizations = settings_data.get('use_arm_optimizations', self.use_arm_optimizations)
-            self.streaming_enabled = settings_data.get('streaming_enabled', self.streaming_enabled)
-            self.keep_alive_enabled = settings_data.get('keep_alive_enabled', self.keep_alive_enabled)
-            self.target_response_time = settings_data.get('target_response_time', self.target_response_time)
-            self.preferred_models = settings_data.get('preferred_models', self.preferred_models)
-            self.auto_route_current_info = settings_data.get('auto_route_current_info', self.auto_route_current_info)
-            self.enhance_current_info_prompts = settings_data.get('enhance_current_info_prompts', self.enhance_current_info_prompts)
-            
-        except Exception as e:
-            if self.debug_mode:
-                print(f"Failed to load performance settings: {e}")
+                print(f"Performance mode set to: {mode}")
 
 # Global settings instance
 settings = Settings()
-
-# Load any saved performance settings
-settings.load_performance_settings()
-
-# Update from environment variables
-settings.update_from_env()
 
 # Export commonly used paths
 BASE_DIR = settings.base_dir
