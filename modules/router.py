@@ -1,7 +1,7 @@
 """
-Pascal AI Assistant - FIXED: Lightning-Fast Router with Enhanced Current Info Detection
-Intelligently routes requests between offline and online LLMs with Groq priority
-FIXED: Better routing for current information queries and API key handling
+Pascal AI Assistant - ENHANCED Lightning Router with Bulletproof Current Info Detection
+Intelligently routes requests between offline and online LLMs with mandatory online for current info
+FIXED: Bulletproof current information detection and routing
 """
 
 import asyncio
@@ -23,10 +23,11 @@ class RouteMode(Enum):
 class RouteDecision:
     """Represents a routing decision for lightning-fast responses"""
     
-    def __init__(self, use_offline: bool, reason: str, confidence: float = 1.0):
+    def __init__(self, use_offline: bool, reason: str, confidence: float = 1.0, is_current_info: bool = False):
         self.use_offline = use_offline
         self.reason = reason
         self.confidence = confidence
+        self.is_current_info = is_current_info
         self.timestamp = time.time()
     
     @property
@@ -34,7 +35,7 @@ class RouteDecision:
         return not self.use_offline
 
 class LightningRouter:
-    """FIXED: Lightning-fast router for offline/online LLM selection"""
+    """ENHANCED: Lightning-fast router with bulletproof current info detection"""
     
     def __init__(self, personality_manager, memory_manager):
         self.personality_manager = personality_manager
@@ -54,15 +55,15 @@ class LightningRouter:
         self.response_times = {'offline': [], 'online': []}
         self.first_token_times = {'offline': [], 'online': []}
         
-        # FIXED: Enhanced patterns for detecting current information needs
-        self.current_info_direct_patterns = [
-            # Exact phrases that MUST route online
+        # BULLETPROOF: Current information detection patterns
+        # These patterns MUST route to online - no exceptions
+        self.mandatory_current_info_patterns = [
+            # Date/time queries (HIGHEST PRIORITY)
             'what day is today',
-            'what day is it', 
-            'what date is today',
+            'what day is it',
+            'what date is today', 
             'what date is it',
             'what\'s the date',
-            'what\'s the day',
             'what\'s today\'s date',
             'today\'s date',
             'current date',
@@ -70,50 +71,64 @@ class LightningRouter:
             'what time is it',
             'current time',
             'what\'s the time',
-        ]
-        
-        # Regex patterns for current info
-        self.current_info_patterns = [
-            # Date/time patterns
-            r'\b(?:what\s+)?(?:day|date|time)\s+(?:is\s+)?(?:it|today|now)\b',
-            r'\bwhat\'?s\s+(?:the\s+)?(?:date|day|time)(?:\s+today)?\b',
-            r'\btoday\'?s\s+(?:date|day)\b',
-            r'\bcurrent\s+(?:date|day|time)\b',
-            r'\bwhat\s+(?:day|date|time|year|month)\s+(?:is\s+)?(?:it|today)\b',
+            'what year is it',
+            'current year',
+            'what month is it',
+            'current month',
             
-            # Current events and news
-            r'\b(?:today\'?s|latest|recent|current|breaking)\s+(?:news|events?)\b',
-            r'\bwhat\'?s\s+happening\s+(?:today|now|currently)\b',
-            r'\bnews\s+(?:today|now|currently)\b',
-            r'\bin\s+the\s+news\b',
-            
-            # Current status queries
-            r'\bwho\s+is\s+(?:the\s+)?current\s+(?:president|pm|prime\s+minister)\b',
-            r'\bcurrent\s+(?:president|prime\s+minister|government|leader)\b',
-            r'\bwho\s+is\s+(?:president|pm)\s+(?:now|currently|today)\b',
+            # Current events and status
+            'current president',
+            'current prime minister',
+            'who is the current',
+            'what\'s the current',
+            'latest news',
+            'recent news',
+            'breaking news',
+            'news today',
+            'today\'s news',
+            'what\'s happening today',
+            'current events',
             
             # Weather and conditions
-            r'\bweather\s+(?:today|now|currently)\b',
-            r'\btoday\'?s\s+weather\b',
-            r'\bcurrent\s+(?:weather|temperature|conditions)\b',
+            'weather today',
+            'today\'s weather',
+            'current weather',
+            'current temperature',
         ]
         
-        # Compile patterns for efficiency
-        self.current_info_regex = [re.compile(pattern, re.IGNORECASE) for pattern in self.current_info_patterns]
+        # Additional regex patterns for current info
+        self.current_info_regex_patterns = [
+            # Flexible date/time patterns
+            r'\b(?:what\s+)?(?:day|date|time)\s+(?:is\s+)?(?:it|today|now)\s*\??\s*$',
+            r'\bwhat\'?s\s+(?:the\s+)?(?:date|day|time)(?:\s+today)?\s*\??\s*$',
+            r'\btoday\'?s\s+(?:date|day)\s*\??\s*$',
+            r'\bcurrent\s+(?:date|day|time|year|month)\s*\??\s*$',
+            
+            # Current status patterns
+            r'\bwho\s+is\s+(?:the\s+)?current\s+\w+\s*\??\s*$',
+            r'\bcurrent\s+(?:president|pm|prime\s+minister|leader)\s*\??\s*$',
+            
+            # News and events
+            r'\b(?:latest|recent|breaking|today\'?s)\s+news\s*\??\s*$',
+            r'\bwhat\'?s\s+happening\s+(?:today|now)\s*\??\s*$',
+            r'\bin\s+the\s+news\s+today\s*\??\s*$',
+        ]
         
-        # Query complexity patterns for smart routing
+        # Compile regex patterns for efficiency
+        self.current_info_regex = [re.compile(pattern, re.IGNORECASE) for pattern in self.current_info_regex_patterns]
+        
+        # Simple query patterns (always offline for speed)
         self.simple_query_patterns = [
-            r'^(?:hi|hello|hey|thanks|thank\s+you|bye|goodbye)\.?$',
-            r'^(?:yes|no|ok|okay|sure)\.?$',
-            r'^\d+\s*[\+\-\*\/]\s*\d+\s*=?\s*\??$',  # Simple math
-            r'^what\s+is\s+\d+\s*[\+\-\*\/]\s*\d+\??$',
+            r'^(?:hi|hello|hey|thanks|thank\s+you|bye|goodbye)\s*\.?\s*$',
+            r'^(?:yes|no|ok|okay|sure)\s*\.?\s*$',
+            r'^\d+\s*[\+\-\*\/]\s*\d+\s*=?\s*\??\s*$',  # Simple math
         ]
         
+        # Complex query patterns (prefer online for quality)
         self.complex_query_patterns = [
-            r'\b(?:analyze|compare|evaluate|research|detailed|comprehensive)\b',
-            r'\b(?:explain\s+in\s+detail|write\s+code|debug|create|design|develop)\b',
-            r'\b(?:strategy|plan|implementation|algorithm)\b',
-            r'\bstep\s+by\s+step\b',
+            r'\b(?:analyze|compare|evaluate|research|detailed|comprehensive|explain\s+in\s+detail)\b',
+            r'\b(?:write\s+code|debug|create|design|develop|implement)\b',
+            r'\b(?:strategy|plan|algorithm|step\s+by\s+step)\b',
         ]
         
         # Compile for efficiency
@@ -124,7 +139,7 @@ class LightningRouter:
         """Check which LLM options are available"""
         try:
             if settings.debug_mode:
-                print("[ROUTER] ⚡ Lightning Router checking LLM availability...")
+                print("[ROUTER] ⚡ Enhanced Lightning Router checking LLM availability...")
             
             # Initialize offline LLM first (for fallback)
             try:
@@ -144,7 +159,7 @@ class LightningRouter:
                     traceback.print_exc()
                 self.offline_available = False
             
-            # Initialize online LLM if API keys are available
+            # Initialize online LLM if API keys are available - CRITICAL FOR CURRENT INFO
             self.online_available = False
             
             # Check if online APIs are configured
@@ -159,19 +174,21 @@ class LightningRouter:
                         if self.online_llm.preferred_provider:
                             provider_name = self.online_llm.preferred_provider.value.title()
                             if provider_name.lower() == 'groq':
-                                print(f"✅ Online LLM ready (Primary: {provider_name} - Lightning Fast!)")
+                                print(f"✅ Online LLM ready (Primary: {provider_name} ⚡ - CURRENT INFO ENABLED)")
                             else:
-                                print(f"✅ Online LLM ready (Primary: {provider_name})")
+                                print(f"✅ Online LLM ready (Primary: {provider_name} - CURRENT INFO ENABLED)")
                         else:
-                            print("✅ Online LLM ready")
+                            print("✅ Online LLM ready - CURRENT INFO ENABLED")
                     else:
                         # Get detailed error info
                         if self.online_llm and hasattr(self.online_llm, 'get_provider_stats'):
                             stats = self.online_llm.get_provider_stats()
                             error_msg = stats.get('last_error', 'Configuration or connectivity issue')
                             print(f"❌ Online LLM failed: {error_msg}")
+                            print("⚠️ CURRENT INFO QUERIES WILL NOT WORK PROPERLY")
                         else:
                             print("❌ Online LLM not available")
+                            print("⚠️ CURRENT INFO QUERIES WILL NOT WORK PROPERLY")
                         
                 except Exception as e:
                     print(f"⚠️ Online LLM initialization failed: {e}")
@@ -179,11 +196,14 @@ class LightningRouter:
                         import traceback
                         traceback.print_exc()
                     self.online_available = False
+                    print("⚠️ CURRENT INFO QUERIES WILL NOT WORK PROPERLY")
             else:
                 if settings.debug_mode:
-                    print("[ROUTER] ℹ️ No online API keys configured - running offline only")
-                    print("   For best performance, consider adding Groq API key (fastest)")
-                    print("   GROQ_API_KEY=gsk_... in your .env file")
+                    print("[ROUTER] ❌ No online API keys configured - CURRENT INFO DISABLED")
+                    print("   For current info queries, add API key to .env:")
+                    print("   GROQ_API_KEY=gsk_your-actual-key  # Fastest for current info")
+                    print("   GEMINI_API_KEY=your-key           # Free alternative")
+                    print("   OPENAI_API_KEY=sk-your-key        # Reliable fallback")
                 self.online_available = False
             
             # Adjust routing mode based on availability
@@ -197,7 +217,8 @@ class LightningRouter:
                 print(f"ℹ️ Running in online-only mode{provider_info}")
             elif self.offline_available and not self.online_available:
                 self.mode = RouteMode.OFFLINE_ONLY
-                print("ℹ️ Running in offline-only mode (Ollama)")
+                print("⚠️ Running in offline-only mode (Ollama) - CURRENT INFO QUERIES DISABLED")
+                print("   Add online API key to enable current information queries")
             elif self.offline_available and self.online_available:
                 # Both available - prefer online for current info, offline for general
                 self.mode = RouteMode.AUTO
@@ -210,11 +231,12 @@ class LightningRouter:
                         else:
                             provider_info = f" (Online Primary: {provider_name})"
                 print(f"✅ Both offline and online LLMs available{provider_info}")
+                print("🎯 Current info queries will automatically use online")
             else:
                 print("❌ ERROR: No LLMs available!")
                 print("Solutions:")
                 print("1. For offline: sudo systemctl start ollama && ./download_models.sh")
-                print("2. For online: Configure API keys in .env file")
+                print("2. For current info: Configure API keys in .env file")
                 print("   - Groq (fastest): GROQ_API_KEY=gsk_your-key")
                 print("   - Gemini (free): GEMINI_API_KEY=your-key")
                 print("   - OpenAI (reliable): OPENAI_API_KEY=sk-your-key")
@@ -222,6 +244,7 @@ class LightningRouter:
             if settings.debug_mode:
                 print(f"[ROUTER] Final status - Offline: {self.offline_available}, Online: {self.online_available}")
                 print(f"[ROUTER] Routing mode: {self.mode.value}")
+                print(f"[ROUTER] Current info priority: {settings.force_online_current_info}")
             
         except Exception as e:
             print(f"❌ Critical error in LLM availability check: {e}")
@@ -230,46 +253,41 @@ class LightningRouter:
                 traceback.print_exc()
     
     def _needs_current_information(self, query: str) -> bool:
-        """FIXED: Enhanced detection of queries requiring current/recent information"""
+        """BULLETPROOF: Enhanced detection of queries requiring current/recent information"""
         query_lower = query.lower().strip()
         
-        # PRIORITY CHECK: Direct exact phrase matching
-        for pattern in self.current_info_direct_patterns:
+        # Remove punctuation for cleaner matching
+        query_clean = re.sub(r'[^\w\s]', '', query_lower)
+        
+        # PRIORITY 1: Exact phrase matching (most reliable)
+        for pattern in self.mandatory_current_info_patterns:
             if pattern in query_lower:
                 if settings.debug_mode:
-                    print(f"[ROUTER] CURRENT INFO REQUIRED - direct pattern: {pattern}")
+                    print(f"[ROUTER] 🎯 CURRENT INFO DETECTED - exact pattern: '{pattern}'")
                 return True
         
-        # Check compiled regex patterns
+        # PRIORITY 2: Flexible regex patterns
         for pattern in self.current_info_regex:
             if pattern.search(query_lower):
                 if settings.debug_mode:
-                    print(f"[ROUTER] CURRENT INFO REQUIRED - regex pattern: {pattern.pattern}")
+                    print(f"[ROUTER] 🎯 CURRENT INFO DETECTED - regex pattern: {pattern.pattern}")
                 return True
         
-        # Additional high-priority current info indicators
-        current_indicators = [
-            'who is the current',
-            'current prime minister', 
-            'current president',
-            'who is the president',
-            'latest news',
-            'recent news', 
-            'breaking news',
-            'what happened today',
-            'happening today',
-            'in the news',
-            'weather today',
-            'today\'s weather',
-            'stock price today',
-            'market today',
+        # PRIORITY 3: Word-based detection for edge cases
+        current_info_words = [
+            ('today', ['what', 'is', 'day']),          # "what day today"
+            ('current', ['president', 'pm', 'minister', 'leader', 'date', 'time']),
+            ('news', ['today', 'latest', 'recent', 'breaking']),
+            ('weather', ['today', 'current', 'now']),
         ]
         
-        for indicator in current_indicators:
-            if indicator in query_lower:
-                if settings.debug_mode:
-                    print(f"[ROUTER] CURRENT INFO REQUIRED - indicator: {indicator}")
-                return True
+        query_words = query_clean.split()
+        for primary_word, context_words in current_info_words:
+            if primary_word in query_words:
+                if any(context_word in query_words for context_word in context_words):
+                    if settings.debug_mode:
+                        print(f"[ROUTER] 🎯 CURRENT INFO DETECTED - word combination: '{primary_word}' + context")
+                    return True
         
         return False
     
@@ -277,7 +295,7 @@ class LightningRouter:
         """Check if query is simple and can be handled offline quickly"""
         query_lower = query.lower().strip()
         
-        # NEVER treat date/time questions as simple - they MUST go online
+        # NEVER treat current info queries as simple - they MUST go online
         if self._needs_current_information(query):
             return False
         
@@ -319,71 +337,89 @@ class LightningRouter:
         return False
     
     def _decide_route(self, query: str) -> RouteDecision:
-        """FIXED: Decide whether to use offline or online LLM with enhanced logic"""
+        """BULLETPROOF: Decide whether to use offline or online LLM with mandatory current info routing"""
         
-        # Force offline if no online available
+        # CRITICAL CHECK: Current information queries ALWAYS go online (highest priority)
+        is_current_info = self._needs_current_information(query)
+        
+        if is_current_info:
+            if not self.online_available:
+                return RouteDecision(
+                    False,  # Still try online even if not available - will trigger error message
+                    "CURRENT INFO REQUIRED - no online LLM available (CRITICAL ERROR)",
+                    1.0,
+                    is_current_info=True
+                )
+            else:
+                return RouteDecision(
+                    False,  # Use online
+                    "CURRENT INFO REQUIRED - mandatory online routing",
+                    1.0,
+                    is_current_info=True
+                )
+        
+        # Force offline if no online available (for non-current-info queries)
         if not self.online_available:
-            return RouteDecision(True, "No online LLM available")
+            return RouteDecision(True, "No online LLM available", is_current_info=False)
         
         # Force online if no offline available
         if not self.offline_available:
-            return RouteDecision(False, "No offline LLM available")
+            return RouteDecision(False, "No offline LLM available", is_current_info=False)
         
         # Handle different routing modes
         if self.mode == RouteMode.OFFLINE_ONLY:
-            return RouteDecision(True, "Offline-only mode")
+            return RouteDecision(True, "Offline-only mode", is_current_info=False)
         
         elif self.mode == RouteMode.ONLINE_ONLY:
-            return RouteDecision(False, "Online-only mode")
-        
-        # CRITICAL: Current information queries ALWAYS go online (highest priority)
-        if self._needs_current_information(query):
-            return RouteDecision(False, "Query requires current information (PRIORITY)")
+            return RouteDecision(False, "Online-only mode", is_current_info=False)
         
         # Handle preference modes
         if self.mode == RouteMode.OFFLINE_PREFERRED:
             # Use offline unless complex
             if self._is_complex_query(query):
-                return RouteDecision(False, "Complex query needs online quality")
-            return RouteDecision(True, "Offline preferred mode")
+                return RouteDecision(False, "Complex query needs online quality", is_current_info=False)
+            return RouteDecision(True, "Offline preferred mode", is_current_info=False)
         
         elif self.mode == RouteMode.ONLINE_PREFERRED:
             # Only use offline for very simple queries
             if self._is_simple_query(query):
-                return RouteDecision(True, "Simple query - offline faster")
+                return RouteDecision(True, "Simple query - offline faster", is_current_info=False)
             # Everything else goes online
-            return RouteDecision(False, "Online preferred mode")
+            return RouteDecision(False, "Online preferred mode", is_current_info=False)
         
-        else:  # AUTO mode - intelligent routing with enhanced logic
-            
-            # PRIORITY 1: Current information queries ALWAYS go online
-            if self._needs_current_information(query):
-                return RouteDecision(False, "Current information required (AUTO)")
+        else:  # AUTO mode - intelligent routing
             
             # PRIORITY 2: Very simple queries go offline for speed
             if self._is_simple_query(query):
-                return RouteDecision(True, "Simple query - offline faster")
+                return RouteDecision(True, "Simple query - offline faster", is_current_info=False)
             
             # PRIORITY 3: Complex analysis/research queries benefit from online
             if self._is_complex_query(query):
-                return RouteDecision(False, "Complex query - online better")
+                return RouteDecision(False, "Complex query - online better", is_current_info=False)
             
             # PRIORITY 4: Code generation/debugging often better online
             code_patterns = ['write', 'code', 'function', 'script', 'program', 'debug', 'fix']
             if any(pattern in query.lower() for pattern in code_patterns):
-                return RouteDecision(False, "Code-related query - online better")
+                return RouteDecision(False, "Code-related query - online better", is_current_info=False)
             
             # DEFAULT: Use offline for general queries (faster locally)
-            return RouteDecision(True, "General query - using offline")
+            return RouteDecision(True, "General query - using offline", is_current_info=False)
     
     async def get_response(self, query: str) -> str:
-        """Get response using appropriate LLM (non-streaming)"""
+        """Get response using appropriate LLM with enhanced current info handling"""
         decision = self._decide_route(query)
         self.last_decision = decision
         
         if settings.debug_mode:
             route_type = "Offline" if decision.use_offline else "Online"
-            print(f"[ROUTER] Decision: {route_type} - {decision.reason}")
+            current_info_flag = " [CURRENT INFO]" if decision.is_current_info else ""
+            print(f"[ROUTER] Decision: {route_type}{current_info_flag} - {decision.reason}")
+        
+        # CRITICAL: Handle current info queries that require online but online is unavailable
+        if decision.is_current_info and not self.online_available:
+            return ("I'm unable to provide current information right now because online services are not available. "
+                   "Please configure an API key (GROQ_API_KEY, GEMINI_API_KEY, or OPENAI_API_KEY) in your .env file "
+                   "to enable current date, time, news, and other real-time information queries.")
         
         # Get context
         personality_context = await self.personality_manager.get_system_prompt()
@@ -404,7 +440,7 @@ class LightningRouter:
                 route_used = 'online'
             else:
                 # Fallback logic
-                if self.offline_llm:
+                if self.offline_llm and not decision.is_current_info:
                     response = await self.offline_llm.generate_response(
                         query, personality_context, memory_context
                     )
@@ -429,44 +465,63 @@ class LightningRouter:
             if len(self.response_times[route_used]) > 20:
                 self.response_times[route_used] = self.response_times[route_used][-20:]
             
+            # VALIDATION: Check if current info query got proper response
+            if decision.is_current_info and route_used == 'offline':
+                if settings.debug_mode:
+                    print("[ROUTER] ⚠️ WARNING: Current info query was handled by offline model")
+            
             return response
             
         except Exception as e:
             if settings.debug_mode:
                 print(f"❌ Error in {route_used if 'route_used' in locals() else 'unknown'} LLM: {e}")
             
-            # Try fallback
-            try:
-                if decision.use_offline and self.online_llm:
-                    # Offline failed, try online
+            # Try fallback only for non-current-info queries
+            if not decision.is_current_info:
+                try:
+                    if decision.use_offline and self.online_llm:
+                        # Offline failed, try online
+                        if settings.debug_mode:
+                            print("[ROUTER] Offline failed, trying online fallback")
+                        response = await self.online_llm.generate_response(
+                            query, personality_context, memory_context
+                        )
+                        return response
+                    elif decision.use_online and self.offline_llm:
+                        # Online failed, try offline
+                        if settings.debug_mode:
+                            print("[ROUTER] Online failed, trying offline fallback")
+                        response = await self.offline_llm.generate_response(
+                            query, personality_context, memory_context
+                        )
+                        return response
+                except Exception as fallback_error:
                     if settings.debug_mode:
-                        print("[ROUTER] Offline failed, trying online fallback")
-                    response = await self.online_llm.generate_response(
-                        query, personality_context, memory_context
-                    )
-                    return response
-                elif decision.use_online and self.offline_llm:
-                    # Online failed, try offline
-                    if settings.debug_mode:
-                        print("[ROUTER] Online failed, trying offline fallback")
-                    response = await self.offline_llm.generate_response(
-                        query, personality_context, memory_context
-                    )
-                    return response
-            except Exception as fallback_error:
-                if settings.debug_mode:
-                    print(f"❌ Fallback also failed: {fallback_error}")
+                        print(f"❌ Fallback also failed: {fallback_error}")
+            
+            # For current info queries, provide specific error message
+            if decision.is_current_info:
+                return ("I'm having trouble accessing current information right now. "
+                       "Please check your internet connection and API key configuration, then try again.")
             
             return f"I'm having trouble processing your request right now. Error: {str(e)}"
     
     async def get_streaming_response(self, query: str) -> AsyncGenerator[str, None]:
-        """Get streaming response using appropriate LLM"""
+        """Get streaming response using appropriate LLM with enhanced current info handling"""
         decision = self._decide_route(query)
         self.last_decision = decision
         
         if settings.debug_mode:
             route_type = "Offline" if decision.use_offline else "Online"
-            print(f"[ROUTER] Decision: {route_type} - {decision.reason}")
+            current_info_flag = " [CURRENT INFO]" if decision.is_current_info else ""
+            print(f"[ROUTER] Decision: {route_type}{current_info_flag} - {decision.reason}")
+        
+        # CRITICAL: Handle current info queries that require online but online is unavailable
+        if decision.is_current_info and not self.online_available:
+            yield ("I'm unable to provide current information right now because online services are not available. "
+                   "Please configure an API key (GROQ_API_KEY, GEMINI_API_KEY, or OPENAI_API_KEY) in your .env file "
+                   "to enable current date, time, news, and other real-time information queries.")
+            return
         
         # Get context
         personality_context = await self.personality_manager.get_system_prompt()
@@ -477,7 +532,7 @@ class LightningRouter:
         response_generated = False
         
         try:
-            if decision.use_offline and self.offline_llm:
+            if decision.use_offline and self.offline_llm and not decision.is_current_info:
                 route_used = 'offline'
                 async for chunk in self.offline_llm.generate_response_stream(
                     query, personality_context, memory_context
@@ -502,8 +557,8 @@ class LightningRouter:
                     response_generated = True
                     
             else:
-                # Fallback logic
-                if self.offline_llm:
+                # Fallback logic - but never fallback for current info queries
+                if self.offline_llm and not decision.is_current_info:
                     route_used = 'offline'
                     if settings.debug_mode:
                         print("[ROUTER] Using offline fallback for streaming")
@@ -538,28 +593,33 @@ class LightningRouter:
             if settings.debug_mode:
                 print(f"❌ Streaming error: {e}")
             
-            # Try fallback (non-streaming)
-            try:
-                if decision.use_offline and self.online_llm:
+            # Try fallback (non-streaming) only for non-current-info queries
+            if not decision.is_current_info:
+                try:
+                    if decision.use_offline and self.online_llm:
+                        if settings.debug_mode:
+                            print("[ROUTER] Streaming offline failed, trying online fallback")
+                        response = await self.online_llm.generate_response(
+                            query, personality_context, memory_context
+                        )
+                        yield response
+                    elif decision.use_online and self.offline_llm:
+                        if settings.debug_mode:
+                            print("[ROUTER] Streaming online failed, trying offline fallback")
+                        response = await self.offline_llm.generate_response(
+                            query, personality_context, memory_context
+                        )
+                        yield response
+                    else:
+                        yield f"I'm having trouble processing your request. Error: {str(e)}"
+                except Exception as fallback_error:
                     if settings.debug_mode:
-                        print("[ROUTER] Streaming offline failed, trying online fallback")
-                    response = await self.online_llm.generate_response(
-                        query, personality_context, memory_context
-                    )
-                    yield response
-                elif decision.use_online and self.offline_llm:
-                    if settings.debug_mode:
-                        print("[ROUTER] Streaming online failed, trying offline fallback")
-                    response = await self.offline_llm.generate_response(
-                        query, personality_context, memory_context
-                    )
-                    yield response
-                else:
-                    yield f"I'm having trouble processing your request. Error: {str(e)}"
-            except Exception as fallback_error:
-                if settings.debug_mode:
-                    print(f"❌ Fallback streaming failed: {fallback_error}")
-                yield f"I'm experiencing technical difficulties right now."
+                        print(f"❌ Fallback streaming failed: {fallback_error}")
+                    yield f"I'm experiencing technical difficulties right now."
+            else:
+                # For current info queries, provide specific error message
+                yield ("I'm having trouble accessing current information right now. "
+                       "Please check your internet connection and API key configuration, then try again.")
     
     def set_mode(self, mode: RouteMode):
         """Set routing mode"""
@@ -586,10 +646,13 @@ class LightningRouter:
             'mode': self.mode.value,
             'offline_available': self.offline_available,
             'online_available': self.online_available,
+            'current_info_enabled': self.online_available,  # Current info requires online
+            'force_online_current_info': settings.force_online_current_info,
             'last_decision': {
                 'use_offline': self.last_decision.use_offline,
                 'reason': self.last_decision.reason,
-                'confidence': self.last_decision.confidence
+                'confidence': self.last_decision.confidence,
+                'is_current_info': self.last_decision.is_current_info
             } if self.last_decision else None
         }
         
