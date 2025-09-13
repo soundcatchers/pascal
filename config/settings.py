@@ -1,10 +1,9 @@
 """
-Pascal AI Assistant - FIXED Global Configuration
-Enhanced API key validation and current info handling - Groq + Gemini Only
+Pascal AI Assistant - SIMPLIFIED Settings Configuration
+Streamlined for Pi 5 with Groq-only online and Ollama offline
 """
 
 import os
-import json
 from pathlib import Path
 from typing import Dict, Any, Optional
 from dotenv import load_dotenv
@@ -12,295 +11,156 @@ from dotenv import load_dotenv
 # Load environment variables
 load_dotenv()
 
-class Settings:
-    """Global settings for Pascal - Enhanced for reliable current info handling"""
+class SimplifiedSettings:
+    """Simplified settings focused on performance and reliability"""
     
     def __init__(self):
         self.base_dir = Path(__file__).parent.parent
         self.config_dir = self.base_dir / "config"
         self.data_dir = self.base_dir / "data"
-        self.models_dir = self.data_dir / "models"
-        self.memory_dir = self.data_dir / "memory"
-        self.cache_dir = self.data_dir / "cache"
         
         # Ensure directories exist
         self._create_directories()
         
         # Pascal identity
         self.name = "Pascal"
-        self.version = "2.2.0"  # Updated version - Groq + Gemini only
+        self.version = "3.0.0"  # Simplified version
         
-        # Debug Settings - MOVED BEFORE FIRST USE
+        # Debug settings
         self.debug_mode = os.getenv("DEBUG", "false").lower() == "true"
         self.log_level = os.getenv("LOG_LEVEL", "INFO")
-        self.verbose_logging = self.debug_mode
-        self.performance_logging = os.getenv("PERF_LOG", "false").lower() == "true"
         
-        # FIXED: Enhanced API Key Loading - Groq + Gemini Only
+        # SIMPLIFIED: Groq ONLY for online
         self.groq_api_key = self._load_groq_api_key()
-        self.gemini_api_key = self._load_gemini_api_key()
-        # Note: Removed OpenAI - not needed for this setup
+        self.online_available = bool(self.groq_api_key and self._validate_groq_key(self.groq_api_key))
         
-        # Debug API key loading with enhanced validation
+        # Performance settings (optimized for Pi 5)
+        self.target_response_time = float(os.getenv("TARGET_RESPONSE_TIME", "2.0"))
+        self.streaming_enabled = os.getenv("STREAMING_ENABLED", "true").lower() == "true"
+        self.keep_alive_enabled = os.getenv("KEEP_ALIVE_ENABLED", "true").lower() == "true"
+        
+        # Ollama settings
+        self.ollama_host = os.getenv("OLLAMA_HOST", "http://localhost:11434")
+        self.ollama_timeout = int(os.getenv("OLLAMA_TIMEOUT", "30"))
+        self.ollama_keep_alive = os.getenv("OLLAMA_KEEP_ALIVE", "30m")
+        
+        # Memory settings
+        self.memory_limit = int(os.getenv("MEMORY_LIMIT", "5"))
+        self.context_window = int(os.getenv("CONTEXT_WINDOW", "1024"))
+        
+        # Pi 5 hardware optimization
+        self.max_tokens = int(os.getenv("MAX_TOKENS", "200"))
+        self.temperature = float(os.getenv("TEMPERATURE", "0.7"))
+        
+        # SIMPLIFIED: Single model preferences
+        self.preferred_offline_model = "nemotron-mini:4b-instruct-q4_K_M"
+        self.preferred_online_model = "llama-3.1-8b-instant"
+        
         if self.debug_mode:
-            print(f"[DEBUG] FIXED API Keys Status (Groq + Gemini Only):")
-            print(f"  Groq: {'✅ Loaded' if self.groq_api_key else '❌ Missing'}")
-            print(f"  Gemini: {'✅ Loaded' if self.gemini_api_key else '❌ Missing'}")
-            
-            if self.groq_api_key:
-                if self.groq_api_key.startswith('gsk_'):
-                    print(f"  Groq format: ✅ Correct (gsk_)")
-                elif self.groq_api_key.startswith('gsk-'):
-                    print(f"  Groq format: ⚠️ Deprecated (gsk-) - works but update recommended")
-                else:
-                    print(f"  Groq format: ❌ Invalid - should start with gsk_")
-        
-        # LLM Configuration
-        self.default_personality = "default"
-        self.max_context_length = 2048
-        self.max_response_tokens = 300
-        
-        # Local LLM Settings
-        self.local_model_path = self.models_dir / "local_model.gguf"
-        self.local_model_threads = 4
-        self.local_model_context = 2048
-        self.streaming_enabled = True
-        self.keep_alive_enabled = True
-        
-        # Performance Settings
-        self.performance_mode = os.getenv("PERFORMANCE_MODE", "balanced")
-        self.target_response_time = float(os.getenv("TARGET_RESPONSE_TIME", "3.0"))
-        self.enable_streaming = os.getenv("STREAMING_ENABLED", "true").lower() == "true"
-        self.first_token_target = 1.0
-        
-        # Pi 5 Hardware Detection
-        self.is_raspberry_pi = self._detect_raspberry_pi()
-        self.pi_model = self._get_pi_model()
-        self.available_ram_gb = self._get_available_ram()
-        
-        # ENHANCED Router Settings for current info
-        self.prefer_offline = False
-        self.online_timeout = 45.0
-        self.fallback_to_offline = True
-        self.smart_routing = True
-        self.auto_route_current_info = True
-        self.force_online_current_info = True
-        
-        # Enhanced Current Information Settings
-        self.enhance_current_info_prompts = True
-        self.current_info_system_instructions = True
-        self.current_info_priority = True
-        
-        # Memory Settings
-        self.short_term_memory_limit = 5
-        self.long_term_memory_enabled = True
-        self.memory_save_interval = 300
-        
-        # Model Preferences for Ollama
-        self.preferred_models = [
-            "nemotron-mini:4b-instruct-q4_K_M",
-            "qwen2.5:3b",
-            "phi3:mini",
-            "llama3.2:3b",
-            "gemma2:2b"
-        ]
-        self.max_model_ram_usage = 6.0
-        self.auto_model_selection = True
-        
-        # Voice Settings (future)
-        self.voice_enabled = False
-        self.voice_model = "whisper-tiny"
-        self.tts_model = "coqui-tts"
-    
-    def _load_groq_api_key(self) -> Optional[str]:
-        """FIXED: Load Groq API key with comprehensive validation"""
-        # First try GROQ_API_KEY (preferred new naming)
-        groq_key = os.getenv("GROQ_API_KEY")
-        
-        if groq_key and self._is_valid_api_key(groq_key, "groq"):
-            if self.debug_mode:
-                print(f"[DEBUG] Using GROQ_API_KEY: {groq_key[:15]}...")
-            return groq_key
-        
-        # Fallback to legacy GROK_API_KEY for backward compatibility
-        legacy_key = os.getenv("GROK_API_KEY")
-        if legacy_key and self._is_valid_api_key(legacy_key, "groq"):
-            if self.debug_mode:
-                print(f"[DEBUG] Using legacy GROK_API_KEY (rename to GROQ_API_KEY): {legacy_key[:15]}...")
-            return legacy_key
-        
-        return None
-    
-    def _load_gemini_api_key(self) -> Optional[str]:
-        """Load and validate Gemini API key"""
-        # Try both possible environment variable names
-        key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
-        if key and self._is_valid_api_key(key, "gemini"):
-            return key
-        return None
-    
-    def _is_valid_api_key(self, key: str, provider: str) -> bool:
-        """Enhanced API key validation for Groq + Gemini"""
-        if not key or not isinstance(key, str):
-            return False
-        
-        # Remove any whitespace
-        key = key.strip()
-        
-        # Check for obvious placeholder values
-        placeholder_patterns = [
-            '', 'your_api_key_here', 'your_groq_api_key_here', 
-            'your_gemini_api_key_here', 'your_google_api_key_here', 
-            'gsk_your_actual_groq_api_key_here', 'gsk-your_groq_api_key_here'
-        ]
-        
-        if key.lower() in [p.lower() for p in placeholder_patterns]:
-            return False
-        
-        # Provider-specific validation
-        if provider == "groq":
-            # Accept both gsk_ (new) and gsk- (deprecated but working)
-            if key.startswith('gsk_') or key.startswith('gsk-'):
-                return len(key) > 20  # Reasonable minimum length
-            return False
-        
-        elif provider == "gemini":
-            # Gemini keys don't have a specific prefix but should be reasonably long
-            return len(key) > 20
-        
-        return False
+            print(f"[SETTINGS] Pascal v{self.version} - Simplified Configuration")
+            print(f"[SETTINGS] Online available: {self.online_available}")
+            print(f"[SETTINGS] Debug mode: {self.debug_mode}")
     
     def _create_directories(self):
-        """Create necessary directories if they don't exist"""
+        """Create necessary directories"""
         directories = [
             self.config_dir,
             self.data_dir,
-            self.models_dir,
-            self.memory_dir,
-            self.cache_dir,
+            self.data_dir / "memory",
+            self.data_dir / "cache",
             self.config_dir / "personalities"
         ]
         
         for directory in directories:
             directory.mkdir(parents=True, exist_ok=True)
     
-    def _detect_raspberry_pi(self) -> bool:
-        """Detect if running on Raspberry Pi"""
-        try:
-            with open('/proc/device-tree/model', 'r') as f:
-                model = f.read()
-                return 'Raspberry Pi' in model
-        except FileNotFoundError:
+    def _load_groq_api_key(self) -> Optional[str]:
+        """Load Groq API key with fallback support"""
+        # Try GROQ_API_KEY first (preferred)
+        groq_key = os.getenv("GROQ_API_KEY")
+        if groq_key and self._validate_groq_key(groq_key):
+            return groq_key
+        
+        # Fallback to legacy GROK_API_KEY
+        legacy_key = os.getenv("GROK_API_KEY")
+        if legacy_key and self._validate_groq_key(legacy_key):
+            if self.debug_mode:
+                print("[SETTINGS] Using legacy GROK_API_KEY - consider renaming to GROQ_API_KEY")
+            return legacy_key
+        
+        return None
+    
+    def _validate_groq_key(self, key: str) -> bool:
+        """Validate Groq API key format"""
+        if not key or not isinstance(key, str):
             return False
-    
-    def _get_pi_model(self) -> str:
-        """Get specific Raspberry Pi model"""
-        try:
-            with open('/proc/device-tree/model', 'r') as f:
-                model = f.read().strip()
-                if 'Raspberry Pi 5' in model:
-                    return 'Pi 5'
-                elif 'Raspberry Pi 4' in model:
-                    return 'Pi 4'
-                else:
-                    return 'Unknown Pi'
-        except FileNotFoundError:
-            return 'Not Pi'
-    
-    def _get_available_ram(self) -> float:
-        """Get available RAM in GB"""
-        try:
-            with open('/proc/meminfo', 'r') as f:
-                for line in f:
-                    if line.startswith('MemTotal:'):
-                        kb = int(line.split()[1])
-                        return round(kb / 1024 / 1024, 1)
-        except FileNotFoundError:
-            return 8.0
-        return 8.0
-    
-    def validate_groq_api_key(self, api_key: str) -> bool:
-        """FIXED: Validate Groq API key format with new gsk_ standard"""
-        return self._is_valid_api_key(api_key, "groq")
-    
-    def validate_gemini_api_key(self, api_key: str) -> bool:
-        """Validate Gemini API key format"""
-        return self._is_valid_api_key(api_key, "gemini")
-    
-    def is_online_available(self) -> bool:
-        """FIXED: Check if any online API keys are configured (Groq + Gemini only)"""
-        has_groq = self.validate_groq_api_key(self.groq_api_key)
-        has_gemini = self.validate_gemini_api_key(self.gemini_api_key)
         
-        if self.debug_mode:
-            print(f"[DEBUG] Online availability check (Groq + Gemini):")
-            print(f"  Groq configured: {has_groq}")
-            print(f"  Gemini configured: {has_gemini}")
-            print(f"  Online available: {has_groq or has_gemini}")
+        key = key.strip()
         
-        return has_groq or has_gemini
+        # Check for placeholder values
+        invalid_values = [
+            '', 'your_groq_api_key_here', 'your_grok_api_key_here',
+            'gsk_your_groq_api_key_here', 'gsk-your_groq_api_key_here'
+        ]
+        
+        if key.lower() in [v.lower() for v in invalid_values]:
+            return False
+        
+        # Accept both gsk_ (new) and gsk- (deprecated)
+        if key.startswith('gsk_') or key.startswith('gsk-'):
+            return len(key) > 20
+        
+        return False
     
-    def get_personality_path(self, personality_name: str) -> Path:
-        """Get path to personality configuration file"""
-        return self.config_dir / "personalities" / f"{personality_name}.json"
-    
-    def get_memory_path(self, session_id: str = "default") -> Path:
-        """Get path to memory file for a session"""
-        return self.memory_dir / f"{session_id}_memory.json"
-    
-    def is_debug_mode(self) -> bool:
-        """Check if debug mode is enabled"""
-        return self.debug_mode
-    
-    def get_hardware_info(self) -> Dict[str, Any]:
-        """Get hardware information for optimization"""
+    def get_performance_config(self) -> Dict[str, Any]:
+        """Get performance configuration for Pi 5"""
         return {
-            'is_raspberry_pi': self.is_raspberry_pi,
-            'pi_model': self.pi_model,
-            'available_ram_gb': self.available_ram_gb,
-            'cpu_cores': self.local_model_threads,
-            'performance_mode': self.performance_mode,
-            'streaming_enabled': self.streaming_enabled,
-            'keep_alive_enabled': self.keep_alive_enabled
+            "target_response_time": self.target_response_time,
+            "streaming_enabled": self.streaming_enabled,
+            "max_tokens": self.max_tokens,
+            "temperature": self.temperature,
+            "context_window": self.context_window,
+            "keep_alive": self.ollama_keep_alive
         }
     
-    def get_config_summary(self) -> Dict[str, Any]:
-        """FIXED: Get configuration summary for status display (Groq + Gemini)"""
-        groq_configured = self.validate_groq_api_key(self.groq_api_key)
-        gemini_configured = self.validate_gemini_api_key(self.gemini_api_key)
-        
+    def get_ollama_config(self) -> Dict[str, Any]:
+        """Get Ollama configuration"""
         return {
-            "pascal_version": self.version,
-            "personality": self.default_personality,
-            "online_apis_configured": self.is_online_available(),
-            "groq_configured": groq_configured,
-            "gemini_configured": gemini_configured,
-            "auto_route_current_info": self.auto_route_current_info,
-            "force_online_current_info": self.force_online_current_info,
-            "enhance_current_info_prompts": self.enhance_current_info_prompts,
-            "current_info_priority": self.current_info_priority,
+            "host": self.ollama_host,
+            "timeout": self.ollama_timeout,
+            "keep_alive": self.ollama_keep_alive,
+            "preferred_model": self.preferred_offline_model
+        }
+    
+    def get_groq_config(self) -> Dict[str, Any]:
+        """Get Groq configuration"""
+        return {
+            "api_key": self.groq_api_key,
+            "model": self.preferred_online_model,
+            "max_tokens": self.max_tokens,
+            "temperature": self.temperature,
+            "available": self.online_available
+        }
+    
+    def get_system_status(self) -> Dict[str, Any]:
+        """Get comprehensive system status"""
+        return {
+            "version": self.version,
             "debug_mode": self.debug_mode,
-            "memory_enabled": self.long_term_memory_enabled,
-            "performance_mode": self.performance_mode,
-            "hardware_info": self.get_hardware_info(),
+            "online_available": self.online_available,
+            "groq_configured": bool(self.groq_api_key),
             "streaming_enabled": self.streaming_enabled,
             "target_response_time": self.target_response_time,
-            "preferred_models": self.preferred_models,
-            "online_timeout": self.online_timeout,
-            "supported_providers": ["Groq", "Gemini"]  # Only these two
+            "preferred_models": {
+                "offline": self.preferred_offline_model,
+                "online": self.preferred_online_model
+            }
         }
-    
-    def set_performance_mode(self, mode: str):
-        """Set performance mode"""
-        if mode in ['speed', 'balanced', 'quality']:
-            self.performance_mode = mode
-            if self.debug_mode:
-                print(f"Performance mode set to: {mode}")
 
-# Global settings instance
-settings = Settings()
+# Global instance
+settings = SimplifiedSettings()
 
-# Export commonly used paths
+# Export paths for compatibility
 BASE_DIR = settings.base_dir
 CONFIG_DIR = settings.config_dir
 DATA_DIR = settings.data_dir
