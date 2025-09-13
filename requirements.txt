@@ -1,38 +1,30 @@
-# Pascal AI Assistant Dependencies - FIXED for Groq + Gemini Only
-# Optimized for Raspberry Pi 5 with Ollama
+# Pascal AI Assistant - Simplified Requirements (v3.0)
+# Optimized for Raspberry Pi 5 with Groq + Ollama only
 
-# CRITICAL: HTTP client for Ollama API and Online APIs 
+# CRITICAL: HTTP client for APIs
 aiohttp==3.9.1
 requests==2.31.0
 
-# Online LLM APIs - Groq + Gemini Only (No OpenAI needed)
-# Note: No openai package needed since we only use Groq + Gemini
-
 # Configuration and utilities
-pydantic==2.5.0
 python-dotenv==1.0.0
 pyyaml==6.0.1
+
+# Console interface and formatting
+rich==13.7.0
+colorama==0.4.6
+
+# System monitoring
+psutil==5.9.6
 
 # Memory and data handling
 json5==0.9.14
 
-# Logging and monitoring - Enhanced for current info debugging
-colorama==0.4.6
-rich==13.7.0
-
-# System monitoring for performance optimization
-psutil==5.9.6
-
-# Mathematical operations (ARM optimized)
-numpy==1.26.0
-
-# Threading and async support
-asyncio-throttle==1.0.2
-
-# Development and testing
+# Development and testing (optional)
 pytest==7.4.3
 pytest-asyncio==0.21.1
 
-# Note: No llama-cpp-python needed - Ollama handles this better
-# Note: No anthropic package needed - we only use Groq + Gemini
-# Note: No openai package needed - simplified to 2 providers only
+# Note: Simplified dependency list for maximum performance
+# - Removed unnecessary packages (openai, anthropic, gemini)
+# - Removed llama-cpp-python (Ollama handles this)
+# - Minimal footprint for Pi 5 optimization
+# - Only essential packages for core functionality
