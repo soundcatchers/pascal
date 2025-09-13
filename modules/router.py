@@ -1,7 +1,7 @@
 """
-Pascal AI Assistant - ENHANCED Lightning Router with Bulletproof Current Info Detection
+Pascal AI Assistant - FIXED Lightning Router with Bulletproof Current Info Detection
 Intelligently routes requests between offline and online LLMs with mandatory online for current info
-FIXED: Bulletproof current information detection and routing
+FIXED: Enhanced pattern matching for all current info query variations
 """
 
 import asyncio
@@ -9,6 +9,7 @@ import time
 import re
 from typing import Optional, Dict, Any, AsyncGenerator
 from enum import Enum
+from datetime import datetime
 
 from config.settings import settings
 
@@ -35,7 +36,7 @@ class RouteDecision:
         return not self.use_offline
 
 class LightningRouter:
-    """ENHANCED: Lightning-fast router with bulletproof current info detection"""
+    """FIXED: Lightning-fast router with bulletproof current info detection"""
     
     def __init__(self, personality_manager, memory_manager):
         self.personality_manager = personality_manager
@@ -55,16 +56,24 @@ class LightningRouter:
         self.response_times = {'offline': [], 'online': []}
         self.first_token_times = {'offline': [], 'online': []}
         
-        # BULLETPROOF: Current information detection patterns
+        # FIXED: Enhanced current information detection patterns
         # These patterns MUST route to online - no exceptions
         self.mandatory_current_info_patterns = [
-            # Date/time queries (HIGHEST PRIORITY)
+            # Date/time queries (HIGHEST PRIORITY) - FIXED with variations
             'what day is today',
             'what day is it',
             'what date is today', 
             'what date is it',
             'what\'s the date',
             'what\'s today\'s date',
+            'what is todays date',        # FIXED: Added this critical pattern
+            'what is today\'s date',      # FIXED: Added apostrophe version
+            'what is the date today',     # FIXED: Added word order variation
+            'tell me todays date',        # FIXED: Added "tell me" version
+            'tell me today\'s date',      # FIXED: Added apostrophe version
+            'tell me the date',           # FIXED: Added short version
+            'give me todays date',        # FIXED: Added "give me" version
+            'todays date',
             'today\'s date',
             'current date',
             'current day',
@@ -76,10 +85,11 @@ class LightningRouter:
             'what month is it',
             'current month',
             
-            # Current events and status
+            # Current events and status - FIXED with variations
             'current president',
             'current prime minister',
             'who is the current',
+            'who is current',             # FIXED: Added shorter version
             'what\'s the current',
             'latest news',
             'recent news',
@@ -96,19 +106,21 @@ class LightningRouter:
             'current temperature',
         ]
         
-        # Additional regex patterns for current info
+        # FIXED: Enhanced regex patterns for current info (more flexible)
         self.current_info_regex_patterns = [
-            # Flexible date/time patterns
-            r'\b(?:what\s+)?(?:day|date|time)\s+(?:is\s+)?(?:it|today|now)\s*\??\s*$',
+            # Flexible date/time patterns - FIXED for better matching
+            r'\bwhat\s+(?:day|date|time)\s+(?:is\s+)?(?:it|today|now)\s*\??\s*$',
+            r'\bwhat\s+is\s+(?:todays?|today\'?s|the)\s+(?:day|date|time)\s*\??\s*$',  # FIXED: Key pattern
             r'\bwhat\'?s\s+(?:the\s+)?(?:date|day|time)(?:\s+today)?\s*\??\s*$',
+            r'\b(?:tell|give)\s+me\s+(?:todays?|today\'?s|the)\s+(?:date|day|time)\s*\??\s*$',  # FIXED: Added
             r'\btoday\'?s\s+(?:date|day)\s*\??\s*$',
             r'\bcurrent\s+(?:date|day|time|year|month)\s*\??\s*$',
             
-            # Current status patterns
+            # Current status patterns - FIXED
             r'\bwho\s+is\s+(?:the\s+)?current\s+\w+\s*\??\s*$',
             r'\bcurrent\s+(?:president|pm|prime\s+minister|leader)\s*\??\s*$',
             
-            # News and events
+            # News and events - FIXED
             r'\b(?:latest|recent|breaking|today\'?s)\s+news\s*\??\s*$',
             r'\bwhat\'?s\s+happening\s+(?:today|now)\s*\??\s*$',
             r'\bin\s+the\s+news\s+today\s*\??\s*$',
@@ -139,7 +151,7 @@ class LightningRouter:
         """Check which LLM options are available"""
         try:
             if settings.debug_mode:
-                print("[ROUTER] ⚡ Enhanced Lightning Router checking LLM availability...")
+                print("[ROUTER] ⚡ FIXED Lightning Router checking LLM availability...")
             
             # Initialize offline LLM first (for fallback)
             try:
@@ -253,40 +265,45 @@ class LightningRouter:
                 traceback.print_exc()
     
     def _needs_current_information(self, query: str) -> bool:
-        """BULLETPROOF: Enhanced detection of queries requiring current/recent information"""
+        """FIXED: Enhanced detection of queries requiring current/recent information"""
         query_lower = query.lower().strip()
         
         # Remove punctuation for cleaner matching
         query_clean = re.sub(r'[^\w\s]', '', query_lower)
         
-        # PRIORITY 1: Exact phrase matching (most reliable)
+        # PRIORITY 1: Exact phrase matching (most reliable) - FIXED with more patterns
         for pattern in self.mandatory_current_info_patterns:
             if pattern in query_lower:
                 if settings.debug_mode:
-                    print(f"[ROUTER] 🎯 CURRENT INFO DETECTED - exact pattern: '{pattern}'")
+                    print(f"[ROUTER] 🎯 CURRENT INFO DETECTED - exact pattern: '{pattern}' in '{query}'")
                 return True
         
-        # PRIORITY 2: Flexible regex patterns
+        # PRIORITY 2: Flexible regex patterns - FIXED for better coverage
         for pattern in self.current_info_regex:
             if pattern.search(query_lower):
                 if settings.debug_mode:
-                    print(f"[ROUTER] 🎯 CURRENT INFO DETECTED - regex pattern: {pattern.pattern}")
+                    print(f"[ROUTER] 🎯 CURRENT INFO DETECTED - regex match: {pattern.pattern}")
                 return True
         
-        # PRIORITY 3: Word-based detection for edge cases
+        # PRIORITY 3: Word-based detection for edge cases - FIXED
         current_info_words = [
-            ('today', ['what', 'is', 'day']),          # "what day today"
-            ('current', ['president', 'pm', 'minister', 'leader', 'date', 'time']),
-            ('news', ['today', 'latest', 'recent', 'breaking']),
-            ('weather', ['today', 'current', 'now']),
+            (['what', 'is'], ['today', 'date', 'day', 'time']),           # FIXED: "what is" + date words
+            (['tell', 'me'], ['today', 'date', 'day', 'time']),          # FIXED: "tell me" variations  
+            (['give', 'me'], ['today', 'date', 'day', 'time']),          # FIXED: "give me" variations
+            (['current'], ['president', 'pm', 'minister', 'leader', 'date', 'time']),
+            (['news'], ['today', 'latest', 'recent', 'breaking']),
+            (['weather'], ['today', 'current', 'now']),
+            (['who', 'is'], ['current']),                                # FIXED: "who is current"
         ]
         
         query_words = query_clean.split()
-        for primary_word, context_words in current_info_words:
-            if primary_word in query_words:
-                if any(context_word in query_words for context_word in context_words):
+        for primary_words, context_words in current_info_words:
+            # Check if all primary words are present
+            if all(word in query_words for word in primary_words):
+                # Check if any context words are present
+                if any(word in query_words for word in context_words):
                     if settings.debug_mode:
-                        print(f"[ROUTER] 🎯 CURRENT INFO DETECTED - word combination: '{primary_word}' + context")
+                        print(f"[ROUTER] 🎯 CURRENT INFO DETECTED - word combination: {primary_words} + {context_words}")
                     return True
         
         return False
@@ -337,7 +354,7 @@ class LightningRouter:
         return False
     
     def _decide_route(self, query: str) -> RouteDecision:
-        """BULLETPROOF: Decide whether to use offline or online LLM with mandatory current info routing"""
+        """FIXED: Decide whether to use offline or online LLM with mandatory current info routing"""
         
         # CRITICAL CHECK: Current information queries ALWAYS go online (highest priority)
         is_current_info = self._needs_current_information(query)
