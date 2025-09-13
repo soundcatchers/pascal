@@ -1,6 +1,6 @@
 """
-Pascal AI Assistant - Global Configuration
-FIXED: Enhanced API key validation and current info handling
+Pascal AI Assistant - FIXED Global Configuration
+Enhanced API key validation and current info handling - Groq + Gemini Only
 """
 
 import os
@@ -28,7 +28,7 @@ class Settings:
         
         # Pascal identity
         self.name = "Pascal"
-        self.version = "2.1.1"  # Updated version with enhanced fixes
+        self.version = "2.2.0"  # Updated version - Groq + Gemini only
         
         # Debug Settings - MOVED BEFORE FIRST USE
         self.debug_mode = os.getenv("DEBUG", "false").lower() == "true"
@@ -36,30 +36,29 @@ class Settings:
         self.verbose_logging = self.debug_mode
         self.performance_logging = os.getenv("PERF_LOG", "false").lower() == "true"
         
-        # FIXED: Enhanced API Key Loading with proper gsk_ support
+        # FIXED: Enhanced API Key Loading - Groq + Gemini Only
         self.groq_api_key = self._load_groq_api_key()
-        self.openai_api_key = self._load_openai_api_key()
         self.gemini_api_key = self._load_gemini_api_key()
+        # Note: Removed OpenAI - not needed for this setup
         
         # Debug API key loading with enhanced validation
         if self.debug_mode:
-            print(f"[DEBUG] Enhanced API Keys Status:")
+            print(f"[DEBUG] FIXED API Keys Status (Groq + Gemini Only):")
             print(f"  Groq: {'✅ Loaded' if self.groq_api_key else '❌ Missing'}")
-            print(f"  OpenAI: {'✅ Loaded' if self.openai_api_key else '❌ Missing'}")
             print(f"  Gemini: {'✅ Loaded' if self.gemini_api_key else '❌ Missing'}")
             
             if self.groq_api_key:
                 if self.groq_api_key.startswith('gsk_'):
                     print(f"  Groq format: ✅ Correct (gsk_)")
                 elif self.groq_api_key.startswith('gsk-'):
-                    print(f"  Groq format: ⚠️ Deprecated (gsk-) - still works but update recommended")
+                    print(f"  Groq format: ⚠️ Deprecated (gsk-) - works but update recommended")
                 else:
                     print(f"  Groq format: ❌ Invalid - should start with gsk_")
         
         # LLM Configuration
         self.default_personality = "default"
         self.max_context_length = 2048
-        self.max_response_tokens = 300  # Increased for better responses
+        self.max_response_tokens = 300
         
         # Local LLM Settings
         self.local_model_path = self.models_dir / "local_model.gguf"
@@ -81,23 +80,23 @@ class Settings:
         
         # ENHANCED Router Settings for current info
         self.prefer_offline = False
-        self.online_timeout = 45.0  # Increased timeout for better reliability
+        self.online_timeout = 45.0
         self.fallback_to_offline = True
         self.smart_routing = True
-        self.auto_route_current_info = True  # CRITICAL: Always route current info online
-        self.force_online_current_info = True  # NEW: Force online for current info
+        self.auto_route_current_info = True
+        self.force_online_current_info = True
         
         # Enhanced Current Information Settings
         self.enhance_current_info_prompts = True
         self.current_info_system_instructions = True
-        self.current_info_priority = True  # NEW: Prioritize current info routing
+        self.current_info_priority = True
         
         # Memory Settings
         self.short_term_memory_limit = 5
         self.long_term_memory_enabled = True
         self.memory_save_interval = 300
         
-        # Model Preferences
+        # Model Preferences for Ollama
         self.preferred_models = [
             "nemotron-mini:4b-instruct-q4_K_M",
             "qwen2.5:3b",
@@ -114,7 +113,7 @@ class Settings:
         self.tts_model = "coqui-tts"
     
     def _load_groq_api_key(self) -> Optional[str]:
-        """ENHANCED: Load Groq API key with comprehensive validation"""
+        """FIXED: Load Groq API key with comprehensive validation"""
         # First try GROQ_API_KEY (preferred new naming)
         groq_key = os.getenv("GROQ_API_KEY")
         
@@ -132,13 +131,6 @@ class Settings:
         
         return None
     
-    def _load_openai_api_key(self) -> Optional[str]:
-        """Load and validate OpenAI API key"""
-        key = os.getenv("OPENAI_API_KEY")
-        if key and self._is_valid_api_key(key, "openai"):
-            return key
-        return None
-    
     def _load_gemini_api_key(self) -> Optional[str]:
         """Load and validate Gemini API key"""
         # Try both possible environment variable names
@@ -148,7 +140,7 @@ class Settings:
         return None
     
     def _is_valid_api_key(self, key: str, provider: str) -> bool:
-        """Enhanced API key validation"""
+        """Enhanced API key validation for Groq + Gemini"""
         if not key or not isinstance(key, str):
             return False
         
@@ -157,9 +149,9 @@ class Settings:
         
         # Check for obvious placeholder values
         placeholder_patterns = [
-            '', 'your_api_key_here', 'your_groq_api_key_here', 'your_openai_api_key_here', 
-            'your_gemini_api_key_here', 'your_google_api_key_here', 'gsk_your_groq_api_key_here',
-            'sk_your_openai_api_key_here', 'gsk-your_groq_api_key_here'
+            '', 'your_api_key_here', 'your_groq_api_key_here', 
+            'your_gemini_api_key_here', 'your_google_api_key_here', 
+            'gsk_your_actual_groq_api_key_here', 'gsk-your_groq_api_key_here'
         ]
         
         if key.lower() in [p.lower() for p in placeholder_patterns]:
@@ -170,11 +162,6 @@ class Settings:
             # Accept both gsk_ (new) and gsk- (deprecated but working)
             if key.startswith('gsk_') or key.startswith('gsk-'):
                 return len(key) > 20  # Reasonable minimum length
-            return False
-        
-        elif provider == "openai":
-            if key.startswith('sk-'):
-                return len(key) > 20
             return False
         
         elif provider == "gemini":
@@ -233,31 +220,25 @@ class Settings:
         return 8.0
     
     def validate_groq_api_key(self, api_key: str) -> bool:
-        """ENHANCED: Validate Groq API key format with new gsk_ standard"""
+        """FIXED: Validate Groq API key format with new gsk_ standard"""
         return self._is_valid_api_key(api_key, "groq")
-    
-    def validate_openai_api_key(self, api_key: str) -> bool:
-        """Validate OpenAI API key format"""
-        return self._is_valid_api_key(api_key, "openai")
     
     def validate_gemini_api_key(self, api_key: str) -> bool:
         """Validate Gemini API key format"""
         return self._is_valid_api_key(api_key, "gemini")
     
     def is_online_available(self) -> bool:
-        """ENHANCED: Check if any online API keys are configured"""
+        """FIXED: Check if any online API keys are configured (Groq + Gemini only)"""
         has_groq = self.validate_groq_api_key(self.groq_api_key)
-        has_openai = self.validate_openai_api_key(self.openai_api_key)
         has_gemini = self.validate_gemini_api_key(self.gemini_api_key)
         
         if self.debug_mode:
-            print(f"[DEBUG] Enhanced online availability check:")
+            print(f"[DEBUG] Online availability check (Groq + Gemini):")
             print(f"  Groq configured: {has_groq}")
-            print(f"  OpenAI configured: {has_openai}")
             print(f"  Gemini configured: {has_gemini}")
-            print(f"  Online available: {has_groq or has_openai or has_gemini}")
+            print(f"  Online available: {has_groq or has_gemini}")
         
-        return has_groq or has_openai or has_gemini
+        return has_groq or has_gemini
     
     def get_personality_path(self, personality_name: str) -> Path:
         """Get path to personality configuration file"""
@@ -284,10 +265,9 @@ class Settings:
         }
     
     def get_config_summary(self) -> Dict[str, Any]:
-        """ENHANCED: Get configuration summary for status display"""
+        """FIXED: Get configuration summary for status display (Groq + Gemini)"""
         groq_configured = self.validate_groq_api_key(self.groq_api_key)
         gemini_configured = self.validate_gemini_api_key(self.gemini_api_key)
-        openai_configured = self.validate_openai_api_key(self.openai_api_key)
         
         return {
             "pascal_version": self.version,
@@ -295,7 +275,6 @@ class Settings:
             "online_apis_configured": self.is_online_available(),
             "groq_configured": groq_configured,
             "gemini_configured": gemini_configured,
-            "openai_configured": openai_configured,
             "auto_route_current_info": self.auto_route_current_info,
             "force_online_current_info": self.force_online_current_info,
             "enhance_current_info_prompts": self.enhance_current_info_prompts,
@@ -307,7 +286,8 @@ class Settings:
             "streaming_enabled": self.streaming_enabled,
             "target_response_time": self.target_response_time,
             "preferred_models": self.preferred_models,
-            "online_timeout": self.online_timeout
+            "online_timeout": self.online_timeout,
+            "supported_providers": ["Groq", "Gemini"]  # Only these two
         }
     
     def set_performance_mode(self, mode: str):
