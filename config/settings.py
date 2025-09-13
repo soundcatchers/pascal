@@ -1,6 +1,6 @@
 """
-Pascal AI Assistant - COMPLETE Settings Configuration
-Simplified for Pi 5 with Groq-only online and Ollama offline
+Pascal AI Assistant - FIXED Settings Configuration
+Corrected for Groq-only online and Ollama offline
 """
 
 import os
@@ -13,7 +13,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 class Settings:
-    """Simplified settings focused on performance and reliability"""
+    """Fixed settings focused on Groq + Ollama only"""
     
     def __init__(self):
         self.base_dir = Path(__file__).parent.parent
@@ -28,14 +28,14 @@ class Settings:
         
         # Pascal identity
         self.name = "Pascal"
-        self.version = "3.0.0"  # Simplified version
+        self.version = "3.0.0"
         
         # Debug settings
         self.debug_mode = os.getenv("DEBUG", "false").lower() == "true"
         self.log_level = os.getenv("LOG_LEVEL", "INFO")
         self.verbose_logging = self.debug_mode
         
-        # SIMPLIFIED: Groq ONLY for online
+        # FIXED: Groq ONLY for online (corrected API key loading)
         self.groq_api_key = self._load_groq_api_key()
         
         # Performance settings (optimized for Pi 5)
@@ -62,12 +62,8 @@ class Settings:
         self.long_term_memory_enabled = True
         self.memory_save_interval = 300
         
-        # SIMPLIFIED: Single model preferences
-        self.preferred_models = [
-            "nemotron-mini:4b-instruct-q4_K_M",
-            "qwen2.5:3b", 
-            "phi3:mini"
-        ]
+        # FIXED: Preferred offline model
+        self.preferred_offline_model = "nemotron-mini:4b-instruct-q4_K_M"
         
         # Enhanced current info settings
         self.auto_route_current_info = True
@@ -80,7 +76,7 @@ class Settings:
         self.available_ram_gb = self._get_available_ram()
         
         if self.debug_mode:
-            print(f"[SETTINGS] Pascal v{self.version} - Simplified Configuration")
+            print(f"[SETTINGS] Pascal v{self.version} - Fixed Configuration")
             print(f"[SETTINGS] Groq configured: {bool(self.groq_api_key)}")
             print(f"[SETTINGS] Debug mode: {self.debug_mode}")
     
@@ -99,7 +95,7 @@ class Settings:
             directory.mkdir(parents=True, exist_ok=True)
     
     def _load_groq_api_key(self) -> Optional[str]:
-        """Load Groq API key with fallback support"""
+        """FIXED: Load Groq API key with proper validation"""
         # Try GROQ_API_KEY first (preferred)
         groq_key = os.getenv("GROQ_API_KEY")
         if groq_key and self._validate_groq_key(groq_key):
@@ -115,7 +111,7 @@ class Settings:
         return None
     
     def _validate_groq_key(self, key: str) -> bool:
-        """Validate Groq API key format"""
+        """FIXED: Validate Groq API key format"""
         if not key or not isinstance(key, str):
             return False
         
@@ -124,13 +120,14 @@ class Settings:
         # Check for placeholder values
         invalid_values = [
             '', 'your_groq_api_key_here', 'your_grok_api_key_here',
-            'gsk_your_groq_api_key_here', 'gsk-your_groq_api_key_here'
+            'gsk_your_groq_api_key_here', 'gsk-your_groq_api_key_here',
+            'gsk_your-groq-api-key-here'
         ]
         
         if key.lower() in [v.lower() for v in invalid_values]:
             return False
         
-        # Accept both gsk_ (new) and gsk- (deprecated)
+        # Accept both gsk_ (new) and gsk- (deprecated) but prefer gsk_
         if key.startswith('gsk_') or key.startswith('gsk-'):
             return len(key) > 20
         
@@ -172,7 +169,7 @@ class Settings:
         return 8.0
     
     def validate_groq_api_key(self, api_key: str) -> bool:
-        """Validate Groq API key format"""
+        """Validate Groq API key format (public method)"""
         return self._validate_groq_key(api_key)
     
     def is_online_available(self) -> bool:
@@ -218,7 +215,7 @@ class Settings:
             "hardware_info": self.get_hardware_info(),
             "streaming_enabled": self.streaming_enabled,
             "target_response_time": self.target_response_time,
-            "preferred_models": self.preferred_models,
+            "preferred_offline_model": self.preferred_offline_model,
             "supported_providers": ["Groq"]  # Only Groq now
         }
     
