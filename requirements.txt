@@ -1,16 +1,12 @@
-# Pascal AI Assistant Dependencies - Optimized for Raspberry Pi 5 with Ollama
+# Pascal AI Assistant Dependencies - FIXED for Groq + Gemini Only
+# Optimized for Raspberry Pi 5 with Ollama
 
-# Core framework
-fastapi==0.104.1
-uvicorn==0.24.0
-
-# HTTP client for Ollama API and Online APIs - CRITICAL FOR ONLINE FUNCTIONALITY
+# CRITICAL: HTTP client for Ollama API and Online APIs 
 aiohttp==3.9.1
 requests==2.31.0
 
-# Online LLM APIs
-openai==1.3.7
-anthropic==0.7.7
+# Online LLM APIs - Groq + Gemini Only (No OpenAI needed)
+# Note: No openai package needed since we only use Groq + Gemini
 
 # Configuration and utilities
 pydantic==2.5.0
@@ -20,7 +16,7 @@ pyyaml==6.0.1
 # Memory and data handling
 json5==0.9.14
 
-# Logging and monitoring
+# Logging and monitoring - Enhanced for current info debugging
 colorama==0.4.6
 rich==13.7.0
 
@@ -28,21 +24,15 @@ rich==13.7.0
 psutil==5.9.6
 
 # Mathematical operations (ARM optimized)
-numpy==1.26.0    # Was 1.24.3
+numpy==1.26.0
 
 # Threading and async support
 asyncio-throttle==1.0.2
-
-# Audio support (for future voice phases)
-# Uncomment when implementing voice features:
-# pyaudio==0.2.11
-# speechrecognition==3.10.0
-# faster-whisper==0.10.0
 
 # Development and testing
 pytest==7.4.3
 pytest-asyncio==0.21.1
 
-# Note: cProfile is a built-in Python module and doesn't need to be installed
-# Note: Ollama is installed separately via the download_models.sh script
-# This provides better ARM optimization and model management than llama-cpp-python
+# Note: No llama-cpp-python needed - Ollama handles this better
+# Note: No anthropic package needed - we only use Groq + Gemini
+# Note: No openai package needed - simplified to 2 providers only
