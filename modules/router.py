@@ -1,6 +1,7 @@
 """
-Pascal AI Assistant - COMPLETE Router (Simplified)
+Pascal AI Assistant - FIXED Router
 Binary routing logic: Current info = Online (Groq), Everything else = Offline (Ollama)
+FIXED: Correct import and class names
 """
 
 import asyncio
@@ -28,7 +29,7 @@ class RouteDecision:
         self.timestamp = time.time()
 
 class LightningRouter:
-    """Simplified router with binary decision logic"""
+    """FIXED: Simplified router with correct imports"""
     
     def __init__(self, personality_manager, memory_manager):
         self.personality_manager = personality_manager
@@ -54,7 +55,7 @@ class LightningRouter:
             'current_info_requests': 0
         }
         
-        # SIMPLIFIED: Current info patterns (comprehensive but focused)
+        # Current info patterns (comprehensive but focused)
         self.current_info_patterns = [
             # Date/time queries
             'what day is today', 'what date is today', 'what time is it',
@@ -82,13 +83,14 @@ class LightningRouter:
         ]
     
     async def _check_llm_availability(self):
-        """Check LLM availability"""
+        """FIXED: Check LLM availability with correct imports"""
         try:
             if settings.debug_mode:
-                print("[ROUTER] ⚡ Simplified Router checking LLM availability...")
+                print("[ROUTER] Checking LLM availability...")
             
             # Initialize offline LLM first (for fallback)
             try:
+                # FIXED: Import the correct class
                 from modules.offline_llm import LightningOfflineLLM
                 self.offline_llm = LightningOfflineLLM()
                 self.offline_available = await self.offline_llm.initialize()
@@ -115,7 +117,7 @@ class LightningRouter:
                     self.online_available = await self.online_llm.initialize()
                     
                     if self.online_available:
-                        print("✅ Online LLM ready (Groq ⚡ - CURRENT INFO ENABLED)")
+                        print("✅ Online LLM ready (Groq - CURRENT INFO ENABLED)")
                     else:
                         print("❌ Online LLM not available")
                         print("⚠️ CURRENT INFO QUERIES WILL NOT WORK PROPERLY")
@@ -129,7 +131,7 @@ class LightningRouter:
                     print("⚠️ CURRENT INFO QUERIES WILL NOT WORK PROPERLY")
             else:
                 if settings.debug_mode:
-                    print("[ROUTER] ❌ No Groq API key configured - CURRENT INFO DISABLED")
+                    print("[ROUTER] No Groq API key configured - CURRENT INFO DISABLED")
                     print("   For current info queries, add API key to .env:")
                     print("   GROQ_API_KEY=gsk_your-actual-key")
                 self.online_available = False
@@ -145,7 +147,7 @@ class LightningRouter:
             elif self.offline_available and self.online_available:
                 # Both available - prefer online for current info, offline for general
                 self.mode = RouteMode.AUTO
-                print("✅ Both offline and online LLMs available (Online: Groq ⚡)")
+                print("✅ Both offline and online LLMs available")
                 print("🎯 Current info queries will automatically use online")
             else:
                 print("❌ ERROR: No LLMs available!")
@@ -474,7 +476,7 @@ class LightningRouter:
             self.mode = RouteMode.AUTO
         
         # Also pass to LLM modules if available
-        if self.offline_llm:
+        if self.offline_llm and hasattr(self.offline_llm, 'set_performance_profile'):
             self.offline_llm.set_performance_profile(preference)
     
     def get_router_stats(self) -> dict:
