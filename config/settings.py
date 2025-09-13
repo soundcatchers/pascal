@@ -1,9 +1,10 @@
 """
-Pascal AI Assistant - SIMPLIFIED Settings Configuration
-Streamlined for Pi 5 with Groq-only online and Ollama offline
+Pascal AI Assistant - COMPLETE Settings Configuration
+Simplified for Pi 5 with Groq-only online and Ollama offline
 """
 
 import os
+import json
 from pathlib import Path
 from typing import Dict, Any, Optional
 from dotenv import load_dotenv
@@ -11,13 +12,16 @@ from dotenv import load_dotenv
 # Load environment variables
 load_dotenv()
 
-class SimplifiedSettings:
+class Settings:
     """Simplified settings focused on performance and reliability"""
     
     def __init__(self):
         self.base_dir = Path(__file__).parent.parent
         self.config_dir = self.base_dir / "config"
         self.data_dir = self.base_dir / "data"
+        self.models_dir = self.data_dir / "models"
+        self.memory_dir = self.data_dir / "memory"
+        self.cache_dir = self.data_dir / "cache"
         
         # Ensure directories exist
         self._create_directories()
@@ -29,36 +33,55 @@ class SimplifiedSettings:
         # Debug settings
         self.debug_mode = os.getenv("DEBUG", "false").lower() == "true"
         self.log_level = os.getenv("LOG_LEVEL", "INFO")
+        self.verbose_logging = self.debug_mode
         
         # SIMPLIFIED: Groq ONLY for online
         self.groq_api_key = self._load_groq_api_key()
-        self.online_available = bool(self.groq_api_key and self._validate_groq_key(self.groq_api_key))
         
         # Performance settings (optimized for Pi 5)
+        self.performance_mode = os.getenv("PERFORMANCE_MODE", "balanced")
         self.target_response_time = float(os.getenv("TARGET_RESPONSE_TIME", "2.0"))
         self.streaming_enabled = os.getenv("STREAMING_ENABLED", "true").lower() == "true"
         self.keep_alive_enabled = os.getenv("KEEP_ALIVE_ENABLED", "true").lower() == "true"
+        self.max_response_tokens = int(os.getenv("MAX_RESPONSE_TOKENS", "200"))
+        
+        # LLM Configuration
+        self.default_personality = "default"
+        self.max_context_length = int(os.getenv("CONTEXT_WINDOW", "1024"))
         
         # Ollama settings
         self.ollama_host = os.getenv("OLLAMA_HOST", "http://localhost:11434")
         self.ollama_timeout = int(os.getenv("OLLAMA_TIMEOUT", "30"))
         self.ollama_keep_alive = os.getenv("OLLAMA_KEEP_ALIVE", "30m")
         
-        # Memory settings
-        self.memory_limit = int(os.getenv("MEMORY_LIMIT", "5"))
-        self.context_window = int(os.getenv("CONTEXT_WINDOW", "1024"))
-        
         # Pi 5 hardware optimization
-        self.max_tokens = int(os.getenv("MAX_TOKENS", "200"))
         self.temperature = float(os.getenv("TEMPERATURE", "0.7"))
         
+        # Memory settings
+        self.short_term_memory_limit = int(os.getenv("MEMORY_LIMIT", "5"))
+        self.long_term_memory_enabled = True
+        self.memory_save_interval = 300
+        
         # SIMPLIFIED: Single model preferences
-        self.preferred_offline_model = "nemotron-mini:4b-instruct-q4_K_M"
-        self.preferred_online_model = "llama-3.1-8b-instant"
+        self.preferred_models = [
+            "nemotron-mini:4b-instruct-q4_K_M",
+            "qwen2.5:3b", 
+            "phi3:mini"
+        ]
+        
+        # Enhanced current info settings
+        self.auto_route_current_info = True
+        self.force_online_current_info = True
+        self.enhance_current_info_prompts = True
+        
+        # Pi 5 Hardware Detection
+        self.is_raspberry_pi = self._detect_raspberry_pi()
+        self.pi_model = self._get_pi_model()
+        self.available_ram_gb = self._get_available_ram()
         
         if self.debug_mode:
             print(f"[SETTINGS] Pascal v{self.version} - Simplified Configuration")
-            print(f"[SETTINGS] Online available: {self.online_available}")
+            print(f"[SETTINGS] Groq configured: {bool(self.groq_api_key)}")
             print(f"[SETTINGS] Debug mode: {self.debug_mode}")
     
     def _create_directories(self):
@@ -66,8 +89,9 @@ class SimplifiedSettings:
         directories = [
             self.config_dir,
             self.data_dir,
-            self.data_dir / "memory",
-            self.data_dir / "cache",
+            self.models_dir,
+            self.memory_dir,
+            self.cache_dir,
             self.config_dir / "personalities"
         ]
         
@@ -112,55 +136,103 @@ class SimplifiedSettings:
         
         return False
     
-    def get_performance_config(self) -> Dict[str, Any]:
-        """Get performance configuration for Pi 5"""
+    def _detect_raspberry_pi(self) -> bool:
+        """Detect if running on Raspberry Pi"""
+        try:
+            with open('/proc/device-tree/model', 'r') as f:
+                model = f.read()
+                return 'Raspberry Pi' in model
+        except FileNotFoundError:
+            return False
+    
+    def _get_pi_model(self) -> str:
+        """Get specific Raspberry Pi model"""
+        try:
+            with open('/proc/device-tree/model', 'r') as f:
+                model = f.read().strip()
+                if 'Raspberry Pi 5' in model:
+                    return 'Pi 5'
+                elif 'Raspberry Pi 4' in model:
+                    return 'Pi 4'
+                else:
+                    return 'Unknown Pi'
+        except FileNotFoundError:
+            return 'Not Pi'
+    
+    def _get_available_ram(self) -> float:
+        """Get available RAM in GB"""
+        try:
+            with open('/proc/meminfo', 'r') as f:
+                for line in f:
+                    if line.startswith('MemTotal:'):
+                        kb = int(line.split()[1])
+                        return round(kb / 1024 / 1024, 1)
+        except FileNotFoundError:
+            return 8.0
+        return 8.0
+    
+    def validate_groq_api_key(self, api_key: str) -> bool:
+        """Validate Groq API key format"""
+        return self._validate_groq_key(api_key)
+    
+    def is_online_available(self) -> bool:
+        """Check if Groq API key is configured"""
+        return bool(self.groq_api_key and self.validate_groq_api_key(self.groq_api_key))
+    
+    def get_personality_path(self, personality_name: str) -> Path:
+        """Get path to personality configuration file"""
+        return self.config_dir / "personalities" / f"{personality_name}.json"
+    
+    def get_memory_path(self, session_id: str = "default") -> Path:
+        """Get path to memory file for a session"""
+        return self.memory_dir / f"{session_id}_memory.json"
+    
+    def is_debug_mode(self) -> bool:
+        """Check if debug mode is enabled"""
+        return self.debug_mode
+    
+    def get_hardware_info(self) -> Dict[str, Any]:
+        """Get hardware information for optimization"""
         return {
-            "target_response_time": self.target_response_time,
-            "streaming_enabled": self.streaming_enabled,
-            "max_tokens": self.max_tokens,
-            "temperature": self.temperature,
-            "context_window": self.context_window,
-            "keep_alive": self.ollama_keep_alive
+            'is_raspberry_pi': self.is_raspberry_pi,
+            'pi_model': self.pi_model,
+            'available_ram_gb': self.available_ram_gb,
+            'cpu_cores': os.cpu_count() or 4,
+            'performance_mode': self.performance_mode,
+            'streaming_enabled': self.streaming_enabled,
+            'keep_alive_enabled': self.keep_alive_enabled
         }
     
-    def get_ollama_config(self) -> Dict[str, Any]:
-        """Get Ollama configuration"""
+    def get_config_summary(self) -> Dict[str, Any]:
+        """Get configuration summary for status display"""
         return {
-            "host": self.ollama_host,
-            "timeout": self.ollama_timeout,
-            "keep_alive": self.ollama_keep_alive,
-            "preferred_model": self.preferred_offline_model
-        }
-    
-    def get_groq_config(self) -> Dict[str, Any]:
-        """Get Groq configuration"""
-        return {
-            "api_key": self.groq_api_key,
-            "model": self.preferred_online_model,
-            "max_tokens": self.max_tokens,
-            "temperature": self.temperature,
-            "available": self.online_available
-        }
-    
-    def get_system_status(self) -> Dict[str, Any]:
-        """Get comprehensive system status"""
-        return {
-            "version": self.version,
-            "debug_mode": self.debug_mode,
-            "online_available": self.online_available,
+            "pascal_version": self.version,
+            "personality": self.default_personality,
             "groq_configured": bool(self.groq_api_key),
+            "online_available": self.is_online_available(),
+            "auto_route_current_info": self.auto_route_current_info,
+            "force_online_current_info": self.force_online_current_info,
+            "debug_mode": self.debug_mode,
+            "memory_enabled": self.long_term_memory_enabled,
+            "performance_mode": self.performance_mode,
+            "hardware_info": self.get_hardware_info(),
             "streaming_enabled": self.streaming_enabled,
             "target_response_time": self.target_response_time,
-            "preferred_models": {
-                "offline": self.preferred_offline_model,
-                "online": self.preferred_online_model
-            }
+            "preferred_models": self.preferred_models,
+            "supported_providers": ["Groq"]  # Only Groq now
         }
+    
+    def set_performance_mode(self, mode: str):
+        """Set performance mode"""
+        if mode in ['speed', 'balanced', 'quality']:
+            self.performance_mode = mode
+            if self.debug_mode:
+                print(f"Performance mode set to: {mode}")
 
-# Global instance
-settings = SimplifiedSettings()
+# Global settings instance
+settings = Settings()
 
-# Export paths for compatibility
+# Export commonly used paths
 BASE_DIR = settings.base_dir
 CONFIG_DIR = settings.config_dir
 DATA_DIR = settings.data_dir
