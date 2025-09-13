@@ -1,7 +1,7 @@
 """
 Pascal AI Assistant - FIXED Lightning Router with Bulletproof Current Info Detection
 Intelligently routes requests between offline and online LLMs with mandatory online for current info
-FIXED: Enhanced pattern matching for all current info query variations
+FIXED: Enhanced pattern matching for all current info query variations - Groq + Gemini only
 """
 
 import asyncio
@@ -36,7 +36,7 @@ class RouteDecision:
         return not self.use_offline
 
 class LightningRouter:
-    """FIXED: Lightning-fast router with bulletproof current info detection"""
+    """FIXED: Lightning-fast router with bulletproof current info detection - Groq + Gemini"""
     
     def __init__(self, personality_manager, memory_manager):
         self.personality_manager = personality_manager
@@ -56,80 +56,61 @@ class LightningRouter:
         self.response_times = {'offline': [], 'online': []}
         self.first_token_times = {'offline': [], 'online': []}
         
-        # FIXED: Enhanced current information detection patterns
+        # FIXED: Enhanced current information detection patterns - COMPREHENSIVE LIST
         # These patterns MUST route to online - no exceptions
         self.mandatory_current_info_patterns = [
-            # Date/time queries (HIGHEST PRIORITY) - FIXED with variations
-            'what day is today',
-            'what day is it',
-            'what date is today', 
-            'what date is it',
-            'what\'s the date',
-            'what\'s today\'s date',
-            'what is todays date',        # FIXED: Added this critical pattern
-            'what is today\'s date',      # FIXED: Added apostrophe version
-            'what is the date today',     # FIXED: Added word order variation
-            'tell me todays date',        # FIXED: Added "tell me" version
-            'tell me today\'s date',      # FIXED: Added apostrophe version
-            'tell me the date',           # FIXED: Added short version
-            'give me todays date',        # FIXED: Added "give me" version
-            'todays date',
-            'today\'s date',
-            'current date',
-            'current day',
-            'what time is it',
-            'current time',
-            'what\'s the time',
-            'what year is it',
-            'current year',
-            'what month is it',
-            'current month',
+            # Date/time queries (HIGHEST PRIORITY) - FIXED with all variations
+            'what day is today', 'what day is it', 'what day today',
+            'what date is today', 'what date is it', 'what\'s the date',
+            'what\'s today\'s date', 'what is todays date', 'what is today\'s date',
+            'what is the date today', 'what is the date', 'todays date',
+            'today\'s date', 'current date', 'current day',
+            'tell me todays date', 'tell me today\'s date', 'tell me the date',
+            'give me todays date', 'give me today\'s date', 'give me the date',
+            'show me todays date', 'show me today\'s date',
+            'what time is it', 'current time', 'what\'s the time',
+            'tell me the time', 'what year is it', 'current year',
+            'what month is it', 'current month', 'what is today',
             
-            # Current events and status - FIXED with variations
-            'current president',
-            'current prime minister',
-            'who is the current',
-            'who is current',             # FIXED: Added shorter version
-            'what\'s the current',
-            'latest news',
-            'recent news',
-            'breaking news',
-            'news today',
-            'today\'s news',
-            'what\'s happening today',
-            'current events',
+            # Current events and status - FIXED with variations  
+            'current president', 'current prime minister', 'current pm',
+            'who is the current', 'who is current', 'what\'s the current',
+            'current leader', 'current government', 'who\'s the current',
+            'latest news', 'recent news', 'breaking news', 'news today',
+            'today\'s news', 'what\'s happening today', 'current events',
+            'what\'s in the news', 'in the news today',
             
             # Weather and conditions
-            'weather today',
-            'today\'s weather',
-            'current weather',
-            'current temperature',
+            'weather today', 'today\'s weather', 'current weather',
+            'current temperature', 'weather now', 'what\'s the weather',
         ]
         
-        # FIXED: Enhanced regex patterns for current info (more flexible)
+        # FIXED: Enhanced regex patterns for current info (more comprehensive)
         self.current_info_regex_patterns = [
-            # Flexible date/time patterns - FIXED for better matching
+            # Flexible date/time patterns - FIXED for maximum coverage
             r'\bwhat\s+(?:day|date|time)\s+(?:is\s+)?(?:it|today|now)\s*\??\s*$',
-            r'\bwhat\s+is\s+(?:todays?|today\'?s|the)\s+(?:day|date|time)\s*\??\s*$',  # FIXED: Key pattern
+            r'\bwhat\s+is\s+(?:todays?|today\'?s|the)\s+(?:day|date|time)\s*\??\s*$',
             r'\bwhat\'?s\s+(?:the\s+)?(?:date|day|time)(?:\s+today)?\s*\??\s*$',
-            r'\b(?:tell|give)\s+me\s+(?:todays?|today\'?s|the)\s+(?:date|day|time)\s*\??\s*$',  # FIXED: Added
+            r'\b(?:tell|give|show)\s+me\s+(?:todays?|today\'?s|the)\s+(?:date|day|time)\s*\??\s*$',
             r'\btoday\'?s\s+(?:date|day)\s*\??\s*$',
             r'\bcurrent\s+(?:date|day|time|year|month)\s*\??\s*$',
             
             # Current status patterns - FIXED
             r'\bwho\s+is\s+(?:the\s+)?current\s+\w+\s*\??\s*$',
+            r'\bwho\'?s\s+(?:the\s+)?current\s+\w+\s*\??\s*$',
             r'\bcurrent\s+(?:president|pm|prime\s+minister|leader)\s*\??\s*$',
             
             # News and events - FIXED
             r'\b(?:latest|recent|breaking|today\'?s)\s+news\s*\??\s*$',
             r'\bwhat\'?s\s+happening\s+(?:today|now)\s*\??\s*$',
             r'\bin\s+the\s+news\s+today\s*\??\s*$',
+            r'\bnews\s+today\s*\??\s*$',
         ]
         
         # Compile regex patterns for efficiency
         self.current_info_regex = [re.compile(pattern, re.IGNORECASE) for pattern in self.current_info_regex_patterns]
         
-        # Simple query patterns (always offline for speed)
+        # Simple query patterns (always offline for speed) - NEVER current info
         self.simple_query_patterns = [
             r'^(?:hi|hello|hey|thanks|thank\s+you|bye|goodbye)\s*\.?\s*$',
             r'^(?:yes|no|ok|okay|sure)\s*\.?\s*$',
@@ -148,10 +129,10 @@ class LightningRouter:
         self.complex_regex = [re.compile(pattern, re.IGNORECASE) for pattern in self.complex_query_patterns]
     
     async def _check_llm_availability(self):
-        """Check which LLM options are available"""
+        """FIXED: Check LLM availability with Groq + Gemini focus"""
         try:
             if settings.debug_mode:
-                print("[ROUTER] ⚡ FIXED Lightning Router checking LLM availability...")
+                print("[ROUTER] ⚡ FIXED Lightning Router (Groq + Gemini) checking LLM availability...")
             
             # Initialize offline LLM first (for fallback)
             try:
@@ -171,10 +152,9 @@ class LightningRouter:
                     traceback.print_exc()
                 self.offline_available = False
             
-            # Initialize online LLM if API keys are available - CRITICAL FOR CURRENT INFO
+            # Initialize online LLM - CRITICAL FOR CURRENT INFO (Groq + Gemini only)
             self.online_available = False
             
-            # Check if online APIs are configured
             if settings.is_online_available():
                 try:
                     from modules.online_llm import OnlineLLM
@@ -182,7 +162,7 @@ class LightningRouter:
                     self.online_available = await self.online_llm.initialize()
                     
                     if self.online_available:
-                        # Show which provider is primary
+                        # Show which provider is primary (Groq + Gemini only)
                         if self.online_llm.preferred_provider:
                             provider_name = self.online_llm.preferred_provider.value.title()
                             if provider_name.lower() == 'groq':
@@ -213,9 +193,8 @@ class LightningRouter:
                 if settings.debug_mode:
                     print("[ROUTER] ❌ No online API keys configured - CURRENT INFO DISABLED")
                     print("   For current info queries, add API key to .env:")
-                    print("   GROQ_API_KEY=gsk_your-actual-key  # Fastest for current info")
-                    print("   GEMINI_API_KEY=your-key           # Free alternative")
-                    print("   OPENAI_API_KEY=sk-your-key        # Reliable fallback")
+                    print("   GROQ_API_KEY=gsk_your-actual-key    # Primary - fastest")
+                    print("   GEMINI_API_KEY=your-actual-key      # Secondary - free")
                 self.online_available = False
             
             # Adjust routing mode based on availability
@@ -251,7 +230,6 @@ class LightningRouter:
                 print("2. For current info: Configure API keys in .env file")
                 print("   - Groq (fastest): GROQ_API_KEY=gsk_your-key")
                 print("   - Gemini (free): GEMINI_API_KEY=your-key")
-                print("   - OpenAI (reliable): OPENAI_API_KEY=sk-your-key")
             
             if settings.debug_mode:
                 print(f"[ROUTER] Final status - Offline: {self.offline_available}, Online: {self.online_available}")
@@ -271,7 +249,7 @@ class LightningRouter:
         # Remove punctuation for cleaner matching
         query_clean = re.sub(r'[^\w\s]', '', query_lower)
         
-        # PRIORITY 1: Exact phrase matching (most reliable) - FIXED with more patterns
+        # PRIORITY 1: Exact phrase matching (most reliable) - FIXED with comprehensive patterns
         for pattern in self.mandatory_current_info_patterns:
             if pattern in query_lower:
                 if settings.debug_mode:
@@ -285,15 +263,19 @@ class LightningRouter:
                     print(f"[ROUTER] 🎯 CURRENT INFO DETECTED - regex match: {pattern.pattern}")
                 return True
         
-        # PRIORITY 3: Word-based detection for edge cases - FIXED
+        # PRIORITY 3: Word-based detection for edge cases - FIXED and enhanced
         current_info_words = [
-            (['what', 'is'], ['today', 'date', 'day', 'time']),           # FIXED: "what is" + date words
-            (['tell', 'me'], ['today', 'date', 'day', 'time']),          # FIXED: "tell me" variations  
-            (['give', 'me'], ['today', 'date', 'day', 'time']),          # FIXED: "give me" variations
-            (['current'], ['president', 'pm', 'minister', 'leader', 'date', 'time']),
-            (['news'], ['today', 'latest', 'recent', 'breaking']),
+            (['what', 'is'], ['today', 'date', 'day', 'time', 'todays']),    # "what is" + date words
+            (['what'], ['day', 'date', 'time', 'today', 'todays']),          # "what" + time words
+            (['tell', 'me'], ['today', 'date', 'day', 'time', 'todays']),    # "tell me" variations  
+            (['give', 'me'], ['today', 'date', 'day', 'time', 'todays']),    # "give me" variations
+            (['show', 'me'], ['today', 'date', 'day', 'time', 'todays']),    # "show me" variations
+            (['current'], ['president', 'pm', 'minister', 'leader', 'date', 'time', 'day']),
+            (['news'], ['today', 'latest', 'recent', 'breaking', 'current']),
             (['weather'], ['today', 'current', 'now']),
-            (['who', 'is'], ['current']),                                # FIXED: "who is current"
+            (['who', 'is'], ['current']),                                    # "who is current"
+            (['who'], ['current']),                                          # "who current"
+            (['whats'], ['today', 'date', 'time', 'current']),               # "whats today"
         ]
         
         query_words = query_clean.split()
@@ -305,6 +287,13 @@ class LightningRouter:
                     if settings.debug_mode:
                         print(f"[ROUTER] 🎯 CURRENT INFO DETECTED - word combination: {primary_words} + {context_words}")
                     return True
+        
+        # PRIORITY 4: Additional pattern detection for missed cases
+        # Check for questions about "today" specifically
+        if 'today' in query_words and any(word in query_words for word in ['what', 'is', 'whats']):
+            if settings.debug_mode:
+                print(f"[ROUTER] 🎯 CURRENT INFO DETECTED - 'today' question pattern")
+            return True
         
         return False
     
@@ -354,7 +343,7 @@ class LightningRouter:
         return False
     
     def _decide_route(self, query: str) -> RouteDecision:
-        """FIXED: Decide whether to use offline or online LLM with mandatory current info routing"""
+        """FIXED: Decide routing with mandatory current info online routing"""
         
         # CRITICAL CHECK: Current information queries ALWAYS go online (highest priority)
         is_current_info = self._needs_current_information(query)
@@ -423,7 +412,7 @@ class LightningRouter:
             return RouteDecision(True, "General query - using offline", is_current_info=False)
     
     async def get_response(self, query: str) -> str:
-        """Get response using appropriate LLM with enhanced current info handling"""
+        """FIXED: Get response with enhanced current info handling"""
         decision = self._decide_route(query)
         self.last_decision = decision
         
@@ -435,7 +424,7 @@ class LightningRouter:
         # CRITICAL: Handle current info queries that require online but online is unavailable
         if decision.is_current_info and not self.online_available:
             return ("I'm unable to provide current information right now because online services are not available. "
-                   "Please configure an API key (GROQ_API_KEY, GEMINI_API_KEY, or OPENAI_API_KEY) in your .env file "
+                   "Please configure an API key (GROQ_API_KEY or GEMINI_API_KEY) in your .env file "
                    "to enable current date, time, news, and other real-time information queries.")
         
         # Get context
@@ -524,7 +513,7 @@ class LightningRouter:
             return f"I'm having trouble processing your request right now. Error: {str(e)}"
     
     async def get_streaming_response(self, query: str) -> AsyncGenerator[str, None]:
-        """Get streaming response using appropriate LLM with enhanced current info handling"""
+        """FIXED: Get streaming response with enhanced current info handling"""
         decision = self._decide_route(query)
         self.last_decision = decision
         
@@ -536,7 +525,7 @@ class LightningRouter:
         # CRITICAL: Handle current info queries that require online but online is unavailable
         if decision.is_current_info and not self.online_available:
             yield ("I'm unable to provide current information right now because online services are not available. "
-                   "Please configure an API key (GROQ_API_KEY, GEMINI_API_KEY, or OPENAI_API_KEY) in your .env file "
+                   "Please configure an API key (GROQ_API_KEY or GEMINI_API_KEY) in your .env file "
                    "to enable current date, time, news, and other real-time information queries.")
             return
         
@@ -658,13 +647,14 @@ class LightningRouter:
             self.offline_llm.set_performance_profile(preference)
     
     def get_router_stats(self) -> Dict[str, Any]:
-        """Get router performance statistics"""
+        """FIXED: Get router stats with Groq + Gemini info"""
         stats = {
             'mode': self.mode.value,
             'offline_available': self.offline_available,
             'online_available': self.online_available,
             'current_info_enabled': self.online_available,  # Current info requires online
             'force_online_current_info': settings.force_online_current_info,
+            'supported_providers': ['Groq', 'Gemini'],  # Only these two
             'last_decision': {
                 'use_offline': self.last_decision.use_offline,
                 'reason': self.last_decision.reason,
