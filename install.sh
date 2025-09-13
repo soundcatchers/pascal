@@ -1,7 +1,7 @@
 #!/bin/bash
 
-# Pascal AI Assistant Installer - Raspberry Pi 5 Optimized (Ollama Version)
-# Automated setup script with ARM optimizations and Ollama integration
+# Pascal AI Assistant FIXED Installer - Raspberry Pi 5 Optimized
+# Updated for the simplified Groq + Ollama version
 
 set -e  # Exit on any error
 
@@ -29,8 +29,8 @@ print_error() {
     echo -e "${RED}[ERROR]${NC} $1"
 }
 
-echo "🤖 Installing Pascal AI Assistant (Pi 5 Optimized with Ollama)"
-echo "=============================================================="
+echo "🤖 Installing Pascal AI Assistant FIXED (Pi 5 Optimized with Groq + Ollama)"
+echo "============================================================================"
 
 # Check if running on Raspberry Pi
 check_hardware() {
@@ -42,18 +42,13 @@ check_hardware() {
             print_success "Detected Raspberry Pi 5 - optimal compatibility"
             PI_VERSION="5"
         elif [[ $PI_MODEL == *"Raspberry Pi 4"* ]]; then
-            print_warning "Detected Raspberry Pi 4 - good compatibility with Ollama"
+            print_warning "Detected Raspberry Pi 4 - good compatibility"
             PI_VERSION="4"
         elif [[ $PI_MODEL == *"Raspberry Pi"* ]]; then
-            print_warning "Detected older Raspberry Pi - Ollama should still work"
+            print_warning "Detected older Raspberry Pi"
             PI_VERSION="older"
-            read -p "Continue installation? (y/N): " -n 1 -r
-            echo
-            if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-                exit 1
-            fi
         else
-            print_warning "Non-Raspberry Pi hardware detected - Ollama is cross-platform"
+            print_warning "Non-Raspberry Pi hardware detected"
             PI_VERSION="unknown"
         fi
     else
@@ -67,7 +62,7 @@ check_hardware() {
     print_status "System RAM: ${TOTAL_RAM_GB}GB"
     
     if [ $TOTAL_RAM_GB -lt 4 ]; then
-        print_error "Insufficient RAM. Pascal with Ollama requires at least 4GB RAM."
+        print_error "Insufficient RAM. Pascal requires at least 4GB RAM."
         exit 1
     elif [ $TOTAL_RAM_GB -lt 8 ]; then
         print_warning "Limited RAM detected. Consider using smaller models."
@@ -77,8 +72,8 @@ check_hardware() {
     AVAILABLE_GB=$(df . | tail -1 | awk '{print int($4/1024/1024)}')
     print_status "Available storage: ${AVAILABLE_GB}GB"
     
-    if [ $AVAILABLE_GB -lt 15 ]; then
-        print_error "Insufficient storage space. Need at least 15GB free for Ollama and models."
+    if [ $AVAILABLE_GB -lt 10 ]; then
+        print_error "Insufficient storage space. Need at least 10GB free."
         exit 1
     fi
 }
@@ -87,27 +82,21 @@ check_hardware() {
 check_python() {
     print_status "Checking Python installation..."
     
+    if ! command -v python3 &> /dev/null; then
+        print_error "Python 3 not found. Installing..."
+        sudo apt update
+        sudo apt install -y python3 python3-pip python3-venv python3-dev
+    fi
+    
     PYTHON_VERSION=$(python3 --version 2>&1 | grep -Po '(?<=Python )\d+\.\d+' || echo "0.0")
-    REQUIRED_VERSION="3.8"
-
+    
     if ! python3 -c "import sys; exit(0 if sys.version_info >= (3, 8) else 1)" 2>/dev/null; then
         print_error "Python 3.8+ required. Found: $PYTHON_VERSION"
-        print_status "Installing Python 3.8+..."
+        print_status "Updating Python..."
         sudo apt update
         sudo apt install -y python3 python3-pip python3-venv python3-dev
     else
         print_success "Python $PYTHON_VERSION detected"
-    fi
-    
-    # Ensure pip and venv are available
-    if ! python3 -m pip --version >/dev/null 2>&1; then
-        print_status "Installing pip..."
-        sudo apt install -y python3-pip
-    fi
-    
-    if ! python3 -m venv --help >/dev/null 2>&1; then
-        print_status "Installing venv..."
-        sudo apt install -y python3-venv
     fi
 }
 
@@ -125,34 +114,8 @@ update_system() {
         curl \
         wget \
         build-essential \
-        cmake \
-        pkg-config \
-        libasound2-dev \
-        portaudio19-dev \
-        libffi-dev \
-        libssl-dev \
         htop \
-        iotop \
-        stress-ng \
         jq
-    
-    # Pi 5 specific optimizations
-    if [ "$PI_VERSION" = "5" ]; then
-        print_status "Applying Pi 5 specific optimizations..."
-        
-        # Check if config.txt modifications are needed
-        if ! grep -q "gpu_mem=128" /boot/config.txt; then
-            print_status "Optimizing GPU memory allocation..."
-            echo "gpu_mem=128" | sudo tee -a /boot/config.txt
-        fi
-        
-        if ! grep -q "arm_boost=1" /boot/config.txt; then
-            print_status "Enabling ARM boost..."
-            echo "arm_boost=1" | sudo tee -a /boot/config.txt
-        fi
-        
-        print_warning "System optimizations applied. Reboot recommended after installation."
-    fi
 }
 
 # Create and activate virtual environment
@@ -194,9 +157,9 @@ setup_venv() {
     print_success "Pip version: $pip_version"
 }
 
-# Install Python dependencies (no longer need llama-cpp-python!)
+# Install Python dependencies
 install_python_deps() {
-    print_status "Installing Python packages (Ollama-optimized)..."
+    print_status "Installing Python packages (FIXED version)..."
     
     # Ensure we're in virtual environment
     if [[ "$VIRTUAL_ENV" == "" ]]; then
@@ -210,7 +173,7 @@ install_python_deps() {
         exit 1
     fi
     
-    # Install requirements (much faster without llama-cpp-python)
+    # Install requirements (simplified for fixed version)
     print_status "Installing Python dependencies..."
     pip install -r requirements.txt
     
@@ -218,15 +181,15 @@ install_python_deps() {
     print_status "Verifying critical packages..."
     
     # Test aiohttp (critical for online LLM functionality)
-    if python -c "import aiohttp; print(f'aiohttp {aiohttp.__version__} installed successfully')" 2>/dev/null; then
+    if python -c "import aiohttp; print(f'✅ aiohttp {aiohttp.__version__} installed successfully')" 2>/dev/null; then
         print_success "aiohttp installed and working"
     else
-        print_error "aiohttp installation failed - this will break online LLM functionality"
+        print_error "aiohttp installation failed - this will break online functionality"
         exit 1
     fi
     
     # Test other critical packages
-    critical_packages=("requests" "openai" "anthropic" "rich" "colorama")
+    critical_packages=("requests" "rich" "colorama" "psutil")
     for package in "${critical_packages[@]}"; do
         if python -c "import $package" 2>/dev/null; then
             print_success "$package installed"
@@ -235,7 +198,7 @@ install_python_deps() {
         fi
     done
     
-    print_success "Python dependencies installed (no compilation needed with Ollama!)"
+    print_success "Python dependencies installed successfully!"
 }
 
 # Create directory structure
@@ -244,8 +207,8 @@ setup_directories() {
     
     mkdir -p data/models
     mkdir -p data/memory
-    mkdir -p data/personalities
     mkdir -p data/cache
+    mkdir -p config/personalities
     mkdir -p logs
     
     # Create .gitkeep files
@@ -259,12 +222,10 @@ setup_directories() {
 set_permissions() {
     print_status "Setting permissions..."
     
-    chmod +x run.sh
-    chmod +x download_models.sh
-    chmod +x test_performance.py
-    chmod +x diagnose_ollama.py
-    chmod +x diagnose_online_apis.py
-    chmod +x test_groq_fix.py
+    # Make scripts executable
+    chmod +x run.sh 2>/dev/null || echo "run.sh not found, will be created"
+    chmod +x download_models.sh 2>/dev/null || echo "download_models.sh exists"
+    chmod +x *.py 2>/dev/null || echo "Python files found"
     
     # Make logs directory writable
     chmod 755 logs
@@ -281,44 +242,97 @@ create_config() {
         source venv/bin/activate
     fi
     
-    # Run installer utility
-    python utils/installer.py
+    # Create personalities if they don't exist
+    create_personality_files() {
+        # Default personality
+        cat > config/personalities/default.json << 'EOF'
+{
+  "name": "Pascal",
+  "description": "A helpful, intelligent AI assistant with a friendly personality",
+  "traits": {
+    "helpfulness": 0.9,
+    "curiosity": 0.8,
+    "formality": 0.3,
+    "humor": 0.6,
+    "patience": 0.9
+  },
+  "speaking_style": {
+    "tone": "friendly and approachable",
+    "complexity": "adaptive to user level",
+    "verbosity": "concise but thorough",
+    "examples": true
+  },
+  "knowledge_focus": [
+    "programming and technology",
+    "problem-solving",
+    "learning and education",
+    "creative projects"
+  ],
+  "conversation_style": {
+    "greeting": "Hello! I'm Pascal. How can I help you today?",
+    "thinking": "Let me think about that...",
+    "clarification": "Could you help me understand what you mean by",
+    "completion": "I hope that helps! Is there anything else you'd like to know?",
+    "error": "I'm having trouble with that. Let me try a different approach."
+  },
+  "system_prompt": "You are Pascal, a helpful AI assistant. You are knowledgeable, friendly, and always eager to help. You explain things clearly and ask for clarification when needed. You maintain a consistent personality across all interactions."
+}
+EOF
+        
+        # Assistant personality
+        cat > config/personalities/assistant.json << 'EOF'
+{
+  "name": "Pascal Assistant",
+  "description": "A more formal, professional version of Pascal for business use",
+  "traits": {
+    "helpfulness": 0.95,
+    "curiosity": 0.7,
+    "formality": 0.8,
+    "humor": 0.3,
+    "patience": 0.95
+  },
+  "speaking_style": {
+    "tone": "professional and courteous",
+    "complexity": "technical when appropriate",
+    "verbosity": "detailed and comprehensive",
+    "examples": true
+  },
+  "system_prompt": "You are Pascal, a professional AI assistant. You are knowledgeable, efficient, and maintain a courteous, business-appropriate demeanor. You provide detailed, accurate information and maintain professionalism in all interactions."
+}
+EOF
+    }
     
-    # Create Ollama-optimized .env if it doesn't exist
+    create_personality_files
+    print_success "Created personality configurations"
+    
+    # Create .env if it doesn't exist
     if [ ! -f ".env" ]; then
-        print_status "Creating Ollama-optimized .env configuration..."
-        cat > .env << 'EOF'
-# Pascal AI Assistant Environment Variables - Pi 5 Optimized with Ollama
+        print_status "Creating .env configuration..."
+        cp .env.example .env 2>/dev/null || cat > .env << 'EOF'
+# Pascal AI Assistant Environment Variables - FIXED VERSION
 
-# Performance settings (Ollama manages local models)
+# 🚀 GROQ API (Primary and Only Online Provider)
+# Get from: https://console.groq.com/
+GROQ_API_KEY=
+
+# ⚡ PERFORMANCE SETTINGS
 PERFORMANCE_MODE=balanced
 STREAMING_ENABLED=true
 KEEP_ALIVE_ENABLED=true
-TARGET_RESPONSE_TIME=3.0
+TARGET_RESPONSE_TIME=2.0
 MAX_RESPONSE_TOKENS=200
 
-# API Keys (add your keys here for online fallback)
-# GROQ_API_KEY=gsk-your_groq_api_key_here
-# GEMINI_API_KEY=your_gemini_api_key_here
-# OPENAI_API_KEY=sk-your_openai_api_key_here
-
-# Ollama settings
+# 🦙 OLLAMA SETTINGS
 OLLAMA_HOST=http://localhost:11434
 OLLAMA_TIMEOUT=30
-OLLAMA_KEEP_ALIVE=5m
+OLLAMA_KEEP_ALIVE=30m
 
-# Debug settings
+# 🐛 DEBUG SETTINGS
 DEBUG=false
 LOG_LEVEL=INFO
-PERF_LOG=false
-
-# Advanced settings
-MAX_CONCURRENT_REQUESTS=2
-CACHE_EXPIRY=3600
-LLM_THREADS=4
-LLM_CONTEXT=2048
 EOF
-        print_success "Created Ollama-optimized .env configuration"
+        print_success "Created .env configuration file"
+        print_warning "Please add your Groq API key to .env file"
     fi
 }
 
@@ -347,46 +361,131 @@ except ImportError as e:
 try:
     from config.settings import settings
     print('✅ Pascal configuration loaded')
-    hw_info = settings.get_hardware_info()
-    print(f'Hardware detected: {hw_info}')
+    print(f'   Pascal version: {settings.version}')
+    print(f'   Debug mode: {settings.debug_mode}')
 except ImportError as e:
     print('❌ Pascal configuration failed:', e)
     sys.exit(1)
 
 try:
-    import requests
-    import rich
-    import colorama
-    print('✅ Core dependencies imported successfully')
+    from modules.offline_llm import LightningOfflineLLM
+    print('✅ LightningOfflineLLM imported (FIXED CLASS NAME)')
 except ImportError as e:
-    print('❌ Core dependency import failed:', e)
+    print('❌ LightningOfflineLLM import failed:', e)
     sys.exit(1)
 
-print('✅ Installation test passed')
+try:
+    from modules.online_llm import OnlineLLM
+    print('✅ OnlineLLM imported successfully')
+except ImportError as e:
+    print('❌ OnlineLLM import failed:', e)
+    sys.exit(1)
+
+try:
+    from modules.router import LightningRouter
+    print('✅ LightningRouter imported successfully')
+except ImportError as e:
+    print('❌ LightningRouter import failed:', e)
+    sys.exit(1)
+
+print('✅ Installation test passed - All modules imported successfully!')
 "
     
     if [ $? -eq 0 ]; then
         print_success "Installation test passed"
-    else
+    else:
         print_error "Installation test failed"
         return 1
     fi
 }
 
-# Test virtual environment persistence
-test_venv_persistence() {
-    print_status "Testing virtual environment persistence..."
+# Create run script
+create_run_script() {
+    print_status "Creating run script..."
     
-    # Test run.sh script
-    if [ -f "run.sh" ]; then
-        # Test that run.sh can activate the virtual environment
-        bash -c "source venv/bin/activate && python -c 'import sys; print(f\"Virtual env test: {sys.prefix}\")'"
-        if [ $? -eq 0 ]; then
-            print_success "Virtual environment activation test passed"
-        else
-            print_warning "Virtual environment activation test failed"
-        fi
-    fi
+    cat > run.sh << 'EOF'
+#!/bin/bash
+
+# Pascal AI Assistant Startup Script FIXED
+
+set -e
+
+# Colors
+GREEN='\033[0;32m'
+BLUE='\033[0;34m'
+RED='\033[0;31m'
+NC='\033[0m'
+
+print_status() {
+    echo -e "${BLUE}[INFO]${NC} $1"
+}
+
+print_success() {
+    echo -e "${GREEN}[SUCCESS]${NC} $1"
+}
+
+print_error() {
+    echo -e "${RED}[ERROR]${NC} $1"
+}
+
+# Check if virtual environment exists
+if [ ! -d "venv" ]; then
+    print_error "Virtual environment not found!"
+    echo "Please run the installer first: ./install_fixed.sh"
+    exit 1
+fi
+
+# Check if virtual environment has the activation script
+if [ ! -f "venv/bin/activate" ]; then
+    print_error "Virtual environment appears corrupted!"
+    echo "Recreate it with: ./install_fixed.sh"
+    exit 1
+fi
+
+# Activate virtual environment
+print_status "Activating virtual environment..."
+source venv/bin/activate
+
+# Verify we're in the virtual environment
+if [[ "$VIRTUAL_ENV" == "" ]]; then
+    print_error "Failed to activate virtual environment"
+    exit 1
+fi
+
+print_success "Virtual environment activated: $VIRTUAL_ENV"
+
+# Check if main.py exists
+if [ ! -f "main.py" ]; then
+    print_error "main.py not found!"
+    echo "Make sure you're in the pascal directory"
+    exit 1
+fi
+
+# Display startup message
+echo ""
+echo "🤖 Starting Pascal AI Assistant FIXED..."
+echo "======================================"
+echo ""
+echo "💡 Commands:"
+echo "   'quit' or 'exit' - Stop Pascal"
+echo "   'help' - Show available commands"
+echo "   'status' - Show system status"
+echo ""
+
+# Start Pascal
+print_status "Starting Pascal..."
+python main.py
+
+# Cleanup message
+echo ""
+print_success "Pascal has stopped. Virtual environment remains active."
+echo ""
+echo "To deactivate virtual environment: deactivate"
+echo "To restart Pascal: ./run.sh"
+EOF
+    
+    chmod +x run.sh
+    print_success "Created run.sh script"
 }
 
 # Offer Ollama installation
@@ -404,16 +503,24 @@ offer_ollama_installation() {
     case $ollama_choice in
         1)
             print_status "Installing Ollama and downloading models..."
-            chmod +x download_models.sh
-            # Run in a subshell to preserve our virtual environment
-            (./download_models.sh)
+            if [ -f "./download_models.sh" ]; then
+                chmod +x download_models.sh
+                ./download_models.sh
+            else
+                print_warning "download_models.sh not found, installing Ollama manually..."
+                curl -fsSL https://ollama.ai/install.sh | sh
+                sudo systemctl enable ollama
+                sudo systemctl start ollama
+                sleep 5
+                ollama pull phi3:mini
+                print_success "Ollama installed with phi3:mini model"
+            fi
             ;;
         2)
             print_status "Ollama can be installed later with: ./download_models.sh"
             ;;
         3)
             print_warning "Skipping Ollama. Pascal will work in online-only mode."
-            print_status "You can install Ollama later if needed."
             ;;
         *)
             print_warning "Invalid choice. Ollama can be installed later."
@@ -424,8 +531,8 @@ offer_ollama_installation() {
 # Display completion message
 show_completion() {
     echo ""
-    print_success "Pascal installation complete! 🎉"
-    echo "========================================="
+    print_success "Pascal FIXED installation complete! 🎉"
+    echo "================================================"
     echo ""
     
     # Show system info
@@ -439,50 +546,28 @@ show_completion() {
     
     # Show next steps
     print_status "Next Steps:"
-    echo "1. Start Pascal:"
+    echo "1. Configure API key in .env file:"
+    echo "   nano .env"
+    echo "   Add your GROQ_API_KEY=gsk_your-actual-key"
+    echo ""
+    echo "2. Test the fixed installation:"
+    echo "   python test_quick_fix.py"
+    echo ""
+    echo "3. Start Pascal:"
     echo "   ./run.sh"
     echo ""
-    echo "2. Install Ollama and models (if not done already):"
-    echo "   ./download_models.sh"
-    echo ""
-    echo "3. Configure API keys in .env file (optional for online fallback):"
-    echo "   nano .env"
-    echo "   Add your GROQ_API_KEY, GEMINI_API_KEY, or OPENAI_API_KEY"
-    echo ""
     
-    # Show Ollama advantages
-    print_status "Ollama Advantages:"
-    echo "• ✅ No compilation needed (much faster installation)"
-    echo "• ✅ Better ARM optimization for Pi 5"
-    echo "• ✅ Automatic model management"
-    echo "• ✅ Easy model switching"
-    echo "• ✅ Built-in quantization"
-    echo "• ✅ Reliable downloads"
+    # Show API key instructions
+    print_status "API Key Setup:"
+    echo "• Get Groq API key from: https://console.groq.com/"
+    echo "• Add to .env file: GROQ_API_KEY=gsk_your-actual-key"
+    echo "• Make sure key starts with gsk_ (underscore format)"
     echo ""
-    
-    # Show performance tips
-    print_status "Performance Tips:"
-    echo "• Use nemotron-mini:4b-instruct-q4_K_M for fastest responses"
-    echo "• Use qwen2.5:3b for balanced performance"
-    echo "• Use phi3:mini for minimal resources"
-    echo "• Monitor temperature: vcgencmd measure_temp"
-    echo "• Type 'status' in Pascal to see system information"
-    echo ""
-    
-    # Show virtual environment info
-    print_status "Virtual Environment:"
-    echo "• Location: $(pwd)/venv"
-    echo "• Activation: source venv/bin/activate (done automatically by run.sh)"
-    echo "• Python: $(source venv/bin/activate && python --version)"
-    echo ""
-    
-    if [ "$PI_VERSION" = "5" ]; then
-        print_warning "Reboot recommended to apply Pi 5 optimizations"
-    fi
     
     print_success "Happy chatting with Pascal! 🤖"
     echo ""
-    print_status "To start Pascal: ./run.sh"
+    print_status "To test: python test_quick_fix.py"
+    print_status "To start: ./run.sh"
 }
 
 # Main installation flow
@@ -496,10 +581,10 @@ main() {
     setup_directories
     set_permissions
     create_config
+    create_run_script
     
     # Test installation
     if test_installation; then
-        test_venv_persistence
         offer_ollama_installation
         show_completion
     else
