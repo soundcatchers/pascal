@@ -1,5 +1,5 @@
 """
-Pascal AI Assistant - ENHANCED Online LLM (Groq Only)
+Pascal AI Assistant - COMPLETE Online LLM (Groq Only)
 Enhanced for better current information and real-time queries
 """
 
@@ -18,7 +18,7 @@ except ImportError:
 from config.settings import settings
 
 class OnlineLLM:
-    """Enhanced online LLM client using Groq with better current info handling"""
+    """Complete enhanced online LLM client using Groq with better current info handling"""
     
     def __init__(self):
         self.session = None
@@ -43,6 +43,147 @@ class OnlineLLM:
         if not AIOHTTP_AVAILABLE:
             self.last_error = "aiohttp not installed - install with: pip install aiohttp"
             if settings.debug_mode:
+                print("❌ [GROQ] aiohttp not available - install with: pip install aiohttp")
+            return False
+        
+        if not self.api_key:
+            self.last_error = "No Groq API key configured"
+            if settings.debug_mode:
+                print("❌ [GROQ] No Groq API key configured")
+            return False
+        
+        try:
+            # Create optimized session
+            timeout = aiohttp.ClientTimeout(total=30, connect=10)
+            connector = aiohttp.TCPConnector(limit=5, force_close=True)
+            self.session = aiohttp.ClientSession(timeout=timeout, connector=connector)
+            
+            # Test connection
+            if await self._test_connection():
+                self.available = True
+                self.initialization_successful = True
+                if settings.debug_mode:
+                    print(f"✅ [GROQ] API initialized with model: {self.model}")
+                return True
+            else:
+                return False
+                
+        except Exception as e:
+            self.last_error = f"Initialization failed: {str(e)}"
+            if settings.debug_mode:
+                print(f"❌ [GROQ] Initialization failed: {e}")
+            return False
+    
+    async def _test_connection(self) -> bool:
+        """Test Groq API connection"""
+        try:
+            headers = {
+                'Content-Type': 'application/json',
+                'Authorization': f'Bearer {self.api_key}'
+            }
+            
+            payload = {
+                "model": self.model,
+                "messages": [{"role": "user", "content": "test"}],
+                "max_tokens": 5,
+                "temperature": 0.1
+            }
+            
+            async with self.session.post(
+                self.base_url,
+                headers=headers,
+                json=payload,
+                timeout=aiohttp.ClientTimeout(total=15)
+            ) as response:
+                if response.status == 200:
+                    data = await response.json()
+                    if 'choices' in data and data['choices']:
+                        if settings.debug_mode:
+                            print("✅ [GROQ] Connection test successful")
+                        return True
+                elif response.status == 429:
+                    # Rate limited but API key works
+                    if settings.debug_mode:
+                        print("⚠️ [GROQ] API rate limited but functional")
+                    return True
+                elif response.status in [401, 403]:
+                    self.last_error = "Invalid Groq API key"
+                    if settings.debug_mode:
+                        print("❌ [GROQ] Invalid API key")
+                    return False
+                else:
+                    error_text = await response.text()
+                    self.last_error = f"Groq API error {response.status}: {error_text[:100]}"
+                    if settings.debug_mode:
+                        print(f"❌ [GROQ] API error {response.status}: {error_text[:100]}")
+                    return False
+                    
+        except asyncio.TimeoutError:
+            self.last_error = "Connection timeout"
+            if settings.debug_mode:
+                print("❌ [GROQ] Connection timeout")
+            return False
+        except Exception as e:
+            self.last_error = f"Connection test failed: {str(e)}"
+            if settings.debug_mode:
+                print(f"❌ [GROQ] Connection test failed: {e}")
+            return False
+    
+    def _build_enhanced_prompt(self, query: str, personality_context: str, 
+                              memory_context: str, is_current_info: bool) -> list:
+        """Build enhanced prompt for current information queries"""
+        messages = []
+        
+        # System message with ENHANCED current date context
+        if is_current_info:
+            now = datetime.now()
+            current_date = now.strftime("%A, %B %d, %Y")
+            current_time = now.strftime("%I:%M %p")
+            current_year = now.year
+            
+            enhanced_system = f"""You are Pascal, a helpful AI assistant with access to current information.
+
+🎯 CRITICAL - CURRENT DATE & TIME INFORMATION:
+Today is: {current_date}
+Current time: {current_time}  
+Current year: {current_year}
+
+IMPORTANT INSTRUCTIONS FOR CURRENT INFO QUERIES:
+- For "what day is today" questions: Answer with today's day name ({now.strftime("%A")})
+- For "what date is today" questions: Answer with today's full date ({current_date})
+- For "what time is it" questions: Answer with current time ({current_time})
+- For "current president" questions: Use your knowledge of current office holders
+- For news/weather queries: Provide helpful information based on your knowledge
+
+Always be specific and direct when providing current information.
+
+{personality_context[:500] if personality_context else ''}"""
+        else:
+            enhanced_system = f"""You are Pascal, a helpful AI assistant.
+
+{personality_context[:500] if personality_context else ''}"""
+        
+        messages.append({"role": "system", "content": enhanced_system})
+        
+        # Add memory context if available
+        if memory_context:
+            messages.append({"role": "system", "content": f"Recent context: {memory_context[:300]}"})
+        
+        # User query
+        messages.append({"role": "user", "content": query})
+        
+        return messages
+    
+    async def generate_response(self, query: str, personality_context: str, 
+                               memory_context: str) -> str:
+        """Generate response from Groq with enhanced current info handling"""
+        if not self.available:
+            return "Online services are not available right now. Please check your Groq API key configuration."
+        
+        # Detect if this is a current info query
+        is_current_info = self._detect_current_info(query)
+        
+        if settings.debug_mode:
             current_info_flag = " [CURRENT INFO]" if is_current_info else ""
             print(f"[GROQ] 🎯 Processing query{current_info_flag}: {query[:50]}...")
         
@@ -298,15 +439,6 @@ class OnlineLLM:
         """Check if Groq provider is available"""
         return self.initialization_successful and self.available
     
-    async def close(self):
-        """Close the aiohttp session"""
-        if self.session:
-            await self.session.close()
-            self.session = None
-        self.available = False
-        if settings.debug_mode:
-            print("[GROQ] 🔌 Connection closed")
-
     def get_performance_stats(self) -> dict:
         """Get detailed performance statistics"""
         avg_time = self.total_time / max(self.request_count, 1)
@@ -332,145 +464,13 @@ class OnlineLLM:
             'supports_streaming': True,
             'supports_current_info': True,
             'enhanced_current_info_detection': True
-        }:
-                print("❌ [GROQ] aiohttp not available - install with: pip install aiohttp")
-            return False
-        
-        if not self.api_key:
-            self.last_error = "No Groq API key configured"
-            if settings.debug_mode:
-                print("❌ [GROQ] No Groq API key configured")
-            return False
-        
-        try:
-            # Create optimized session
-            timeout = aiohttp.ClientTimeout(total=30, connect=10)
-            connector = aiohttp.TCPConnector(limit=5, force_close=True)
-            self.session = aiohttp.ClientSession(timeout=timeout, connector=connector)
-            
-            # Test connection
-            if await self._test_connection():
-                self.available = True
-                self.initialization_successful = True
-                if settings.debug_mode:
-                    print(f"✅ [GROQ] API initialized with model: {self.model}")
-                return True
-            else:
-                return False
-                
-        except Exception as e:
-            self.last_error = f"Initialization failed: {str(e)}"
-            if settings.debug_mode:
-                print(f"❌ [GROQ] Initialization failed: {e}")
-            return False
+        }
     
-    async def _test_connection(self) -> bool:
-        """Test Groq API connection"""
-        try:
-            headers = {
-                'Content-Type': 'application/json',
-                'Authorization': f'Bearer {self.api_key}'
-            }
-            
-            payload = {
-                "model": self.model,
-                "messages": [{"role": "user", "content": "test"}],
-                "max_tokens": 5,
-                "temperature": 0.1
-            }
-            
-            async with self.session.post(
-                self.base_url,
-                headers=headers,
-                json=payload,
-                timeout=aiohttp.ClientTimeout(total=15)
-            ) as response:
-                if response.status == 200:
-                    data = await response.json()
-                    if 'choices' in data and data['choices']:
-                        if settings.debug_mode:
-                            print("✅ [GROQ] Connection test successful")
-                        return True
-                elif response.status == 429:
-                    # Rate limited but API key works
-                    if settings.debug_mode:
-                        print("⚠️ [GROQ] API rate limited but functional")
-                    return True
-                elif response.status in [401, 403]:
-                    self.last_error = "Invalid Groq API key"
-                    if settings.debug_mode:
-                        print("❌ [GROQ] Invalid API key")
-                    return False
-                else:
-                    error_text = await response.text()
-                    self.last_error = f"Groq API error {response.status}: {error_text[:100]}"
-                    if settings.debug_mode:
-                        print(f"❌ [GROQ] API error {response.status}: {error_text[:100]}")
-                    return False
-                    
-        except asyncio.TimeoutError:
-            self.last_error = "Connection timeout"
-            if settings.debug_mode:
-                print("❌ [GROQ] Connection timeout")
-            return False
-        except Exception as e:
-            self.last_error = f"Connection test failed: {str(e)}"
-            if settings.debug_mode:
-                print(f"❌ [GROQ] Connection test failed: {e}")
-            return False
-    
-    def _build_enhanced_prompt(self, query: str, personality_context: str, 
-                              memory_context: str, is_current_info: bool) -> list:
-        """Build enhanced prompt for current information queries"""
-        messages = []
-        
-        # System message with ENHANCED current date context
-        if is_current_info:
-            now = datetime.now()
-            current_date = now.strftime("%A, %B %d, %Y")
-            current_time = now.strftime("%I:%M %p")
-            current_year = now.year
-            
-            enhanced_system = f"""You are Pascal, a helpful AI assistant with access to current information.
-
-🎯 CRITICAL - CURRENT DATE & TIME INFORMATION:
-Today is: {current_date}
-Current time: {current_time}  
-Current year: {current_year}
-
-IMPORTANT INSTRUCTIONS FOR CURRENT INFO QUERIES:
-- For "what day is today" questions: Answer with today's day name ({now.strftime("%A")})
-- For "what date is today" questions: Answer with today's full date ({current_date})
-- For "what time is it" questions: Answer with current time ({current_time})
-- For "current president" questions: Use your knowledge of current office holders
-- For news/weather queries: Provide helpful information based on your knowledge
-
-Always be specific and direct when providing current information.
-
-{personality_context[:500] if personality_context else ''}"""
-        else:
-            enhanced_system = f"""You are Pascal, a helpful AI assistant.
-
-{personality_context[:500] if personality_context else ''}"""
-        
-        messages.append({"role": "system", "content": enhanced_system})
-        
-        # Add memory context if available
-        if memory_context:
-            messages.append({"role": "system", "content": f"Recent context: {memory_context[:300]}"})
-        
-        # User query
-        messages.append({"role": "user", "content": query})
-        
-        return messages
-    
-    async def generate_response(self, query: str, personality_context: str, 
-                               memory_context: str) -> str:
-        """Generate response from Groq with enhanced current info handling"""
-        if not self.available:
-            return "Online services are not available right now. Please check your Groq API key configuration."
-        
-        # Detect if this is a current info query
-        is_current_info = self._detect_current_info(query)
-        
-        if settings.debug_mode
+    async def close(self):
+        """Close the aiohttp session"""
+        if self.session:
+            await self.session.close()
+            self.session = None
+        self.available = False
+        if settings.debug_mode:
+            print("[GROQ] 🔌 Connection closed")
