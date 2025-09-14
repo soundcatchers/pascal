@@ -1,6 +1,6 @@
 """
-Pascal AI Assistant - FIXED Settings Configuration
-Corrected for Groq-only online and Ollama offline
+Pascal AI Assistant - Settings Configuration (Simplified)
+Optimized for Nemotron + Groq only
 """
 
 import os
@@ -13,7 +13,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 class Settings:
-    """Fixed settings focused on Groq + Ollama only"""
+    """Simplified settings for Nemotron + Groq only"""
     
     def __init__(self):
         self.base_dir = Path(__file__).parent.parent
@@ -28,47 +28,43 @@ class Settings:
         
         # Pascal identity
         self.name = "Pascal"
-        self.version = "3.0.0"
+        self.version = "4.0.0"
         
         # Debug settings
         self.debug_mode = os.getenv("DEBUG", "false").lower() == "true"
         self.log_level = os.getenv("LOG_LEVEL", "INFO")
         self.verbose_logging = self.debug_mode
         
-        # FIXED: Groq ONLY for online (corrected API key loading)
+        # SIMPLIFIED: Groq ONLY for online
         self.groq_api_key = self._load_groq_api_key()
         
         # Performance settings (optimized for Pi 5)
         self.performance_mode = os.getenv("PERFORMANCE_MODE", "balanced")
         self.target_response_time = float(os.getenv("TARGET_RESPONSE_TIME", "2.0"))
         self.streaming_enabled = os.getenv("STREAMING_ENABLED", "true").lower() == "true"
-        self.keep_alive_enabled = os.getenv("KEEP_ALIVE_ENABLED", "true").lower() == "true"
         self.max_response_tokens = int(os.getenv("MAX_RESPONSE_TOKENS", "200"))
         
         # LLM Configuration
         self.default_personality = "default"
-        self.max_context_length = int(os.getenv("CONTEXT_WINDOW", "1024"))
+        self.max_context_length = 1024
+        self.temperature = 0.7
         
-        # Ollama settings
+        # Ollama settings (for Nemotron)
         self.ollama_host = os.getenv("OLLAMA_HOST", "http://localhost:11434")
         self.ollama_timeout = int(os.getenv("OLLAMA_TIMEOUT", "30"))
         self.ollama_keep_alive = os.getenv("OLLAMA_KEEP_ALIVE", "30m")
         
-        # Pi 5 hardware optimization
-        self.temperature = float(os.getenv("TEMPERATURE", "0.7"))
-        
         # Memory settings
-        self.short_term_memory_limit = int(os.getenv("MEMORY_LIMIT", "5"))
+        self.short_term_memory_limit = 5
         self.long_term_memory_enabled = True
         self.memory_save_interval = 300
         
-        # FIXED: Preferred offline model
+        # SIMPLIFIED: Single offline model preference
         self.preferred_offline_model = "nemotron-mini:4b-instruct-q4_K_M"
         
-        # Enhanced current info settings
+        # Current info settings
         self.auto_route_current_info = True
         self.force_online_current_info = True
-        self.enhance_current_info_prompts = True
         
         # Pi 5 Hardware Detection
         self.is_raspberry_pi = self._detect_raspberry_pi()
@@ -76,7 +72,7 @@ class Settings:
         self.available_ram_gb = self._get_available_ram()
         
         if self.debug_mode:
-            print(f"[SETTINGS] Pascal v{self.version} - Fixed Configuration")
+            print(f"[SETTINGS] Pascal v{self.version} - Simplified (Nemotron + Groq)")
             print(f"[SETTINGS] Groq configured: {bool(self.groq_api_key)}")
             print(f"[SETTINGS] Debug mode: {self.debug_mode}")
     
@@ -95,7 +91,7 @@ class Settings:
             directory.mkdir(parents=True, exist_ok=True)
     
     def _load_groq_api_key(self) -> Optional[str]:
-        """FIXED: Load Groq API key with proper validation"""
+        """Load Groq API key with proper validation"""
         # Try GROQ_API_KEY first (preferred)
         groq_key = os.getenv("GROQ_API_KEY")
         if groq_key and self._validate_groq_key(groq_key):
@@ -111,7 +107,7 @@ class Settings:
         return None
     
     def _validate_groq_key(self, key: str) -> bool:
-        """FIXED: Validate Groq API key format"""
+        """Validate Groq API key format"""
         if not key or not isinstance(key, str):
             return False
         
@@ -196,8 +192,7 @@ class Settings:
             'available_ram_gb': self.available_ram_gb,
             'cpu_cores': os.cpu_count() or 4,
             'performance_mode': self.performance_mode,
-            'streaming_enabled': self.streaming_enabled,
-            'keep_alive_enabled': self.keep_alive_enabled
+            'streaming_enabled': self.streaming_enabled
         }
     
     def get_config_summary(self) -> Dict[str, Any]:
@@ -216,7 +211,7 @@ class Settings:
             "streaming_enabled": self.streaming_enabled,
             "target_response_time": self.target_response_time,
             "preferred_offline_model": self.preferred_offline_model,
-            "supported_providers": ["Groq"]  # Only Groq now
+            "supported_providers": ["Groq"]  # Only Groq
         }
     
     def set_performance_mode(self, mode: str):
