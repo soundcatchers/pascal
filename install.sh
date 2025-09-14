@@ -1,7 +1,7 @@
 #!/bin/bash
 
-# Pascal AI Assistant FIXED Installer - Raspberry Pi 5 Optimized
-# Updated for the simplified Groq + Ollama version
+# Pascal AI Assistant FIXED Installer - Simplified for Nemotron + Groq
+# Optimized for Raspberry Pi 5 with single offline/online LLM
 
 set -e  # Exit on any error
 
@@ -29,8 +29,8 @@ print_error() {
     echo -e "${RED}[ERROR]${NC} $1"
 }
 
-echo "🤖 Installing Pascal AI Assistant FIXED (Pi 5 Optimized with Groq + Ollama)"
-echo "============================================================================"
+echo "🤖 Installing Pascal AI Assistant - Simplified (Nemotron + Groq Only)"
+echo "======================================================================"
 
 # Check if running on Raspberry Pi
 check_hardware() {
@@ -157,9 +157,9 @@ setup_venv() {
     print_success "Pip version: $pip_version"
 }
 
-# Install Python dependencies
+# Install Python dependencies (simplified)
 install_python_deps() {
-    print_status "Installing Python packages (FIXED version)..."
+    print_status "Installing Python packages (simplified for Nemotron + Groq)..."
     
     # Ensure we're in virtual environment
     if [[ "$VIRTUAL_ENV" == "" ]]; then
@@ -173,18 +173,18 @@ install_python_deps() {
         exit 1
     fi
     
-    # Install requirements (simplified for fixed version)
+    # Install requirements
     print_status "Installing Python dependencies..."
     pip install -r requirements.txt
     
     # Verify critical packages
     print_status "Verifying critical packages..."
     
-    # Test aiohttp (critical for online LLM functionality)
+    # Test aiohttp (critical for Groq API)
     if python -c "import aiohttp; print(f'✅ aiohttp {aiohttp.__version__} installed successfully')" 2>/dev/null; then
         print_success "aiohttp installed and working"
     else
-        print_error "aiohttp installation failed - this will break online functionality"
+        print_error "aiohttp installation failed - this will break Groq functionality"
         exit 1
     fi
     
@@ -223,7 +223,7 @@ set_permissions() {
     print_status "Setting permissions..."
     
     # Make scripts executable
-    chmod +x run.sh 2>/dev/null || echo "run.sh not found, will be created"
+    chmod +x run.sh 2>/dev/null || echo "run.sh will be created"
     chmod +x download_models.sh 2>/dev/null || echo "download_models.sh exists"
     chmod +x *.py 2>/dev/null || echo "Python files found"
     
@@ -233,7 +233,7 @@ set_permissions() {
     print_success "Permissions set"
 }
 
-# Create initial configuration
+# Create initial configuration (simplified)
 create_config() {
     print_status "Creating initial configuration..."
     
@@ -248,7 +248,7 @@ create_config() {
         cat > config/personalities/default.json << 'EOF'
 {
   "name": "Pascal",
-  "description": "A helpful, intelligent AI assistant with a friendly personality",
+  "description": "A helpful AI assistant optimized for Raspberry Pi 5",
   "traits": {
     "helpfulness": 0.9,
     "curiosity": 0.8,
@@ -257,47 +257,11 @@ create_config() {
     "patience": 0.9
   },
   "speaking_style": {
-    "tone": "friendly and approachable",
+    "tone": "friendly and efficient",
     "complexity": "adaptive to user level",
-    "verbosity": "concise but thorough",
-    "examples": true
+    "verbosity": "concise but helpful"
   },
-  "knowledge_focus": [
-    "programming and technology",
-    "problem-solving",
-    "learning and education",
-    "creative projects"
-  ],
-  "conversation_style": {
-    "greeting": "Hello! I'm Pascal. How can I help you today?",
-    "thinking": "Let me think about that...",
-    "clarification": "Could you help me understand what you mean by",
-    "completion": "I hope that helps! Is there anything else you'd like to know?",
-    "error": "I'm having trouble with that. Let me try a different approach."
-  },
-  "system_prompt": "You are Pascal, a helpful AI assistant. You are knowledgeable, friendly, and always eager to help. You explain things clearly and ask for clarification when needed. You maintain a consistent personality across all interactions."
-}
-EOF
-        
-        # Assistant personality
-        cat > config/personalities/assistant.json << 'EOF'
-{
-  "name": "Pascal Assistant",
-  "description": "A more formal, professional version of Pascal for business use",
-  "traits": {
-    "helpfulness": 0.95,
-    "curiosity": 0.7,
-    "formality": 0.8,
-    "humor": 0.3,
-    "patience": 0.95
-  },
-  "speaking_style": {
-    "tone": "professional and courteous",
-    "complexity": "technical when appropriate",
-    "verbosity": "detailed and comprehensive",
-    "examples": true
-  },
-  "system_prompt": "You are Pascal, a professional AI assistant. You are knowledgeable, efficient, and maintain a courteous, business-appropriate demeanor. You provide detailed, accurate information and maintain professionalism in all interactions."
+  "system_prompt": "You are Pascal, a helpful AI assistant running on Raspberry Pi 5. You are knowledgeable, friendly, and efficient. You can work both offline (using Nemotron) and online (using Groq) depending on the query type."
 }
 EOF
     }
@@ -305,24 +269,23 @@ EOF
     create_personality_files
     print_success "Created personality configurations"
     
-    # Create .env if it doesn't exist
+    # Create simplified .env if it doesn't exist
     if [ ! -f ".env" ]; then
         print_status "Creating .env configuration..."
-        cp .env.example .env 2>/dev/null || cat > .env << 'EOF'
-# Pascal AI Assistant Environment Variables - FIXED VERSION
+        cat > .env << 'EOF'
+# Pascal AI Assistant Environment Variables - Simplified
 
-# 🚀 GROQ API (Primary and Only Online Provider)
+# 🚀 GROQ API (Primary Online Provider)
 # Get from: https://console.groq.com/
 GROQ_API_KEY=
 
 # ⚡ PERFORMANCE SETTINGS
 PERFORMANCE_MODE=balanced
 STREAMING_ENABLED=true
-KEEP_ALIVE_ENABLED=true
 TARGET_RESPONSE_TIME=2.0
 MAX_RESPONSE_TOKENS=200
 
-# 🦙 OLLAMA SETTINGS
+# 🦙 OLLAMA SETTINGS (for Nemotron offline model)
 OLLAMA_HOST=http://localhost:11434
 OLLAMA_TIMEOUT=30
 OLLAMA_KEEP_ALIVE=30m
@@ -330,13 +293,21 @@ OLLAMA_KEEP_ALIVE=30m
 # 🐛 DEBUG SETTINGS
 DEBUG=false
 LOG_LEVEL=INFO
+
+# 📝 SETUP INSTRUCTIONS:
+# 1. Get Groq API key from https://console.groq.com/
+# 2. Replace the empty GROQ_API_KEY above with your actual key
+# 3. Make sure key starts with gsk_
+# 4. Install Ollama: curl -fsSL https://ollama.ai/install.sh | sh
+# 5. Download Nemotron: ollama pull nemotron-mini:4b-instruct-q4_K_M
+# 6. Run Pascal: ./run.sh
 EOF
         print_success "Created .env configuration file"
         print_warning "Please add your Groq API key to .env file"
     fi
 }
 
-# Test installation
+# Test installation (simplified)
 test_installation() {
     print_status "Testing installation..."
     
@@ -369,9 +340,10 @@ except ImportError as e:
 
 try:
     from modules.offline_llm import LightningOfflineLLM
-    print('✅ LightningOfflineLLM imported (FIXED CLASS NAME)')
+    print('✅ LightningOfflineLLM imported successfully')
 except ImportError as e:
     print('❌ LightningOfflineLLM import failed:', e)
+    print('   This suggests a module naming issue')
     sys.exit(1)
 
 try:
@@ -399,14 +371,14 @@ print('✅ Installation test passed - All modules imported successfully!')
     fi
 }
 
-# Create run script
+# Create run script (simplified)
 create_run_script() {
     print_status "Creating run script..."
     
     cat > run.sh << 'EOF'
 #!/bin/bash
 
-# Pascal AI Assistant Startup Script FIXED
+# Pascal AI Assistant Startup Script - Simplified
 
 set -e
 
@@ -431,14 +403,7 @@ print_error() {
 # Check if virtual environment exists
 if [ ! -d "venv" ]; then
     print_error "Virtual environment not found!"
-    echo "Please run the installer first: ./install_fixed.sh"
-    exit 1
-fi
-
-# Check if virtual environment has the activation script
-if [ ! -f "venv/bin/activate" ]; then
-    print_error "Virtual environment appears corrupted!"
-    echo "Recreate it with: ./install_fixed.sh"
+    echo "Please run the installer first: ./install.sh"
     exit 1
 fi
 
@@ -463,13 +428,18 @@ fi
 
 # Display startup message
 echo ""
-echo "🤖 Starting Pascal AI Assistant FIXED..."
-echo "======================================"
+echo "🤖 Starting Pascal AI Assistant - Simplified (Nemotron + Groq)"
+echo "============================================================="
 echo ""
 echo "💡 Commands:"
 echo "   'quit' or 'exit' - Stop Pascal"
 echo "   'help' - Show available commands"
 echo "   'status' - Show system status"
+echo ""
+echo "🎯 Pascal Features:"
+echo "   • Offline: Nemotron (fast local responses)"
+echo "   • Online: Groq (current information)"
+echo "   • Auto-routing based on query type"
 echo ""
 
 # Start Pascal
@@ -488,39 +458,62 @@ EOF
     print_success "Created run.sh script"
 }
 
-# Offer Ollama installation
+# Offer simplified Ollama installation
 offer_ollama_installation() {
     echo ""
-    print_status "Ollama Installation"
-    echo "Pascal uses Ollama for local AI models. You can:"
-    echo "1. Install Ollama and download models now (recommended)"
-    echo "2. Install Ollama later with ./download_models.sh"
-    echo "3. Skip Ollama (online-only mode)"
+    print_status "Ollama Installation (for Nemotron offline model)"
+    echo "Pascal uses Ollama to run Nemotron locally. You can:"
+    echo "1. Install Ollama and download Nemotron now (recommended)"
+    echo "2. Install later with manual commands"
+    echo "3. Skip Ollama (online-only mode with Groq)"
     echo ""
     
     read -p "Choose option (1-3): " ollama_choice
     
     case $ollama_choice in
         1)
-            print_status "Installing Ollama and downloading models..."
-            if [ -f "./download_models.sh" ]; then
-                chmod +x download_models.sh
-                ./download_models.sh
-            else
-                print_warning "download_models.sh not found, installing Ollama manually..."
+            print_status "Installing Ollama and downloading Nemotron..."
+            
+            # Install Ollama
+            if ! command -v ollama &> /dev/null; then
+                print_status "Installing Ollama..."
                 curl -fsSL https://ollama.ai/install.sh | sh
                 sudo systemctl enable ollama
                 sudo systemctl start ollama
                 sleep 5
-                ollama pull phi3:mini
-                print_success "Ollama installed with phi3:mini model"
+            else
+                print_success "Ollama already installed"
+                sudo systemctl start ollama
+                sleep 3
+            fi
+            
+            # Download Nemotron
+            print_status "Downloading Nemotron model (this may take a few minutes)..."
+            if ollama pull nemotron-mini:4b-instruct-q4_K_M; then
+                print_success "Nemotron model downloaded successfully"
+                
+                # Test the model
+                print_status "Testing Nemotron model..."
+                if echo "Say hello" | ollama run nemotron-mini:4b-instruct-q4_K_M > /dev/null 2>&1; then
+                    print_success "Nemotron model is working correctly"
+                else
+                    print_warning "Nemotron model test failed, but model is downloaded"
+                fi
+            else
+                print_error "Failed to download Nemotron model"
+                print_status "You can download it later with:"
+                print_status "  ollama pull nemotron-mini:4b-instruct-q4_K_M"
             fi
             ;;
         2)
-            print_status "Ollama can be installed later with: ./download_models.sh"
+            print_status "Ollama can be installed later with these commands:"
+            echo "  curl -fsSL https://ollama.ai/install.sh | sh"
+            echo "  sudo systemctl start ollama"
+            echo "  ollama pull nemotron-mini:4b-instruct-q4_K_M"
             ;;
         3)
-            print_warning "Skipping Ollama. Pascal will work in online-only mode."
+            print_warning "Skipping Ollama. Pascal will work in online-only mode with Groq."
+            print_status "Make sure to add your Groq API key to .env file"
             ;;
         *)
             print_warning "Invalid choice. Ollama can be installed later."
@@ -528,11 +521,11 @@ offer_ollama_installation() {
     esac
 }
 
-# Display completion message
+# Display completion message (simplified)
 show_completion() {
     echo ""
-    print_success "Pascal FIXED installation complete! 🎉"
-    echo "================================================"
+    print_success "Pascal AI Assistant installation complete! 🎉"
+    echo "========================================================="
     echo ""
     
     # Show system info
@@ -546,27 +539,27 @@ show_completion() {
     
     # Show next steps
     print_status "Next Steps:"
-    echo "1. Configure API key in .env file:"
+    echo "1. Configure Groq API key in .env file:"
     echo "   nano .env"
     echo "   Add your GROQ_API_KEY=gsk_your-actual-key"
     echo ""
-    echo "2. Test the fixed installation:"
-    echo "   python test_quick_fix.py"
+    echo "2. Get Groq API key from: https://console.groq.com/"
     echo ""
-    echo "3. Start Pascal:"
+    echo "3. Test Pascal:"
     echo "   ./run.sh"
     echo ""
     
-    # Show API key instructions
-    print_status "API Key Setup:"
-    echo "• Get Groq API key from: https://console.groq.com/"
-    echo "• Add to .env file: GROQ_API_KEY=gsk_your-actual-key"
-    echo "• Make sure key starts with gsk_ (underscore format)"
+    # Show Pascal features
+    print_status "Pascal Features:"
+    echo "• Offline LLM: Nemotron (fast, private, runs locally)"
+    echo "• Online LLM: Groq (current information, research)"
+    echo "• Smart routing: Current info → Groq, General → Nemotron"
+    echo "• Streaming responses for instant feedback"
+    echo "• Optimized for Raspberry Pi 5 performance"
     echo ""
     
-    print_success "Happy chatting with Pascal! 🤖"
+    print_success "Ready to start Pascal! 🤖"
     echo ""
-    print_status "To test: python test_quick_fix.py"
     print_status "To start: ./run.sh"
 }
 
@@ -589,6 +582,10 @@ main() {
         show_completion
     else
         print_error "Installation failed during testing"
+        print_status "Common fixes:"
+        print_status "1. Check virtual environment: source venv/bin/activate"
+        print_status "2. Install dependencies: pip install -r requirements.txt"
+        print_status "3. Check Python version: python3 --version"
         exit 1
     fi
 }
