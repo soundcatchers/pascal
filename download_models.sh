@@ -1,21 +1,20 @@
 #!/bin/bash
 
-# Pascal AI Assistant - Lightning Model Download Script for Raspberry Pi 5
-# Downloads optimized models for sub-3-second responses
+# Pascal AI Assistant - Simplified Model Download (Nemotron Only)
+# Downloads and configures Nemotron for offline use
 
 set -e
 
-echo "⚡ Pascal AI Assistant - Lightning Model Manager for Raspberry Pi 5"
-echo "================================================================="
+echo "🤖 Pascal AI Assistant - Nemotron Model Setup"
+echo "=============================================="
 
 # Colors for output
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 BLUE='\033[0;34m'
 YELLOW='\033[1;33m'
-NC='\033[0m' # No Color
+NC='\033[0m'
 
-# Function to print colored output
 print_status() {
     echo -e "${BLUE}[INFO]${NC} $1"
 }
@@ -37,16 +36,11 @@ check_pi() {
     if [ -f /proc/device-tree/model ]; then
         PI_MODEL=$(cat /proc/device-tree/model)
         if [[ $PI_MODEL == *"Raspberry Pi 5"* ]]; then
-            print_success "Detected Raspberry Pi 5 - optimized for lightning speed ⚡"
+            print_success "Detected Raspberry Pi 5 - optimal for Nemotron"
         elif [[ $PI_MODEL == *"Raspberry Pi"* ]]; then
-            print_warning "Detected $PI_MODEL - Lightning models optimized for Pi 5"
-            read -p "Continue anyway? (y/N): " -n 1 -r
-            echo
-            if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-                exit 1
-            fi
+            print_warning "Detected $PI_MODEL - Nemotron should work"
         else
-            print_warning "Not running on Raspberry Pi - Lightning models work on most systems"
+            print_warning "Non-Pi hardware - Nemotron may work slower"
         fi
     fi
 }
@@ -56,8 +50,8 @@ check_space() {
     AVAILABLE_GB=$(df . | tail -1 | awk '{print int($4/1024/1024)}')
     print_status "Available disk space: ${AVAILABLE_GB}GB"
     
-    if [ $AVAILABLE_GB -lt 15 ]; then
-        print_error "Insufficient disk space. Need at least 15GB free for Ollama and models."
+    if [ $AVAILABLE_GB -lt 5 ]; then
+        print_error "Insufficient disk space. Need at least 5GB for Nemotron model."
         exit 1
     fi
 }
@@ -68,8 +62,8 @@ check_ram() {
     TOTAL_RAM_GB=$((TOTAL_RAM_MB / 1024))
     print_status "System RAM: ${TOTAL_RAM_GB}GB"
     
-    if [ $TOTAL_RAM_GB -lt 8 ]; then
-        print_warning "Less than 8GB RAM detected. Lightning models are optimized for 8GB+."
+    if [ $TOTAL_RAM_GB -lt 4 ]; then
+        print_warning "Less than 4GB RAM. Nemotron may run slowly."
     fi
 }
 
@@ -107,23 +101,20 @@ install_ollama() {
     fi
 }
 
-# Configure Ollama for Lightning speed
-configure_ollama_lightning() {
-    print_status "Configuring Ollama for Lightning speed on Pi 5..."
+# Configure Ollama for Pi 5
+configure_ollama() {
+    print_status "Configuring Ollama for Raspberry Pi 5..."
     
-    # Create Ollama service override for lightning performance
+    # Create Ollama service override for optimal performance
     sudo mkdir -p /etc/systemd/system/ollama.service.d
     
-    cat << EOF | sudo tee /etc/systemd/system/ollama.service.d/lightning.conf
+    cat << EOF | sudo tee /etc/systemd/system/ollama.service.d/pi5-optimization.conf
 [Service]
 Environment="OLLAMA_HOST=127.0.0.1:11434"
 Environment="OLLAMA_NUM_PARALLEL=1"
 Environment="OLLAMA_MAX_LOADED_MODELS=1"
-Environment="OLLAMA_MAX_QUEUE=2"
 Environment="OLLAMA_FLASH_ATTENTION=0"
-Environment="OLLAMA_KV_CACHE_TYPE=f16"
 Environment="OLLAMA_NUM_THREAD=4"
-Environment="OLLAMA_TMPDIR=/tmp"
 Environment="OLLAMA_KEEP_ALIVE=30m"
 EOF
 
@@ -134,7 +125,7 @@ EOF
     # Wait for restart
     sleep 5
     
-    print_success "Ollama configured for Lightning performance ⚡"
+    print_success "Ollama configured for Pi 5 optimization"
 }
 
 # Test Ollama connection
@@ -156,129 +147,69 @@ test_ollama() {
     return 1
 }
 
-# Download Lightning models
-download_lightning_models() {
-    print_status "⚡ Lightning Model Selection:"
+# Download Nemotron model
+download_nemotron() {
+    print_status "🧠 Downloading Nemotron Mini 4B model..."
     echo ""
-    echo "Primary Models (Optimized for 1-3 second responses):"
-    echo "1. nemotron-mini:4b-instruct-q4_K_M - PRIMARY (Fastest, 2.5GB)"
-    echo "2. qwen2.5:3b - FALLBACK 1 (Fast, 2.0GB)"
-    echo "3. phi3:mini - FALLBACK 2 (Reliable, 2.3GB)"
-    echo ""
-    echo "4. Download all Lightning models (recommended)"
-    echo "5. Download primary model only (nemotron-mini)"
-    echo "6. Custom selection"
-    echo "7. Skip model download"
+    echo "Model Information:"
+    echo "• Name: nemotron-mini:4b-instruct-q4_K_M"
+    echo "• Size: ~2.7GB"
+    echo "• Optimized: For speed and efficiency"
+    echo "• Best for: General queries, coding help, explanations"
     echo ""
     
-    read -p "Choose an option (1-7): " choice
-    
-    case $choice in
-        1)
-            download_single_model "nemotron-mini:4b-instruct-q4_K_M" "Nemotron Mini 4B (PRIMARY)" "2.5GB"
-            ;;
-        2)
-            download_single_model "qwen2.5:3b" "Qwen2.5 3B (FALLBACK 1)" "2.0GB"
-            ;;
-        3)
-            download_single_model "phi3:mini" "Phi3 Mini (FALLBACK 2)" "2.3GB"
-            ;;
-        4)
-            print_status "Downloading all Lightning models for maximum reliability..."
-            download_single_model "nemotron-mini:4b-instruct-q4_K_M" "Nemotron Mini 4B (PRIMARY)" "2.5GB"
-            download_single_model "qwen2.5:3b" "Qwen2.5 3B (FALLBACK 1)" "2.0GB"
-            download_single_model "phi3:mini" "Phi3 Mini (FALLBACK 2)" "2.3GB"
-            ;;
-        5)
-            download_single_model "nemotron-mini:4b-instruct-q4_K_M" "Nemotron Mini 4B (PRIMARY)" "2.5GB"
-            ;;
-        6)
-            echo "Available Lightning models:"
-            echo "  nemotron-mini:4b-instruct-q4_K_M (primary)"
-            echo "  qwen2.5:3b (fallback 1)"
-            echo "  phi3:mini (fallback 2)"
-            echo ""
-            echo "Enter model names separated by spaces:"
-            read -p "Models: " selected_models
-            for model in $selected_models; do
-                case $model in
-                    "nemotron-mini:4b-instruct-q4_K_M") 
-                        download_single_model "$model" "Nemotron Mini 4B" "2.5GB" ;;
-                    "qwen2.5:3b") 
-                        download_single_model "$model" "Qwen2.5 3B" "2.0GB" ;;
-                    "phi3:mini") 
-                        download_single_model "$model" "Phi3 Mini" "2.3GB" ;;
-                    *) 
-                        print_warning "Unknown model: $model" ;;
-                esac
-            done
-            ;;
-        7)
-            print_warning "Skipping model download. You can download models later from Pascal."
-            ;;
-        *)
-            print_error "Invalid choice"
-            exit 1
-            ;;
-    esac
-}
-
-# Download a single model
-download_single_model() {
-    local model_name="$1"
-    local display_name="$2"
-    local size="$3"
-    
-    print_status "⚡ Downloading $display_name ($size)..."
-    
-    # Check if model is already downloaded
-    if ollama list | grep -q "$model_name"; then
-        print_warning "$display_name is already downloaded"
-        
-        # Test the model briefly to ensure it loads
-        print_status "Testing model..."
-        test_model_quick "$model_name"
+    read -p "Download Nemotron model now? (y/N): " -n 1 -r
+    echo
+    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+        print_warning "Skipping model download. You can download later with:"
+        print_warning "  ollama pull nemotron-mini:4b-instruct-q4_K_M"
         return 0
     fi
     
-    # Download with progress
-    if timeout 600 ollama pull "$model_name"; then
-        print_success "Downloaded $display_name successfully ⚡"
+    print_status "Downloading Nemotron model (this may take several minutes)..."
+    
+    # Check if model is already downloaded
+    if ollama list | grep -q "nemotron-mini:4b-instruct-q4_K_M"; then
+        print_warning "Nemotron model is already downloaded"
+        return 0
+    fi
+    
+    # Download with timeout
+    if timeout 600 ollama pull nemotron-mini:4b-instruct-q4_K_M; then
+        print_success "✅ Nemotron model downloaded successfully!"
         
-        # Test model briefly
-        print_status "Testing model..."
-        test_model_quick "$model_name"
+        # Test the model briefly
+        print_status "Testing Nemotron model..."
+        test_nemotron
         
         return 0
     else
-        print_error "Failed to download $display_name (timeout or error)"
+        print_error "Failed to download Nemotron model (timeout or error)"
+        print_status "You can try again later with:"
+        print_status "  ollama pull nemotron-mini:4b-instruct-q4_K_M"
         return 1
     fi
 }
 
-# Quick model test to avoid infinite loops
-test_model_quick() {
-    local model_name="$1"
+# Quick test of Nemotron model
+test_nemotron() {
+    print_status "Running quick test of Nemotron..."
     
-    print_status "Running quick test of $model_name..."
-    
-    # Create a simple test with timeout
-    local test_result=""
-    
-    # Use timeout to prevent hanging and redirect stderr to avoid seeing the full output
-    test_result=$(timeout 30 bash -c "echo 'Hi' | ollama run '$model_name' 2>/dev/null | head -n 5" 2>/dev/null || echo "timeout")
+    # Use timeout to prevent hanging
+    test_result=$(timeout 30 bash -c "echo 'Say hello in 3 words' | ollama run nemotron-mini:4b-instruct-q4_K_M 2>/dev/null | head -n 3" 2>/dev/null || echo "timeout")
     
     if [[ "$test_result" == "timeout" ]] || [[ -z "$test_result" ]]; then
-        print_warning "Model test timed out or failed (this is normal for first load)"
+        print_warning "Model test timed out (normal for first load)"
         print_status "Model will work properly in Pascal"
     else
-        print_success "Model test successful - ready for use!"
+        print_success "Model test successful - Nemotron is ready!"
+        print_status "Test response: $test_result"
     fi
 }
 
-# Verify downloaded models
-verify_models() {
-    print_status "Verifying Lightning models..."
+# Verify installation
+verify_setup() {
+    print_status "Verifying Nemotron setup..."
     
     MODEL_LIST=$(ollama list 2>/dev/null || echo "")
     
@@ -287,163 +218,102 @@ verify_models() {
         return 1
     fi
     
-    print_success "Available models:"
+    print_success "Ollama models:"
     echo "$MODEL_LIST"
     
-    # Check for Lightning models
-    LIGHTNING_MODELS=0
+    # Check for Nemotron specifically
     if echo "$MODEL_LIST" | grep -q "nemotron-mini:4b-instruct-q4_K_M"; then
-        print_success "✅ Primary model ready: nemotron-mini:4b-instruct-q4_K_M"
-        LIGHTNING_MODELS=$((LIGHTNING_MODELS + 1))
-    fi
-    if echo "$MODEL_LIST" | grep -q "qwen2.5:3b"; then
-        print_success "✅ Fallback 1 ready: qwen2.5:3b"
-        LIGHTNING_MODELS=$((LIGHTNING_MODELS + 1))
-    fi
-    if echo "$MODEL_LIST" | grep -q "phi3:mini"; then
-        print_success "✅ Fallback 2 ready: phi3:mini"
-        LIGHTNING_MODELS=$((LIGHTNING_MODELS + 1))
-    fi
-    
-    if [ $LIGHTNING_MODELS -eq 0 ]; then
-        print_warning "No Lightning models found. Pascal will use any available model."
+        print_success "✅ Nemotron model ready for Pascal"
+        return 0
     else
-        print_success "⚡ $LIGHTNING_MODELS Lightning model(s) ready for sub-3-second responses!"
+        print_warning "Nemotron model not found"
+        print_status "Available models, but not the recommended Nemotron"
+        return 1
     fi
-    
-    return 0
 }
 
-# Create model configuration for Pascal
-create_lightning_config() {
-    print_status "Creating Lightning configuration for Pascal..."
+# Create Pascal configuration
+create_pascal_config() {
+    print_status "Creating Pascal configuration for Nemotron..."
     
-    # Get script directory and create config
+    # Get script directory
     SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
-    CONFIG_FILE="$SCRIPT_DIR/data/models/lightning_config.json"
+    CONFIG_FILE="$SCRIPT_DIR/data/models/nemotron_config.json"
     
     # Ensure directory exists
     mkdir -p "$(dirname "$CONFIG_FILE")"
-    
-    # Get available models
-    MODELS=$(ollama list | tail -n +2 | awk '{print $1}' | grep -v "^$" | head -10)
     
     # Create JSON config
     cat > "$CONFIG_FILE" << EOF
 {
     "ollama_enabled": true,
     "ollama_host": "http://localhost:11434",
-    "lightning_mode": true,
+    "primary_model": "nemotron-mini:4b-instruct-q4_K_M",
     "download_date": "$(date -Iseconds)",
     "pi_model": "$(cat /proc/device-tree/model 2>/dev/null || echo 'Unknown')",
-    "preferred_models": [
-        "nemotron-mini:4b-instruct-q4_K_M",
-        "qwen2.5:3b",
-        "phi3:mini"
-    ],
-    "available_models": [
-EOF
-
-    # Add models to config
-    FIRST=true
-    for model in $MODELS; do
-        if [ "$FIRST" = false ]; then
-            echo "        ," >> "$CONFIG_FILE"
-        fi
-        
-        SIZE=$(ollama list | grep "$model" | awk '{print $2}' || echo "Unknown")
-        
-        # Determine priority
-        PRIORITY=99
-        if [[ "$model" == "nemotron-mini:4b-instruct-q4_K_M" ]]; then
-            PRIORITY=1
-        elif [[ "$model" == "qwen2.5:3b" ]]; then
-            PRIORITY=2
-        elif [[ "$model" == "phi3:mini" ]]; then
-            PRIORITY=3
-        fi
-        
-        echo "        {" >> "$CONFIG_FILE"
-        echo "            \"name\": \"$model\"," >> "$CONFIG_FILE"
-        echo "            \"size\": \"$SIZE\"," >> "$CONFIG_FILE"
-        echo "            \"priority\": $PRIORITY" >> "$CONFIG_FILE"
-        echo -n "        }" >> "$CONFIG_FILE"
-        FIRST=false
-    done
-
-    cat >> "$CONFIG_FILE" << EOF
-
-    ],
-    "performance_settings": {
-        "target_response_time": 3.0,
-        "streaming_enabled": true,
-        "keep_alive_duration": "5m",
-        "first_token_target": 1.0
+    "model_info": {
+        "name": "nemotron-mini:4b-instruct-q4_K_M",
+        "size": "~2.7GB",
+        "type": "instruction-following",
+        "optimized_for": "speed and efficiency",
+        "best_use": ["general queries", "coding help", "explanations", "casual chat"]
     },
-    "lightning_tips": {
-        "primary": "nemotron-mini:4b-instruct-q4_K_M - Fastest responses",
-        "fallback1": "qwen2.5:3b - Good balance",
-        "fallback2": "phi3:mini - Most reliable"
+    "performance_settings": {
+        "target_response_time": 2.0,
+        "streaming_enabled": true,
+        "keep_alive_duration": "30m"
+    },
+    "pascal_integration": {
+        "routing": "offline for general queries",
+        "fallback": "groq for current information",
+        "priority": "primary offline model"
     }
 }
 EOF
 
-    print_success "Lightning configuration saved to $CONFIG_FILE"
+    print_success "Pascal configuration saved to $CONFIG_FILE"
 }
 
 # Show completion message
-show_lightning_completion() {
-    print_success "⚡ Lightning setup complete! 🎉"
-    echo "================================="
+show_completion() {
+    print_success "🎉 Nemotron setup complete for Pascal!"
+    echo "========================================"
     echo ""
     
-    print_status "Lightning Performance Achieved:"
-    echo "• Target: 1-3 second responses ⚡"
-    echo "• Streaming: Instant feedback"
-    echo "• Keep-alive: Models stay loaded"
+    print_status "Nemotron Model Status:"
+    echo "• Model: nemotron-mini:4b-instruct-q4_K_M"
+    echo "• Size: ~2.7GB"
+    echo "• Location: Ollama model store"
     echo "• Optimized: For Raspberry Pi 5"
+    echo "• Ready: For Pascal offline queries"
     echo ""
     
-    print_status "Available Commands:"
+    print_status "Integration with Pascal:"
+    echo "• General queries → Nemotron (fast, local)"
+    echo "• Current info queries → Groq (online)"
+    echo "• Automatic routing based on query type"
+    echo "• Streaming responses for instant feedback"
+    echo ""
+    
+    print_status "Commands:"
     echo "• ollama list                 - Show downloaded models"
-    echo "• ollama run [model]          - Test a model"
+    echo "• ollama run nemotron-mini:4b-instruct-q4_K_M - Test model directly"
     echo "• systemctl status ollama     - Check Ollama service"
+    echo "• ./run.sh                    - Start Pascal"
     echo ""
     
-    print_status "Pascal Integration:"
-    echo "• Models are automatically detected"
-    echo "• Start Pascal with: ./run.sh"
-    echo "• Primary model loads on startup"
-    echo "• Automatic fallback if needed"
+    print_success "Ready to use Nemotron with Pascal! 🤖"
     echo ""
-    
-    print_status "⚡ Lightning Tips:"
-    echo "• Keep Pi 5 cool for sustained performance"
-    echo "• Use 'profile speed' in Pascal for fastest responses"
-    echo "• Streaming provides instant feedback"
-    echo "• Models stay loaded for 5 minutes (keep-alive)"
-    echo ""
-    
-    print_status "Monitoring:"
-    echo "• Temperature: vcgencmd measure_temp"
-    echo "• Memory: free -h"
-    echo "• CPU: htop"
-    echo ""
-    
-    print_success "Ready for Lightning-fast Pascal! Run: ./run.sh"
-}
-
-# Cleanup function
-cleanup() {
-    print_status "Cleaning up..."
+    print_status "Next steps:"
+    echo "1. Configure Groq API key in .env for current info queries"
+    echo "2. Start Pascal: ./run.sh"
+    echo "3. Test with: 'Hello Pascal' (should use Nemotron)"
+    echo "4. Test with: 'What day is today?' (should use Groq if configured)"
 }
 
 # Main execution
 main() {
-    echo "⚡ Starting Pascal Lightning setup..."
-    
-    # Trap cleanup on exit
-    trap cleanup EXIT
+    echo "🧠 Starting Nemotron setup for Pascal..."
     
     # Run checks and setup
     check_pi
@@ -456,22 +326,24 @@ main() {
         exit 1
     fi
     
-    configure_ollama_lightning
+    configure_ollama
     
     if ! test_ollama; then
         print_error "Ollama connection test failed"
         exit 1
     fi
     
-    # Download Lightning models
-    download_lightning_models
+    # Download Nemotron model
+    download_nemotron
     
     # Verify and create config
-    if verify_models; then
-        create_lightning_config
-        show_lightning_completion
+    if verify_setup; then
+        create_pascal_config
+        show_completion
     else
         print_error "Model verification failed"
+        print_status "Ollama is installed but Nemotron model may not be available"
+        print_status "Try downloading manually: ollama pull nemotron-mini:4b-instruct-q4_K_M"
         exit 1
     fi
 }
@@ -479,7 +351,6 @@ main() {
 # Handle interruption
 cleanup_interrupt() {
     print_warning "Setup interrupted"
-    cleanup
     exit 1
 }
 
