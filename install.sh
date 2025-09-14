@@ -365,7 +365,8 @@ print('✅ Installation test passed - All modules imported successfully!')
     
     if [ $? -eq 0 ]; then
         print_success "Installation test passed"
-    else:
+        return 0
+    else
         print_error "Installation test failed"
         return 1
     fi
