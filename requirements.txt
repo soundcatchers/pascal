@@ -1,7 +1,7 @@
-# Pascal AI Assistant - FIXED Requirements (v3.0)
-# Corrected for Raspberry Pi 5 with Groq + Ollama only
+# Pascal AI Assistant - Simplified Requirements
+# Optimized for Nemotron + Groq only
 
-# CRITICAL: HTTP client for APIs (FIXED - ensure proper version)
+# CRITICAL: HTTP client for Groq API
 aiohttp==3.9.1
 requests==2.31.0
 
@@ -23,8 +23,8 @@ json5==0.9.14
 pytest==7.4.3
 pytest-asyncio==0.21.1
 
-# Note: FIXED dependency list for maximum performance
+# Note: Simplified dependency list for maximum performance
 # - Only essential packages for Groq + Ollama functionality
-# - No compilation needed (Ollama handles local models)
+# - No compilation needed (Ollama handles Nemotron model)
 # - Optimized for Pi 5 ARM architecture
 # - Verified compatible versions for Python 3.8+
