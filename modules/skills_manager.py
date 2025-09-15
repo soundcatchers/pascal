@@ -261,6 +261,474 @@ class CalculatorSkill:
                 data=data,
                 execution_time=execution_time,
                 skill_used='calculator',
+                confidence=0.9 if result is not None else 0.3
+            )
+            
+        except Exception as e:
+            execution_time = time.time() - start_time
+            return SkillResult(
+                success=False,
+                response=f"Calculation error: {str(e)}",
+                data={'error': str(e), 'operation_type': 'error'},
+                execution_time=execution_time,
+                skill_used='calculator',
+                confidence=0.0
+            )
+
+class WeatherSkill:
+    """Enhanced weather skill using OpenWeatherMap API"""
+    
+    def __init__(self):
+        self.api_key = os.getenv('OPENWEATHER_API_KEY')
+        self.session = None
+        self.cache = {}
+        self.cache_timeout = 600  # 10 minutes
+    
+    async def initialize(self):
+        """Initialize HTTP session"""
+        if AIOHTTP_AVAILABLE and not self.session:
+            timeout = aiohttp.ClientTimeout(total=15, connect=5)
+            self.session = aiohttp.ClientSession(timeout=timeout)
+    
+    async def close(self):
+        """Close HTTP session"""
+        if self.session:
+            await self.session.close()
+            self.session = None
+    
+    def can_handle(self, query: str) -> bool:
+        """Check if this is a weather query"""
+        patterns = [
+            r'\bweather\b',
+            r'\btemperature\b', 
+            r'\bhot\b.*\bis it\b',
+            r'\bcold\b.*\bis it\b',
+            r'\braining\b',
+            r'\bsnowing\b',
+            r'\bforecast\b',
+            r'\bhumidity\b',
+            r'\bwind\b.*\bspeed\b',
+            r'\bfeels like\b',
+        ]
+        
+        query_lower = query.lower()
+        return any(re.search(pattern, query_lower) for pattern in patterns)
+    
+    def _extract_location(self, query: str) -> str:
+        """Enhanced location extraction"""
+        # Look for "in [location]" pattern
+        in_match = re.search(r'\bin\s+([A-Za-z\s,]{2,50})', query, re.IGNORECASE)
+        if in_match:
+            return in_match.group(1).strip()
+        
+        # Look for "weather for [location]"
+        for_match = re.search(r'\bfor\s+([A-Za-z\s,]{2,50})', query, re.IGNORECASE)
+        if for_match:
+            return for_match.group(1).strip()
+        
+        # Extended city list with countries/states
+        cities = [
+            'london', 'london uk', 'london england',
+            'paris', 'paris france',
+            'new york', 'new york city', 'nyc',
+            'tokyo', 'tokyo japan',
+            'berlin', 'berlin germany',
+            'madrid', 'madrid spain',
+            'rome', 'rome italy',
+            'amsterdam', 'amsterdam netherlands',
+            'chicago', 'chicago il',
+            'los angeles', 'la', 'los angeles ca',
+            'sydney', 'sydney australia',
+            'melbourne', 'melbourne australia',
+            'manchester', 'manchester uk',
+            'birmingham', 'birmingham uk',
+            'liverpool', 'liverpool uk',
+            'edinburgh', 'edinburgh scotland',
+            'glasgow', 'glasgow scotland',
+            'dublin', 'dublin ireland',
+            'toronto', 'toronto canada',
+            'vancouver', 'vancouver canada',
+            'miami', 'miami fl',
+            'seattle', 'seattle wa',
+            'san francisco', 'sf', 'san francisco ca',
+        ]
+        
+        query_lower = query.lower()
+        # Sort by length (longest first) to match more specific locations
+        cities.sort(key=len, reverse=True)
+        
+        for city in cities:
+            if city in query_lower:
+                return city.title()
+        
+        return "London"  # Default
+    
+    def _is_cache_valid(self, cache_key: str) -> bool:
+        """Check if cached data is still valid"""
+        if cache_key not in self.cache:
+            return False
+        
+        cached_time = self.cache[cache_key].get('timestamp', 0)
+        return (time.time() - cached_time) < self.cache_timeout
+    
+    async def execute(self, query: str) -> SkillResult:
+        """Execute enhanced weather query"""
+        start_time = time.time()
+        
+        if not self.api_key:
+            return SkillResult(
+                success=False,
+                response="Weather data requires OpenWeatherMap API key. Add OPENWEATHER_API_KEY to your .env file. Get a free key at https://openweathermap.org/api",
+                execution_time=time.time() - start_time,
+                skill_used='weather',
+                confidence=0.0
+            )
+        
+        location = self._extract_location(query)
+        cache_key = f"weather_{location.lower()}"
+        
+        # Check cache first
+        if self._is_cache_valid(cache_key):
+            cached_data = self.cache[cache_key]['data']
+            return SkillResult(
+                success=True,
+                response=cached_data['response'],
+                data=cached_data,
+                execution_time=time.time() - start_time,
+                skill_used='weather',
+                confidence=0.8  # Slightly lower for cached
+            )
+        
+        if not self.session:
+            await self.initialize()
+        
+        try:
+            # Current weather
+            current_url = "https://api.openweathermap.org/data/2.5/weather"
+            params = {
+                'q': location,
+                'appid': self.api_key,
+                'units': 'metric'
+            }
+            
+            async with self.session.get(current_url, params=params) as response:
+                if response.status == 200:
+                    data = await response.json()
+                    
+                    # Extract comprehensive weather data
+                    temp = data['main']['temp']
+                    feels_like = data['main']['feels_like']
+                    description = data['weather'][0]['description'].title()
+                    humidity = data['main']['humidity']
+                    pressure = data['main'].get('pressure', 0)
+                    wind_speed = data.get('wind', {}).get('speed', 0)
+                    wind_direction = data.get('wind', {}).get('deg', 0)
+                    visibility = data.get('visibility', 0) / 1000  # Convert to km
+                    location_name = data['name']
+                    country = data['sys']['country']
+                    
+                    # Build response based on query specifics
+                    query_lower = query.lower()
+                    if 'temperature' in query_lower:
+                        response_text = f"Temperature in {location_name}: {temp:.1f}°C (feels like {feels_like:.1f}°C)."
+                    elif 'humidity' in query_lower:
+                        response_text = f"Humidity in {location_name}: {humidity}%."
+                    elif 'wind' in query_lower:
+                        response_text = f"Wind in {location_name}: {wind_speed:.1f} m/s."
+                    else:
+                        # Comprehensive response
+                        response_text = f"Weather in {location_name}, {country}: {temp:.1f}°C (feels like {feels_like:.1f}°C), {description}. Humidity: {humidity}%, Wind: {wind_speed:.1f} m/s."
+                    
+                    # Cache the result with comprehensive data
+                    cache_data = {
+                        'response': response_text,
+                        'temperature': temp,
+                        'feels_like': feels_like,
+                        'description': description,
+                        'humidity': humidity,
+                        'pressure': pressure,
+                        'wind_speed': wind_speed,
+                        'wind_direction': wind_direction,
+                        'visibility': visibility,
+                        'location': location_name,
+                        'country': country,
+                        'query_type': 'current_weather',
+                        'timestamp': time.time()
+                    }
+                    self.cache[cache_key] = {'data': cache_data, 'timestamp': time.time()}
+                    
+                    return SkillResult(
+                        success=True,
+                        response=response_text,
+                        data=cache_data,
+                        execution_time=time.time() - start_time,
+                        skill_used='weather',
+                        confidence=0.95
+                    )
+                
+                elif response.status == 404:
+                    return SkillResult(
+                        success=False,
+                        response=f"Weather location '{location}' not found. Try a different city name or include country (e.g., 'London, UK').",
+                        execution_time=time.time() - start_time,
+                        skill_used='weather',
+                        confidence=0.2
+                    )
+                
+                elif response.status == 401:
+                    return SkillResult(
+                        success=False,
+                        response="Invalid OpenWeatherMap API key. Check your OPENWEATHER_API_KEY in .env file.",
+                        execution_time=time.time() - start_time,
+                        skill_used='weather',
+                        confidence=0.0
+                    )
+                
+                else:
+                    return SkillResult(
+                        success=False,
+                        response=f"Weather service error (HTTP {response.status}). Please try again.",
+                        execution_time=time.time() - start_time,
+                        skill_used='weather',
+                        confidence=0.1
+                    )
+                    
+        except Exception as e:
+            return SkillResult(
+                success=False,
+                response=f"Weather request failed: {str(e)}. Check your internet connection.",
+                data={'error': str(e)},
+                execution_time=time.time() - start_time,
+                skill_used='weather',
+                confidence=0.0
+            )
+
+class NewsSkill:
+    """Enhanced news skill using NewsAPI"""
+    
+    def __init__(self):
+        self.api_key = os.getenv('NEWS_API_KEY')
+        self.session = None
+        self.cache = {}
+        self.cache_timeout = 1800  # 30 minutes for news
+    
+    async def initialize(self):
+        """Initialize HTTP session"""
+        if AIOHTTP_AVAILABLE and not self.session:
+            timeout = aiohttp.ClientTimeout(total=15, connect=5)
+            self.session = aiohttp.ClientSession(timeout=timeout)
+    
+    async def close(self):
+        """Close HTTP session"""
+        if self.session:
+            await self.session.close()
+            self.session = None
+    
+    def can_handle(self, query: str) -> bool:
+        """Check if this is a news query"""
+        patterns = [
+            r'\bnews\b',
+            r'\bheadlines\b',
+            r'\bbreaking\b',
+            r'\blatest\b.*\bevents\b',
+            r'\bhappening\b.*\btoday\b',
+            r'\bcurrent events\b',
+            r'\bwhat\'?s happening\b',
+            r'\bin the news\b',
+        ]
+        
+        query_lower = query.lower()
+        return any(re.search(pattern, query_lower) for pattern in patterns)
+    
+    def _extract_category_and_country(self, query: str) -> tuple:
+        """Extract news category and country from query"""
+        query_lower = query.lower()
+        
+        # Country mapping
+        country_mapping = {
+            'uk': 'gb', 'britain': 'gb', 'england': 'gb', 'united kingdom': 'gb',
+            'usa': 'us', 'america': 'us', 'united states': 'us',
+            'germany': 'de', 'france': 'fr', 'spain': 'es', 'italy': 'it',
+            'canada': 'ca', 'australia': 'au', 'india': 'in', 'japan': 'jp'
+        }
+        
+        # Category mapping
+        categories = ['business', 'entertainment', 'general', 'health', 'science', 'sports', 'technology']
+        
+        # Extract country
+        country = 'gb'  # Default
+        for country_name, code in country_mapping.items():
+            if country_name in query_lower:
+                country = code
+                break
+        
+        # Extract category
+        category = 'general'  # Default
+        for cat in categories:
+            if cat in query_lower:
+                category = cat
+                break
+        
+        return category, country
+    
+    def _is_cache_valid(self, cache_key: str) -> bool:
+        """Check if cached news is still valid"""
+        if cache_key not in self.cache:
+            return False
+        
+        cached_time = self.cache[cache_key].get('timestamp', 0)
+        return (time.time() - cached_time) < self.cache_timeout
+    
+    async def execute(self, query: str) -> SkillResult:
+        """Execute enhanced news query"""
+        start_time = time.time()
+        
+        if not self.api_key:
+            return SkillResult(
+                success=False,
+                response="News requires NewsAPI key. Add NEWS_API_KEY to your .env file. Get a free key at https://newsapi.org (100 requests/day free).",
+                execution_time=time.time() - start_time,
+                skill_used='news',
+                confidence=0.0
+            )
+        
+        category, country = self._extract_category_and_country(query)
+        cache_key = f"news_{country}_{category}"
+        
+        # Check cache first
+        if self._is_cache_valid(cache_key):
+            cached_data = self.cache[cache_key]['data']
+            return SkillResult(
+                success=True,
+                response=cached_data['response'],
+                data=cached_data,
+                execution_time=time.time() - start_time,
+                skill_used='news',
+                confidence=0.8
+            )
+        
+        if not self.session:
+            await self.initialize()
+        
+        try:
+            url = "https://newsapi.org/v2/top-headlines"
+            params = {
+                'country': country,
+                'category': category if category != 'general' else None,
+                'apiKey': self.api_key,
+                'pageSize': 7
+            }
+            
+            # Remove None values
+            params = {k: v for k, v in params.items() if v is not None}
+            
+            async with self.session.get(url, params=params) as response:
+                if response.status == 200:
+                    data = await response.json()
+                    
+                    if data['status'] == 'ok' and data['articles']:
+                        headlines = []
+                        response_parts = [f"Latest {category} news from {country.upper()}:\n"]
+                        
+                        for i, article in enumerate(data['articles'][:7], 1):
+                            title = article['title']
+                            source = article['source']['name']
+                            published = article.get('publishedAt', '')
+                            
+                            # Format published time
+                            if published:
+                                try:
+                                    pub_time = datetime.fromisoformat(published.replace('Z', '+00:00'))
+                                    time_str = pub_time.strftime('%H:%M')
+                                    headlines.append({
+                                        'title': title, 
+                                        'source': source,
+                                        'published': time_str,
+                                        'url': article.get('url', '')
+                                    })
+                                    response_parts.append(f"{i}. {title} - {source} ({time_str})")
+                                except:
+                                    headlines.append({
+                                        'title': title, 
+                                        'source': source,
+                                        'published': 'Unknown',
+                                        'url': article.get('url', '')
+                                    })
+                                    response_parts.append(f"{i}. {title} - {source}")
+                            else:
+                                headlines.append({
+                                    'title': title, 
+                                    'source': source,
+                                    'published': 'Unknown',
+                                    'url': article.get('url', '')
+                                })
+                                response_parts.append(f"{i}. {title} - {source}")
+                        
+                        response_text = "\n".join(response_parts)
+                        
+                        # Cache the result
+                        cache_data = {
+                            'response': response_text,
+                            'headlines': headlines,
+                            'category': category,
+                            'country': country.upper(),
+                            'total_articles': len(headlines),
+                            'timestamp': time.time()
+                        }
+                        self.cache[cache_key] = {'data': cache_data, 'timestamp': time.time()}
+                        
+                        return SkillResult(
+                            success=True,
+                            response=response_text,
+                            data=cache_data,
+                            execution_time=time.time() - start_time,
+                            skill_used='news',
+                            confidence=0.9
+                        )
+                    
+                    else:
+                        return SkillResult(
+                            success=False,
+                            response=f"No {category} news articles found for {country.upper()}.",
+                            execution_time=time.time() - start_time,
+                            skill_used='news',
+                            confidence=0.3
+                        )
+                
+                elif response.status == 401:
+                    return SkillResult(
+                        success=False,
+                        response="Invalid NewsAPI key. Check your NEWS_API_KEY in .env file.",
+                        execution_time=time.time() - start_time,
+                        skill_used='news',
+                        confidence=0.0
+                    )
+                
+                elif response.status == 429:
+                    return SkillResult(
+                        success=False,
+                        response="News API rate limit exceeded. Free tier allows 100 requests/day.",
+                        execution_time=time.time() - start_time,
+                        skill_used='news',
+                        confidence=0.1
+                    )
+                
+                else:
+                    return SkillResult(
+                        success=False,
+                        response=f"News service error (HTTP {response.status}). Please try again.",
+                        execution_time=time.time() - start_time,
+                        skill_used='news',
+                        confidence=0.1
+                    )
+                    
+        except Exception as e:
+            return SkillResult(
+                success=False,
+                response=f"News request failed: {str(e)}. Check your internet connection.",
+                data={'error': str(e)},
+                execution_time=time.time() - start_time,
+                skill_used='news',
                 confidence=0.0
             )
 
@@ -743,472 +1211,4 @@ class EnhancedSkillsManager:
             self.confidence_threshold = data['confidence_threshold']
 
 # Global enhanced skills manager instance
-skills_manager = EnhancedSkillsManager()0.9 if result is not None else 0.3
-            )
-            
-        except Exception as e:
-            execution_time = time.time() - start_time
-            return SkillResult(
-                success=False,
-                response=f"Calculation error: {str(e)}",
-                data={'error': str(e), 'operation_type': 'error'},
-                execution_time=execution_time,
-                skill_used='calculator',
-                confidence=0.0
-            )
-
-class WeatherSkill:
-    """Enhanced weather skill using OpenWeatherMap API"""
-    
-    def __init__(self):
-        self.api_key = os.getenv('OPENWEATHER_API_KEY')
-        self.session = None
-        self.cache = {}
-        self.cache_timeout = 600  # 10 minutes
-    
-    async def initialize(self):
-        """Initialize HTTP session"""
-        if AIOHTTP_AVAILABLE and not self.session:
-            timeout = aiohttp.ClientTimeout(total=15, connect=5)
-            self.session = aiohttp.ClientSession(timeout=timeout)
-    
-    async def close(self):
-        """Close HTTP session"""
-        if self.session:
-            await self.session.close()
-            self.session = None
-    
-    def can_handle(self, query: str) -> bool:
-        """Check if this is a weather query"""
-        patterns = [
-            r'\bweather\b',
-            r'\btemperature\b', 
-            r'\bhot\b.*\bis it\b',
-            r'\bcold\b.*\bis it\b',
-            r'\braining\b',
-            r'\bsnowing\b',
-            r'\bforecast\b',
-            r'\bhumidity\b',
-            r'\bwind\b.*\bspeed\b',
-            r'\bfeels like\b',
-        ]
-        
-        query_lower = query.lower()
-        return any(re.search(pattern, query_lower) for pattern in patterns)
-    
-    def _extract_location(self, query: str) -> str:
-        """Enhanced location extraction"""
-        # Look for "in [location]" pattern
-        in_match = re.search(r'\bin\s+([A-Za-z\s,]{2,50})', query, re.IGNORECASE)
-        if in_match:
-            return in_match.group(1).strip()
-        
-        # Look for "weather for [location]"
-        for_match = re.search(r'\bfor\s+([A-Za-z\s,]{2,50})', query, re.IGNORECASE)
-        if for_match:
-            return for_match.group(1).strip()
-        
-        # Extended city list with countries/states
-        cities = [
-            'london', 'london uk', 'london england',
-            'paris', 'paris france',
-            'new york', 'new york city', 'nyc',
-            'tokyo', 'tokyo japan',
-            'berlin', 'berlin germany',
-            'madrid', 'madrid spain',
-            'rome', 'rome italy',
-            'amsterdam', 'amsterdam netherlands',
-            'chicago', 'chicago il',
-            'los angeles', 'la', 'los angeles ca',
-            'sydney', 'sydney australia',
-            'melbourne', 'melbourne australia',
-            'manchester', 'manchester uk',
-            'birmingham', 'birmingham uk',
-            'liverpool', 'liverpool uk',
-            'edinburgh', 'edinburgh scotland',
-            'glasgow', 'glasgow scotland',
-            'dublin', 'dublin ireland',
-            'toronto', 'toronto canada',
-            'vancouver', 'vancouver canada',
-            'miami', 'miami fl',
-            'seattle', 'seattle wa',
-            'san francisco', 'sf', 'san francisco ca',
-        ]
-        
-        query_lower = query.lower()
-        # Sort by length (longest first) to match more specific locations
-        cities.sort(key=len, reverse=True)
-        
-        for city in cities:
-            if city in query_lower:
-                return city.title()
-        
-        return "London"  # Default
-    
-    def _is_cache_valid(self, cache_key: str) -> bool:
-        """Check if cached data is still valid"""
-        if cache_key not in self.cache:
-            return False
-        
-        cached_time = self.cache[cache_key].get('timestamp', 0)
-        return (time.time() - cached_time) < self.cache_timeout
-    
-    async def execute(self, query: str) -> SkillResult:
-        """Execute enhanced weather query"""
-        start_time = time.time()
-        
-        if not self.api_key:
-            return SkillResult(
-                success=False,
-                response="Weather data requires OpenWeatherMap API key. Add OPENWEATHER_API_KEY to your .env file. Get a free key at https://openweathermap.org/api",
-                execution_time=time.time() - start_time,
-                skill_used='weather',
-                confidence=0.0
-            )
-        
-        location = self._extract_location(query)
-        cache_key = f"weather_{location.lower()}"
-        
-        # Check cache first
-        if self._is_cache_valid(cache_key):
-            cached_data = self.cache[cache_key]['data']
-            return SkillResult(
-                success=True,
-                response=cached_data['response'],
-                data=cached_data,
-                execution_time=time.time() - start_time,
-                skill_used='weather',
-                confidence=0.8  # Slightly lower for cached
-            )
-        
-        if not self.session:
-            await self.initialize()
-        
-        try:
-            # Current weather
-            current_url = "https://api.openweathermap.org/data/2.5/weather"
-            params = {
-                'q': location,
-                'appid': self.api_key,
-                'units': 'metric'
-            }
-            
-            async with self.session.get(current_url, params=params) as response:
-                if response.status == 200:
-                    data = await response.json()
-                    
-                    # Extract comprehensive weather data
-                    temp = data['main']['temp']
-                    feels_like = data['main']['feels_like']
-                    description = data['weather'][0]['description'].title()
-                    humidity = data['main']['humidity']
-                    pressure = data['main'].get('pressure', 0)
-                    wind_speed = data.get('wind', {}).get('speed', 0)
-                    wind_direction = data.get('wind', {}).get('deg', 0)
-                    visibility = data.get('visibility', 0) / 1000  # Convert to km
-                    location_name = data['name']
-                    country = data['sys']['country']
-                    
-                    # Build response based on query specifics
-                    query_lower = query.lower()
-                    if 'temperature' in query_lower:
-                        response_text = f"Temperature in {location_name}: {temp:.1f}°C (feels like {feels_like:.1f}°C)."
-                    elif 'humidity' in query_lower:
-                        response_text = f"Humidity in {location_name}: {humidity}%."
-                    elif 'wind' in query_lower:
-                        response_text = f"Wind in {location_name}: {wind_speed:.1f} m/s."
-                    else:
-                        # Comprehensive response
-                        response_text = f"Weather in {location_name}, {country}: {temp:.1f}°C (feels like {feels_like:.1f}°C), {description}. Humidity: {humidity}%, Wind: {wind_speed:.1f} m/s."
-                    
-                    # Cache the result with comprehensive data
-                    cache_data = {
-                        'response': response_text,
-                        'temperature': temp,
-                        'feels_like': feels_like,
-                        'description': description,
-                        'humidity': humidity,
-                        'pressure': pressure,
-                        'wind_speed': wind_speed,
-                        'wind_direction': wind_direction,
-                        'visibility': visibility,
-                        'location': location_name,
-                        'country': country,
-                        'query_type': 'current_weather',
-                        'timestamp': time.time()
-                    }
-                    self.cache[cache_key] = {'data': cache_data, 'timestamp': time.time()}
-                    
-                    return SkillResult(
-                        success=True,
-                        response=response_text,
-                        data=cache_data,
-                        execution_time=time.time() - start_time,
-                        skill_used='weather',
-                        confidence=0.95
-                    )
-                
-                elif response.status == 404:
-                    return SkillResult(
-                        success=False,
-                        response=f"Weather location '{location}' not found. Try a different city name or include country (e.g., 'London, UK').",
-                        execution_time=time.time() - start_time,
-                        skill_used='weather',
-                        confidence=0.2
-                    )
-                
-                elif response.status == 401:
-                    return SkillResult(
-                        success=False,
-                        response="Invalid OpenWeatherMap API key. Check your OPENWEATHER_API_KEY in .env file.",
-                        execution_time=time.time() - start_time,
-                        skill_used='weather',
-                        confidence=0.0
-                    )
-                
-                else:
-                    return SkillResult(
-                        success=False,
-                        response=f"Weather service error (HTTP {response.status}). Please try again.",
-                        execution_time=time.time() - start_time,
-                        skill_used='weather',
-                        confidence=0.1
-                    )
-                    
-        except Exception as e:
-            return SkillResult(
-                success=False,
-                response=f"Weather request failed: {str(e)}. Check your internet connection.",
-                data={'error': str(e)},
-                execution_time=time.time() - start_time,
-                skill_used='weather',
-                confidence=0.0
-            )
-
-class NewsSkill:
-    """Enhanced news skill using NewsAPI"""
-    
-    def __init__(self):
-        self.api_key = os.getenv('NEWS_API_KEY')
-        self.session = None
-        self.cache = {}
-        self.cache_timeout = 1800  # 30 minutes for news
-    
-    async def initialize(self):
-        """Initialize HTTP session"""
-        if AIOHTTP_AVAILABLE and not self.session:
-            timeout = aiohttp.ClientTimeout(total=15, connect=5)
-            self.session = aiohttp.ClientSession(timeout=timeout)
-    
-    async def close(self):
-        """Close HTTP session"""
-        if self.session:
-            await self.session.close()
-            self.session = None
-    
-    def can_handle(self, query: str) -> bool:
-        """Check if this is a news query"""
-        patterns = [
-            r'\bnews\b',
-            r'\bheadlines\b',
-            r'\bbreaking\b',
-            r'\blatest\b.*\bevents\b',
-            r'\bhappening\b.*\btoday\b',
-            r'\bcurrent events\b',
-            r'\bwhat\'?s happening\b',
-            r'\bin the news\b',
-        ]
-        
-        query_lower = query.lower()
-        return any(re.search(pattern, query_lower) for pattern in patterns)
-    
-    def _extract_category_and_country(self, query: str) -> tuple:
-        """Extract news category and country from query"""
-        query_lower = query.lower()
-        
-        # Country mapping
-        country_mapping = {
-            'uk': 'gb', 'britain': 'gb', 'england': 'gb', 'united kingdom': 'gb',
-            'usa': 'us', 'america': 'us', 'united states': 'us',
-            'germany': 'de', 'france': 'fr', 'spain': 'es', 'italy': 'it',
-            'canada': 'ca', 'australia': 'au', 'india': 'in', 'japan': 'jp'
-        }
-        
-        # Category mapping
-        categories = ['business', 'entertainment', 'general', 'health', 'science', 'sports', 'technology']
-        
-        # Extract country
-        country = 'gb'  # Default
-        for country_name, code in country_mapping.items():
-            if country_name in query_lower:
-                country = code
-                break
-        
-        # Extract category
-        category = 'general'  # Default
-        for cat in categories:
-            if cat in query_lower:
-                category = cat
-                break
-        
-        return category, country
-    
-    def _is_cache_valid(self, cache_key: str) -> bool:
-        """Check if cached news is still valid"""
-        if cache_key not in self.cache:
-            return False
-        
-        cached_time = self.cache[cache_key].get('timestamp', 0)
-        return (time.time() - cached_time) < self.cache_timeout
-    
-    async def execute(self, query: str) -> SkillResult:
-        """Execute enhanced news query"""
-        start_time = time.time()
-        
-        if not self.api_key:
-            return SkillResult(
-                success=False,
-                response="News requires NewsAPI key. Add NEWS_API_KEY to your .env file. Get a free key at https://newsapi.org (100 requests/day free).",
-                execution_time=time.time() - start_time,
-                skill_used='news',
-                confidence=0.0
-            )
-        
-        category, country = self._extract_category_and_country(query)
-        cache_key = f"news_{country}_{category}"
-        
-        # Check cache first
-        if self._is_cache_valid(cache_key):
-            cached_data = self.cache[cache_key]['data']
-            return SkillResult(
-                success=True,
-                response=cached_data['response'],
-                data=cached_data,
-                execution_time=time.time() - start_time,
-                skill_used='news',
-                confidence=0.8
-            )
-        
-        if not self.session:
-            await self.initialize()
-        
-        try:
-            url = "https://newsapi.org/v2/top-headlines"
-            params = {
-                'country': country,
-                'category': category if category != 'general' else None,
-                'apiKey': self.api_key,
-                'pageSize': 7
-            }
-            
-            # Remove None values
-            params = {k: v for k, v in params.items() if v is not None}
-            
-            async with self.session.get(url, params=params) as response:
-                if response.status == 200:
-                    data = await response.json()
-                    
-                    if data['status'] == 'ok' and data['articles']:
-                        headlines = []
-                        response_parts = [f"Latest {category} news from {country.upper()}:\n"]
-                        
-                        for i, article in enumerate(data['articles'][:7], 1):
-                            title = article['title']
-                            source = article['source']['name']
-                            published = article.get('publishedAt', '')
-                            
-                            # Format published time
-                            if published:
-                                try:
-                                    pub_time = datetime.fromisoformat(published.replace('Z', '+00:00'))
-                                    time_str = pub_time.strftime('%H:%M')
-                                    headlines.append({
-                                        'title': title, 
-                                        'source': source,
-                                        'published': time_str,
-                                        'url': article.get('url', '')
-                                    })
-                                    response_parts.append(f"{i}. {title} - {source} ({time_str})")
-                                except:
-                                    headlines.append({
-                                        'title': title, 
-                                        'source': source,
-                                        'published': 'Unknown',
-                                        'url': article.get('url', '')
-                                    })
-                                    response_parts.append(f"{i}. {title} - {source}")
-                            else:
-                                headlines.append({
-                                    'title': title, 
-                                    'source': source,
-                                    'published': 'Unknown',
-                                    'url': article.get('url', '')
-                                })
-                                response_parts.append(f"{i}. {title} - {source}")
-                        
-                        response_text = "\n".join(response_parts)
-                        
-                        # Cache the result
-                        cache_data = {
-                            'response': response_text,
-                            'headlines': headlines,
-                            'category': category,
-                            'country': country.upper(),
-                            'total_articles': len(headlines),
-                            'timestamp': time.time()
-                        }
-                        self.cache[cache_key] = {'data': cache_data, 'timestamp': time.time()}
-                        
-                        return SkillResult(
-                            success=True,
-                            response=response_text,
-                            data=cache_data,
-                            execution_time=time.time() - start_time,
-                            skill_used='news',
-                            confidence=0.9
-                        )
-                    
-                    else:
-                        return SkillResult(
-                            success=False,
-                            response=f"No {category} news articles found for {country.upper()}.",
-                            execution_time=time.time() - start_time,
-                            skill_used='news',
-                            confidence=0.3
-                        )
-                
-                elif response.status == 401:
-                    return SkillResult(
-                        success=False,
-                        response="Invalid NewsAPI key. Check your NEWS_API_KEY in .env file.",
-                        execution_time=time.time() - start_time,
-                        skill_used='news',
-                        confidence=0.0
-                    )
-                
-                elif response.status == 429:
-                    return SkillResult(
-                        success=False,
-                        response="News API rate limit exceeded. Free tier allows 100 requests/day.",
-                        execution_time=time.time() - start_time,
-                        skill_used='news',
-                        confidence=0.1
-                    )
-                
-                else:
-                    return SkillResult(
-                        success=False,
-                        response=f"News service error (HTTP {response.status}). Please try again.",
-                        execution_time=time.time() - start_time,
-                        skill_used='news',
-                        confidence=0.1
-                    )
-                    
-        except Exception as e:
-            return SkillResult(
-                success=False,
-                response=f"News request failed: {str(e)}. Check your internet connection.",
-                data={'error': str(e)},
-                execution_time=time.time() - start_time,
-                skill_used='news',
-                confidence
+skills_manager = EnhancedSkillsManager()
