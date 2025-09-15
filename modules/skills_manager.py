@@ -1,5 +1,5 @@
 """
-Pascal AI Assistant - Enhanced Skills Manager with Full API Integration
+Pascal AI Assistant - Enhanced Skills Manager with FIXED News API Implementation
 Handles direct API skills for weather, news, time, calculations with real API calls
 """
 
@@ -504,7 +504,7 @@ class WeatherSkill:
             )
 
 class NewsSkill:
-    """Enhanced news skill using NewsAPI"""
+    """FIXED News skill using NewsAPI with proper authentication"""
     
     def __init__(self):
         self.api_key = os.getenv('NEWS_API_KEY')
@@ -515,8 +515,12 @@ class NewsSkill:
     async def initialize(self):
         """Initialize HTTP session"""
         if AIOHTTP_AVAILABLE and not self.session:
-            timeout = aiohttp.ClientTimeout(total=15, connect=5)
-            self.session = aiohttp.ClientSession(timeout=timeout)
+            timeout = aiohttp.ClientTimeout(total=20, connect=10)
+            # Use User-Agent header to avoid 403 errors
+            headers = {
+                'User-Agent': 'Pascal-AI-Assistant/1.0 (https://github.com/soundcatchers/pascal)'
+            }
+            self.session = aiohttp.ClientSession(timeout=timeout, headers=headers)
     
     async def close(self):
         """Close HTTP session"""
@@ -535,6 +539,7 @@ class NewsSkill:
             r'\bcurrent events\b',
             r'\bwhat\'?s happening\b',
             r'\bin the news\b',
+            r'\btop stories\b'
         ]
         
         query_lower = query.lower()
@@ -544,19 +549,20 @@ class NewsSkill:
         """Extract news category and country from query"""
         query_lower = query.lower()
         
-        # Country mapping
+        # Country mapping - using proper 2-letter ISO codes
         country_mapping = {
             'uk': 'gb', 'britain': 'gb', 'england': 'gb', 'united kingdom': 'gb',
             'usa': 'us', 'america': 'us', 'united states': 'us',
             'germany': 'de', 'france': 'fr', 'spain': 'es', 'italy': 'it',
-            'canada': 'ca', 'australia': 'au', 'india': 'in', 'japan': 'jp'
+            'canada': 'ca', 'australia': 'au', 'india': 'in', 'japan': 'jp',
+            'china': 'cn', 'russia': 'ru', 'brazil': 'br', 'mexico': 'mx'
         }
         
-        # Category mapping
+        # Category mapping - exact NewsAPI categories
         categories = ['business', 'entertainment', 'general', 'health', 'science', 'sports', 'technology']
         
         # Extract country
-        country = 'gb'  # Default
+        country = 'us'  # Default to US for better English results
         for country_name, code in country_mapping.items():
             if country_name in query_lower:
                 country = code
@@ -566,6 +572,13 @@ class NewsSkill:
         category = 'general'  # Default
         for cat in categories:
             if cat in query_lower:
+                category = cat
+                break
+            # Check for common synonyms
+            if cat == 'technology' and any(tech in query_lower for tech in ['tech', 'computer', 'software']):
+                category = cat
+                break
+            elif cat == 'sports' and any(sport in query_lower for sport in ['sport', 'football', 'soccer', 'basketball']):
                 category = cat
                 break
         
@@ -580,13 +593,23 @@ class NewsSkill:
         return (time.time() - cached_time) < self.cache_timeout
     
     async def execute(self, query: str) -> SkillResult:
-        """Execute enhanced news query"""
+        """Execute FIXED news query with proper NewsAPI implementation"""
         start_time = time.time()
         
         if not self.api_key:
             return SkillResult(
                 success=False,
                 response="News requires NewsAPI key. Add NEWS_API_KEY to your .env file. Get a free key at https://newsapi.org (100 requests/day free).",
+                execution_time=time.time() - start_time,
+                skill_used='news',
+                confidence=0.0
+            )
+        
+        # Validate API key format
+        if not self.api_key or len(self.api_key) < 32:
+            return SkillResult(
+                success=False,
+                response="Invalid NewsAPI key format. Check your NEWS_API_KEY in .env file.",
                 execution_time=time.time() - start_time,
                 skill_used='news',
                 confidence=0.0
@@ -611,60 +634,105 @@ class NewsSkill:
             await self.initialize()
         
         try:
+            # Use top-headlines endpoint for latest news
             url = "https://newsapi.org/v2/top-headlines"
+            
+            # Build parameters - FIXED parameter structure
             params = {
-                'country': country,
-                'category': category if category != 'general' else None,
                 'apiKey': self.api_key,
-                'pageSize': 7
+                'pageSize': 5,  # Reduced for faster response
+                'page': 1
             }
             
-            # Remove None values
-            params = {k: v for k, v in params.items() if v is not None}
+            # Add country OR category, but not both if using country
+            # This follows NewsAPI rules
+            if 'general' in category and country != 'us':
+                params['country'] = country
+            elif category != 'general':
+                params['category'] = category
+                # For non-general categories, use sources instead of country for better results
+                if country == 'us':
+                    # Don't specify country for category searches - let it be global
+                    pass
+                else:
+                    params['country'] = country
+            else:
+                params['country'] = country
             
-            async with self.session.get(url, params=params) as response:
+            # Use proper authentication via headers (more secure)
+            headers = {
+                'X-Api-Key': self.api_key,
+                'User-Agent': 'Pascal-AI-Assistant/1.0'
+            }
+            
+            if settings.debug_mode:
+                print(f"[NEWS] Making request to {url} with params: {params}")
+            
+            async with self.session.get(url, params=params, headers=headers) as response:
+                if settings.debug_mode:
+                    print(f"[NEWS] Response status: {response.status}")
+                    response_text = await response.text()
+                    print(f"[NEWS] Response preview: {response_text[:200]}...")
+                
                 if response.status == 200:
-                    data = await response.json()
+                    # Reset to read JSON after debug text read
+                    response_data = json.loads(response_text) if 'response_text' in locals() else await response.json()
                     
-                    if data['status'] == 'ok' and data['articles']:
+                    if response_data.get('status') == 'ok' and response_data.get('articles'):
+                        articles = response_data['articles']
                         headlines = []
-                        response_parts = [f"Latest {category} news from {country.upper()}:\n"]
                         
-                        for i, article in enumerate(data['articles'][:7], 1):
-                            title = article['title']
-                            source = article['source']['name']
+                        if category != 'general':
+                            response_parts = [f"Latest {category} headlines:\n"]
+                        else:
+                            response_parts = [f"Top headlines from {country.upper()}:\n"]
+                        
+                        for i, article in enumerate(articles[:5], 1):
+                            title = article.get('title', 'No title')
+                            source = article.get('source', {}).get('name', 'Unknown')
                             published = article.get('publishedAt', '')
+                            description = article.get('description', '')
+                            url_link = article.get('url', '')
+                            
+                            # Skip removed/deleted articles
+                            if title == '[Removed]' or not title or title.startswith('[Removed]'):
+                                continue
                             
                             # Format published time
+                            time_str = 'Recent'
                             if published:
                                 try:
                                     pub_time = datetime.fromisoformat(published.replace('Z', '+00:00'))
                                     time_str = pub_time.strftime('%H:%M')
-                                    headlines.append({
-                                        'title': title, 
-                                        'source': source,
-                                        'published': time_str,
-                                        'url': article.get('url', '')
-                                    })
-                                    response_parts.append(f"{i}. {title} - {source} ({time_str})")
                                 except:
-                                    headlines.append({
-                                        'title': title, 
-                                        'source': source,
-                                        'published': 'Unknown',
-                                        'url': article.get('url', '')
-                                    })
-                                    response_parts.append(f"{i}. {title} - {source}")
-                            else:
-                                headlines.append({
-                                    'title': title, 
-                                    'source': source,
-                                    'published': 'Unknown',
-                                    'url': article.get('url', '')
-                                })
-                                response_parts.append(f"{i}. {title} - {source}")
+                                    time_str = 'Recent'
+                            
+                            headlines.append({
+                                'title': title,
+                                'source': source,
+                                'published': time_str,
+                                'url': url_link,
+                                'description': description[:100] + '...' if description and len(description) > 100 else description
+                            })
+                            
+                            # Format for response
+                            response_parts.append(f"{i}. {title}")
+                            response_parts.append(f"   Source: {source} ({time_str})")
+                            if description and len(description) > 10:
+                                desc_short = description[:80] + '...' if len(description) > 80 else description
+                                response_parts.append(f"   {desc_short}")
+                            response_parts.append("")  # Empty line for spacing
                         
-                        response_text = "\n".join(response_parts)
+                        if not headlines:
+                            return SkillResult(
+                                success=False,
+                                response=f"No valid {category} news articles found for {country.upper()}.",
+                                execution_time=time.time() - start_time,
+                                skill_used='news',
+                                confidence=0.3
+                            )
+                        
+                        response_text = "\n".join(response_parts).strip()
                         
                         # Cache the result
                         cache_data = {
@@ -673,7 +741,8 @@ class NewsSkill:
                             'category': category,
                             'country': country.upper(),
                             'total_articles': len(headlines),
-                            'timestamp': time.time()
+                            'timestamp': time.time(),
+                            'source_api': 'newsapi.org'
                         }
                         self.cache[cache_key] = {'data': cache_data, 'timestamp': time.time()}
                         
@@ -685,6 +754,36 @@ class NewsSkill:
                             skill_used='news',
                             confidence=0.9
                         )
+                    
+                    elif response_data.get('status') == 'error':
+                        # Handle API errors
+                        error_code = response_data.get('code', 'unknown')
+                        error_message = response_data.get('message', 'Unknown error')
+                        
+                        if error_code == 'apiKeyInvalid':
+                            return SkillResult(
+                                success=False,
+                                response="Invalid NewsAPI key. Please check your NEWS_API_KEY in .env file.",
+                                execution_time=time.time() - start_time,
+                                skill_used='news',
+                                confidence=0.0
+                            )
+                        elif error_code == 'rateLimited':
+                            return SkillResult(
+                                success=False,
+                                response="NewsAPI rate limit exceeded. Free tier allows 100 requests/day.",
+                                execution_time=time.time() - start_time,
+                                skill_used='news',
+                                confidence=0.1
+                            )
+                        else:
+                            return SkillResult(
+                                success=False,
+                                response=f"NewsAPI error: {error_message}",
+                                execution_time=time.time() - start_time,
+                                skill_used='news',
+                                confidence=0.2
+                            )
                     
                     else:
                         return SkillResult(
@@ -698,7 +797,7 @@ class NewsSkill:
                 elif response.status == 401:
                     return SkillResult(
                         success=False,
-                        response="Invalid NewsAPI key. Check your NEWS_API_KEY in .env file.",
+                        response="Unauthorized: Invalid NewsAPI key. Check your NEWS_API_KEY in .env file.",
                         execution_time=time.time() - start_time,
                         skill_used='news',
                         confidence=0.0
@@ -707,25 +806,57 @@ class NewsSkill:
                 elif response.status == 429:
                     return SkillResult(
                         success=False,
-                        response="News API rate limit exceeded. Free tier allows 100 requests/day.",
+                        response="Rate limited: NewsAPI free tier allows 100 requests/day. Try again later.",
+                        execution_time=time.time() - start_time,
+                        skill_used='news',
+                        confidence=0.1
+                    )
+                
+                elif response.status == 403:
+                    return SkillResult(
+                        success=False,
+                        response="Access forbidden: Check your NewsAPI subscription and key permissions.",
                         execution_time=time.time() - start_time,
                         skill_used='news',
                         confidence=0.1
                     )
                 
                 else:
+                    error_text = await response.text()
+                    if settings.debug_mode:
+                        print(f"[NEWS] HTTP {response.status} error: {error_text[:200]}")
+                    
                     return SkillResult(
                         success=False,
-                        response=f"News service error (HTTP {response.status}). Please try again.",
+                        response=f"News service error (HTTP {response.status}). Please try again later.",
                         execution_time=time.time() - start_time,
                         skill_used='news',
                         confidence=0.1
                     )
                     
-        except Exception as e:
+        except asyncio.TimeoutError:
             return SkillResult(
                 success=False,
-                response=f"News request failed: {str(e)}. Check your internet connection.",
+                response="News request timed out. Please check your internet connection.",
+                execution_time=time.time() - start_time,
+                skill_used='news',
+                confidence=0.0
+            )
+        except json.JSONDecodeError as e:
+            return SkillResult(
+                success=False,
+                response="Failed to parse news response. The news service may be temporarily unavailable.",
+                data={'error': str(e)},
+                execution_time=time.time() - start_time,
+                skill_used='news',
+                confidence=0.0
+            )
+        except Exception as e:
+            if settings.debug_mode:
+                print(f"[NEWS] Unexpected error: {e}")
+            return SkillResult(
+                success=False,
+                response=f"News request failed: {str(e)[:100]}. Check your internet connection.",
                 data={'error': str(e)},
                 execution_time=time.time() - start_time,
                 skill_used='news',
@@ -733,7 +864,7 @@ class NewsSkill:
             )
 
 class EnhancedSkillsManager:
-    """Enhanced skills manager with full API integration and intelligent routing"""
+    """Enhanced skills manager with FIXED News API integration"""
     
     def __init__(self):
         self.datetime_skill = DateTimeSkill()
@@ -770,7 +901,7 @@ class EnhancedSkillsManager:
         await self.weather_skill.initialize()
         await self.news_skill.initialize()
         
-        # Test API connections
+        # Test API connections with improved error handling
         api_status = await self._test_api_connections()
         
         print("📊 API Status:")
@@ -781,7 +912,7 @@ class EnhancedSkillsManager:
         return api_status
     
     async def _test_api_connections(self) -> Dict[str, Dict[str, Any]]:
-        """Test all API connections"""
+        """Test all API connections with improved error handling"""
         status = {}
         
         # Test OpenWeatherMap
@@ -791,7 +922,7 @@ class EnhancedSkillsManager:
                 test_result = await self.weather_skill.execute("weather in London")
                 status['OpenWeatherMap'] = {
                     'available': test_result.success,
-                    'message': 'Connected and working' if test_result.success else 'API key invalid or connection failed'
+                    'message': 'Connected and working' if test_result.success else f'Error: {test_result.response[:50]}'
                 }
             except Exception as e:
                 status['OpenWeatherMap'] = {
@@ -804,19 +935,26 @@ class EnhancedSkillsManager:
                 'message': 'API key not configured (add OPENWEATHER_API_KEY to .env)'
             }
         
-        # Test NewsAPI
+        # Test NewsAPI with improved testing
         if self.news_skill.api_key:
             try:
+                # Test with a simple news query
                 test_result = await self.news_skill.execute("latest news")
                 status['NewsAPI'] = {
                     'available': test_result.success,
-                    'message': 'Connected and working' if test_result.success else 'API key invalid or connection failed'
+                    'message': 'Connected and working' if test_result.success else f'Error: {test_result.response[:50]}'
                 }
+                
+                if settings.debug_mode:
+                    print(f"[SKILLS] NewsAPI test result: {test_result.success}, {test_result.response[:100]}")
+                    
             except Exception as e:
                 status['NewsAPI'] = {
                     'available': False,
                     'message': f'Connection error: {str(e)[:50]}'
                 }
+                if settings.debug_mode:
+                    print(f"[SKILLS] NewsAPI test exception: {e}")
         else:
             status['NewsAPI'] = {
                 'available': False,
@@ -914,9 +1052,14 @@ class EnhancedSkillsManager:
                         
                         return result
                 except Exception as e:
+                    if settings.debug_mode:
+                        print(f"[SKILLS] Error executing {skill_name}: {e}")
+                        import traceback
+                        traceback.print_exc()
+                    
                     error_result = SkillResult(
                         success=False,
-                        response=f"Skill execution error: {str(e)}",
+                        response=f"Skill execution error: {str(e)[:100]}",
                         data={'error': str(e), 'skill': skill_name},
                         execution_time=time.time() - start_time,
                         skill_used=skill_name,
@@ -1161,7 +1304,7 @@ class EnhancedSkillsManager:
             'api_configured': weather_available
         })
         
-        # News skill
+        # News skill - FIXED
         news_available = bool(self.news_skill.api_key)
         skills_info.append({
             'name': 'news',
