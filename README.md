@@ -343,3 +343,25 @@ ollama ps                     # Show running models
 
 **Made with ❤️ for Raspberry Pi enthusiasts and AI developers**  
 **Powered by 🦙 Ollama for the best local AI experience**
+
+Configure API Keys (Optional but Recommended)
+Get free API keys for enhanced functionality:
+Weather API (OpenWeatherMap)
+
+Visit: https://openweathermap.org/api
+Sign up for free account
+Get API key (1,000 calls/day free)
+Add to .env: OPENWEATHER_API_KEY=your_key_here
+
+News API (NewsAPI)
+
+Visit: https://newsapi.org
+Sign up for free account
+Get API key (100 requests/day free)
+Add to .env: NEWS_API_KEY=your_key_here
+
+Groq API (Required for current info)
+
+Visit: https://console.groq.com/
+Get free API key
+Add to .env: GROQ_API_KEY=gsk_your_key_here
