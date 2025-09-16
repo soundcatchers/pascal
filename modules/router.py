@@ -1,5 +1,5 @@
 """
-Pascal AI Assistant - Enhanced Router with Full Skills Integration
+Pascal AI Assistant - FIXED Enhanced Router with Skills Integration
 3-Tier System: Skills (instant) -> Nemotron (fast) -> Groq (current info)
 """
 
@@ -45,7 +45,7 @@ class RouteDecision:
         return self.route_type == 'online'
 
 class EnhancedRouter:
-    """Enhanced 3-tier router: Skills -> Nemotron -> Groq"""
+    """FIXED Enhanced 3-tier router: Skills -> Nemotron -> Groq"""
     
     def __init__(self, personality_manager, memory_manager):
         self.personality_manager = personality_manager
@@ -77,48 +77,72 @@ class EnhancedRouter:
             'fallback_count': 0,      # How often we had to fall back
         }
         
-        # Complex current info patterns (that need LLM interpretation)
-        self.complex_current_info_patterns = [
-            r'\bis it good weather for\b',          # "Is it good weather for running?"
-            r'\bshould i wear\b.*\bweather\b',      # "Should I wear a jacket today?"
-            r'\bcompare\b.*\bweather\b',            # "Compare weather in London and Paris"
-            r'\bweather\b.*\band\b.*\bnews\b',      # "Weather and news today"
-            r'\bhow does.*relate to\b',             # Complex correlations
-            r'\banalyze\b.*\bcurrent\b',            # Analysis requests
-            r'\bwhat should i do\b.*\btoday\b',     # Decision requests
-            r'\bsummarize\b.*\b(news|weather)\b',   # Summary requests
-        ]
-        
-        # Simple current info patterns (direct skills can handle)
-        self.simple_current_info_patterns = [
+        # Enhanced current info patterns for better detection
+        self.current_info_patterns = [
+            # Date/time queries
             r'\bwhat time is it\b',
             r'\bwhat day is today\b',
             r'\bwhat date is today\b',
             r'\bcurrent time\b',
             r'\bcurrent date\b',
+            r'\btoday\'?s date\b',
+            r'\bwhat is the date\b',
+            r'\bwhat is the time\b',
+            r'\btime now\b',
+            r'\bdate now\b',
+            
+            # Political queries
+            r'\bcurrent president\b',
+            r'\bwho is president\b',
+            r'\bpresident now\b',
+            r'\bcurrent prime minister\b',
+            r'\bcurrent leader\b',
+            r'\bwho is the current\b',
+            
+            # News queries
+            r'\blatest news\b',
+            r'\brecent news\b',
+            r'\bnews today\b',
+            r'\bbreaking news\b',
+            r'\bcurrent events\b',
+            r'\bwhat\'?s happening\b',
+            r'\bin the news\b',
+            r'\bnews headlines\b',
+            
+            # Weather queries
+            r'\bweather today\b',
+            r'\bcurrent weather\b',
+            r'\bweather now\b',
             r'\bweather in\b',
             r'\btemperature in\b',
-            r'\blatest news\b',
-            r'\bcalculate\b',
-            r'\bwhat is \d+',
+            r'\bis it hot\b',
+            r'\bis it cold\b',
+            r'\braining\b',
+            
+            # General current info
+            r'\bright now\b',
+            r'\bat the moment\b',
+            r'\bcurrently\b',
+            r'\bthis moment\b',
         ]
     
     async def _check_system_availability(self):
-        """Check availability of all systems: Skills, Offline LLM, Online LLM"""
+        """FIXED: Check availability of all systems: Skills, Offline LLM, Online LLM"""
         try:
             if settings.debug_mode:
                 print("[ROUTER] Checking enhanced 3-tier system availability...")
             
-            # Initialize Enhanced Skills Manager (highest priority)
+            # FIXED: Initialize Enhanced Skills Manager (highest priority)
             try:
-                from modules.skills_manager import skills_manager
-                self.skills_manager = skills_manager
+                # Import and initialize skills manager
+                from modules.skills_manager import EnhancedSkillsManager
+                self.skills_manager = EnhancedSkillsManager()
                 
                 # Initialize with full API testing
                 api_status = await self.skills_manager.initialize()
                 self.skills_available = True
                 
-                print("✅ Enhanced Skills Manager ready:")
+                print("🚀 Enhanced Skills Manager ready:")
                 for service, status in api_status.items():
                     status_icon = "✅" if status['available'] else "⚠️"
                     print(f"   {status_icon} {service}: {status['message']}")
@@ -126,10 +150,9 @@ class EnhancedRouter:
                 # Show skill recommendations
                 recommendations = self.skills_manager.get_skill_recommendations()
                 if recommendations:
-                    print("💡 Recommendations:")
+                    print("💡 Skills Recommendations:")
                     for rec in recommendations[:3]:  # Show top 3
                         print(f"   • {rec['message']}")
-                        print(f"     Action: {rec['action']}")
                 
             except Exception as e:
                 print(f"❌ Enhanced Skills Manager failed: {e}")
@@ -137,6 +160,7 @@ class EnhancedRouter:
                     import traceback
                     traceback.print_exc()
                 self.skills_available = False
+                self.skills_manager = None
             
             # Initialize offline LLM (Nemotron via Ollama)
             try:
@@ -239,39 +263,59 @@ class EnhancedRouter:
         print("3. For Online AI:")
         print("   • Add GROQ_API_KEY to .env (free at console.groq.com)")
     
-    def _needs_complex_current_info(self, query: str) -> bool:
-        """Check if query needs complex current info interpretation (LLM required)"""
+    def _detect_current_info(self, query: str) -> bool:
+        """FIXED: Enhanced current info detection"""
         query_lower = query.lower().strip()
         
-        # Check for complex patterns that need LLM interpretation
-        for pattern in self.complex_current_info_patterns:
+        # Check against all current info patterns
+        for pattern in self.current_info_patterns:
             if re.search(pattern, query_lower):
                 if settings.debug_mode:
-                    print(f"[ROUTER] 🧠 Complex current info detected: needs LLM")
+                    print(f"[ROUTER] 🎯 Current info pattern detected: '{pattern}'")
+                return True
+        
+        # Additional single word triggers with context
+        single_triggers = ['today', 'now', 'current', 'latest', 'recent']
+        words = query_lower.split()
+        
+        for word in words:
+            if word in single_triggers:
+                # Avoid false positives for educational queries
+                if any(avoid in query_lower for avoid in ['explain', 'definition', 'what is', 'how does', 'why', 'example', 'meaning']):
+                    continue
+                if settings.debug_mode:
+                    print(f"[ROUTER] 🎯 Current info trigger detected: '{word}'")
                 return True
         
         return False
     
-    def _can_handle_with_skills(self, query: str) -> bool:
-        """Check if enhanced skills can handle this query directly"""
+    def _can_handle_with_skills(self, query: str) -> Optional[str]:
+        """FIXED: Check if enhanced skills can handle this query directly"""
         if not self.skills_available or not self.skills_manager:
-            return False
+            return None
         
-        skill_name = self.skills_manager.can_handle_directly(query)
-        return skill_name is not None
+        try:
+            skill_name = self.skills_manager.can_handle_directly(query)
+            if skill_name and settings.debug_mode:
+                print(f"[ROUTER] 🎯 Skill '{skill_name}' can handle query")
+            return skill_name
+        except Exception as e:
+            if settings.debug_mode:
+                print(f"[ROUTER] ❌ Error checking skills: {e}")
+            return None
     
     def _decide_route(self, query: str) -> RouteDecision:
-        """Enhanced 3-tier routing decision with skills priority"""
+        """FIXED: Enhanced 3-tier routing decision with skills priority"""
         
         # TIER 1: Check if enhanced skills can handle this directly (0.001-2s)
         if self.skills_available and self.skills_manager:
-            skill_name = self.skills_manager.can_handle_directly(query)
+            skill_name = self._can_handle_with_skills(query)
             if skill_name:
                 # Determine estimated time based on skill type
                 if skill_name in ['datetime', 'calculator']:
-                    estimated_time = "0.001s"
+                    estimated_time = "Instant (0.001s)"
                 else:  # weather, news
-                    estimated_time = "0.5-2s"
+                    estimated_time = "Fast (0.5-2s)"
                 
                 return RouteDecision(
                     'skill',
@@ -281,15 +325,15 @@ class EnhancedRouter:
                     confidence=0.95
                 )
         
-        # TIER 2: Check for complex current info that needs LLM + real data
-        is_complex_current_info = self._needs_complex_current_info(query)
-        if is_complex_current_info:
+        # TIER 2: Check for current info queries that need online LLM + real data
+        is_current_info = self._detect_current_info(query)
+        if is_current_info:
             if self.online_available:
                 return RouteDecision(
                     'online',
-                    "Complex current info query - needs LLM + real data",
+                    "Current info query - needs LLM + real data",
                     is_current_info=True,
-                    estimated_time="2-4s",
+                    estimated_time="Fast (2-4s)",
                     confidence=0.85
                 )
             else:
@@ -297,8 +341,8 @@ class EnhancedRouter:
                 if self.offline_available:
                     return RouteDecision(
                         'offline',
-                        "Complex query - offline LLM (limited current info)",
-                        estimated_time="0.5-2s",
+                        "Current info query - offline LLM (limited capability)",
+                        estimated_time="Fast (0.5-2s)",
                         confidence=0.6
                     )
         
@@ -307,7 +351,7 @@ class EnhancedRouter:
             return RouteDecision(
                 'offline',
                 "General conversation - local Nemotron",
-                estimated_time="0.5-2s",
+                estimated_time="Fast (0.5-2s)",
                 confidence=0.8
             )
         
@@ -316,7 +360,7 @@ class EnhancedRouter:
             return RouteDecision(
                 'online',
                 "Fallback to Groq - no offline LLM available",
-                estimated_time="2-4s",
+                estimated_time="Moderate (2-4s)",
                 confidence=0.7
             )
         
@@ -337,123 +381,8 @@ class EnhancedRouter:
             confidence=0.0
         )
     
-    async def get_response(self, query: str) -> str:
-        """Get response using enhanced 3-tier system"""
-        decision = self._decide_route(query)
-        self.last_decision = decision
-        
-        if settings.debug_mode:
-            tier_name = {
-                'skill': f"TIER 1: {decision.skill_name.upper() if decision.skill_name else 'SKILL'}",
-                'offline': "TIER 2: NEMOTRON", 
-                'online': "TIER 3: GROQ"
-            }.get(decision.route_type, "ERROR")
-            
-            print(f"[ROUTER] 🎯 {tier_name} ({decision.estimated_time}) - {decision.reason}")
-        
-        start_time = time.time()
-        
-        try:
-            # TIER 1: Enhanced Direct Skills
-            if decision.use_skill and self.skills_manager:
-                result = await self.skills_manager.execute_skill(query, decision.skill_name)
-                if result and result.success:
-                    execution_time = time.time() - start_time
-                    self._update_stats('skill', execution_time, True)
-                    
-                    # Calculate time saved vs LLM
-                    estimated_llm_time = 2.0  # Average LLM response time
-                    time_saved = max(0, estimated_llm_time - execution_time)
-                    self.stats['total_time_saved'] += time_saved
-                    
-                    if settings.debug_mode:
-                        print(f"[ROUTER] ✅ Enhanced skill executed in {result.execution_time:.3f}s (saved {time_saved:.2f}s)")
-                    
-                    return result.response
-                else:
-                    # Skill failed, fallback to LLM
-                    self.stats['fallback_count'] += 1
-                    if settings.debug_mode:
-                        print(f"[ROUTER] ⚠️ Enhanced skill failed, falling back to LLM")
-                    
-                    if self.offline_available:
-                        decision.route_type = 'offline'
-                        decision.reason = "Enhanced skill failed - fallback to Nemotron"
-                    elif self.online_available:
-                        decision.route_type = 'online'
-                        decision.reason = "Enhanced skill failed - fallback to Groq"
-            
-            # TIER 2: Offline LLM (Nemotron)
-            if decision.use_offline and self.offline_llm:
-                personality_context = await self.personality_manager.get_system_prompt()
-                memory_context = await self.memory_manager.get_context()
-                
-                response = await self.offline_llm.generate_response(
-                    query, personality_context, memory_context
-                )
-                self._update_stats('offline', time.time() - start_time)
-                
-                if settings.debug_mode:
-                    elapsed = time.time() - start_time
-                    print(f"[ROUTER] ✅ Used NEMOTRON in {elapsed:.2f}s")
-                
-                return response
-            
-            # TIER 3: Online LLM (Groq)
-            if decision.use_online and self.online_llm:
-                personality_context = await self.personality_manager.get_system_prompt()
-                memory_context = await self.memory_manager.get_context()
-                
-                response = await self.online_llm.generate_response(
-                    query, personality_context, memory_context
-                )
-                self._update_stats('online', time.time() - start_time)
-                
-                if settings.debug_mode:
-                    elapsed = time.time() - start_time
-                    print(f"[ROUTER] ✅ Used GROQ in {elapsed:.2f}s")
-                
-                return response
-            
-            # No systems available
-            return ("I'm sorry, but I'm unable to process your request right now. "
-                   "Please check that Pascal's systems are properly configured.")
-                   
-        except Exception as e:
-            if settings.debug_mode:
-                print(f"❌ Error in {decision.route_type} system: {e}")
-            
-            # Try fallback
-            try:
-                if decision.route_type == 'skill' or decision.route_type == 'offline':
-                    if self.online_llm:
-                        if settings.debug_mode:
-                            print("[ROUTER] 🔄 Trying Groq fallback")
-                        personality_context = await self.personality_manager.get_system_prompt()
-                        memory_context = await self.memory_manager.get_context()
-                        return await self.online_llm.generate_response(query, personality_context, memory_context)
-                        
-                elif decision.route_type == 'online':
-                    if self.offline_llm:
-                        if settings.debug_mode:
-                            print("[ROUTER] 🔄 Trying Nemotron fallback")
-                        personality_context = await self.personality_manager.get_system_prompt()
-                        memory_context = await self.memory_manager.get_context()
-                        return await self.offline_llm.generate_response(query, personality_context, memory_context)
-                    elif self.skills_manager:
-                        # Try skills as last resort
-                        result = await self.skills_manager.execute_skill(query)
-                        if result and result.success:
-                            return result.response
-                        
-            except Exception as fallback_error:
-                if settings.debug_mode:
-                    print(f"❌ Fallback also failed: {fallback_error}")
-            
-            return f"I'm having trouble processing your request right now."
-    
     async def get_streaming_response(self, query: str) -> AsyncGenerator[str, None]:
-        """Get streaming response using enhanced 3-tier system"""
+        """FIXED: Get streaming response using enhanced 3-tier system"""
         decision = self._decide_route(query)
         self.last_decision = decision
         
@@ -471,15 +400,41 @@ class EnhancedRouter:
         try:
             # TIER 1: Enhanced Direct Skills (yield all at once - they're fast)
             if decision.use_skill and self.skills_manager:
-                result = await self.skills_manager.execute_skill(query, decision.skill_name)
-                if result and result.success:
-                    self._update_stats('skill', time.time() - start_time, True)
-                    yield result.response
-                    return
-                else:
-                    # Skill failed, fallback to streaming LLM
-                    self.stats['fallback_count'] += 1
-                    decision.route_type = 'offline' if self.offline_available else 'online'
+                try:
+                    result = await self.skills_manager.execute_skill(query, decision.skill_name)
+                    if result and result.success:
+                        self._update_stats('skill', time.time() - start_time, True)
+                        
+                        # Calculate time saved vs LLM
+                        estimated_llm_time = 2.0  # Average LLM response time
+                        time_saved = max(0, estimated_llm_time - result.execution_time)
+                        self.stats['total_time_saved'] += time_saved
+                        
+                        if settings.debug_mode:
+                            print(f"[ROUTER] ✅ Enhanced skill executed in {result.execution_time:.3f}s (saved {time_saved:.2f}s)")
+                        
+                        yield result.response
+                        return
+                    else:
+                        # Skill failed, fallback to streaming LLM
+                        self.stats['fallback_count'] += 1
+                        if settings.debug_mode:
+                            print(f"[ROUTER] ⚠️ Enhanced skill failed, falling back to LLM")
+                        
+                        if self.offline_available:
+                            decision.route_type = 'offline'
+                            decision.reason = "Enhanced skill failed - fallback to Nemotron"
+                        elif self.online_available:
+                            decision.route_type = 'online'
+                            decision.reason = "Enhanced skill failed - fallback to Groq"
+                except Exception as e:
+                    if settings.debug_mode:
+                        print(f"[ROUTER] ❌ Skill execution error: {e}")
+                    # Fallback to LLM
+                    if self.offline_available:
+                        decision.route_type = 'offline'
+                    elif self.online_available:
+                        decision.route_type = 'online'
             
             # TIER 2: Offline LLM Streaming (Nemotron)
             if decision.use_offline and self.offline_llm:
@@ -514,12 +469,12 @@ class EnhancedRouter:
                 return
             
             # No systems available
-            yield "I'm sorry, but I'm unable to process your request right now."
+            yield "I'm sorry, but I'm unable to process your request right now. Please check that Pascal's systems are properly configured."
             
         except Exception as e:
             if settings.debug_mode:
                 print(f"❌ Streaming error in {decision.route_type}: {e}")
-            yield f"I'm experiencing technical difficulties right now."
+            yield f"I'm experiencing technical difficulties: {str(e)[:100]}"
     
     def _update_stats(self, route_type: str, response_time: float, success: bool = True):
         """Update enhanced performance statistics"""
