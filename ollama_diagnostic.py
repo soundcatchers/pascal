@@ -35,6 +35,28 @@ async def test_ollama_service():
         if result.returncode == 0 and 'active' in result.stdout:
             print("✅ Ollama service is running")
         else:
+            print("❌ Ollama service is not running")
+            print("💡 Try: sudo systemctl start ollama")
+            print("💡 Enable auto-start: sudo systemctl enable ollama")
+            return False
+    except subprocess.TimeoutExpired:
+        print("⚠️ Systemctl command timed out")
+    except FileNotFoundError:
+        print("⚠️ systemctl not found (may not be a systemd system)")
+    except Exception as e:
+        print(f"⚠️ Error checking service: {e}")
+    
+    # Test 2: Check if Ollama command is available
+    print("\n2. 🔍 Checking Ollama Command:")
+    print("-" * 30)
+    
+    try:
+        result = subprocess.run(['ollama', '--version'], 
+                              capture_output=True, text=True, timeout=10)
+        if result.returncode == 0:
+            version = result.stdout.strip()
+            print(f"✅ Ollama command available: {version}")
+        else:
             print("❌ Ollama command failed")
             print("💡 Install Ollama: curl -fsSL https://ollama.ai/install.sh | sh")
             return False
@@ -316,26 +338,4 @@ if __name__ == "__main__":
         sys.exit(1)
     except Exception as e:
         print(f"\n❌ Fatal error: {e}")
-        sys.exit(1) service is not running")
-            print("💡 Try: sudo systemctl start ollama")
-            print("💡 Enable auto-start: sudo systemctl enable ollama")
-            return False
-    except subprocess.TimeoutExpired:
-        print("⚠️ Systemctl command timed out")
-    except FileNotFoundError:
-        print("⚠️ systemctl not found (may not be a systemd system)")
-    except Exception as e:
-        print(f"⚠️ Error checking service: {e}")
-    
-    # Test 2: Check if Ollama command is available
-    print("\n2. 🔍 Checking Ollama Command:")
-    print("-" * 30)
-    
-    try:
-        result = subprocess.run(['ollama', '--version'], 
-                              capture_output=True, text=True, timeout=10)
-        if result.returncode == 0:
-            version = result.stdout.strip()
-            print(f"✅ Ollama command available: {version}")
-        else:
-            print("❌ Ollama
+        sys.exit(1)
