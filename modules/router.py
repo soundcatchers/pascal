@@ -476,6 +476,24 @@ class EnhancedRouter:
                 print(f"❌ Streaming error in {decision.route_type}: {e}")
             yield f"I'm experiencing technical difficulties: {str(e)[:100]}"
     
+    # ADDED: Non-streaming response method for compatibility
+    async def get_response(self, query: str) -> str:
+        """Get non-streaming response by collecting streaming chunks"""
+        response_parts = []
+        async for chunk in self.get_streaming_response(query):
+            response_parts.append(chunk)
+        return ''.join(response_parts)
+    
+    # ADDED: Method to check if current information is needed
+    def _needs_current_information(self, query: str) -> bool:
+        """Check if query needs current information (alias for _detect_current_info)"""
+        return self._detect_current_info(query)
+    
+    # ADDED: Method to check LLM availability
+    async def _check_llm_availability(self):
+        """Check LLM availability (called by test scripts)"""
+        await self._check_system_availability()
+    
     def _update_stats(self, route_type: str, response_time: float, success: bool = True):
         """Update enhanced performance statistics"""
         if route_type == 'skill':
