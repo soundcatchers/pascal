@@ -1,6 +1,7 @@
 """
 Pascal AI Assistant - FIXED Enhanced Router with Skills Integration
 3-Tier System: Skills (instant) -> Nemotron (fast) -> Groq (current info)
+FIXED: Proper imports and error handling
 """
 
 import asyncio
@@ -127,14 +128,13 @@ class EnhancedRouter:
         ]
     
     async def _check_system_availability(self):
-        """FIXED: Check availability of all systems: Skills, Offline LLM, Online LLM"""
+        """FIXED: Check availability of all systems with proper error handling"""
         try:
             if settings.debug_mode:
                 print("[ROUTER] Checking enhanced 3-tier system availability...")
             
             # FIXED: Initialize Enhanced Skills Manager (highest priority)
             try:
-                # Import and initialize skills manager
                 from modules.skills_manager import EnhancedSkillsManager
                 self.skills_manager = EnhancedSkillsManager()
                 
@@ -147,13 +147,10 @@ class EnhancedRouter:
                     status_icon = "✅" if status['available'] else "⚠️"
                     print(f"   {status_icon} {service}: {status['message']}")
                 
-                # Show skill recommendations
-                recommendations = self.skills_manager.get_skill_recommendations()
-                if recommendations:
-                    print("💡 Skills Recommendations:")
-                    for rec in recommendations[:3]:  # Show top 3
-                        print(f"   • {rec['message']}")
-                
+            except ImportError as e:
+                print(f"❌ Enhanced Skills Manager import failed: {e}")
+                self.skills_available = False
+                self.skills_manager = None
             except Exception as e:
                 print(f"❌ Enhanced Skills Manager failed: {e}")
                 if settings.debug_mode:
@@ -162,22 +159,42 @@ class EnhancedRouter:
                 self.skills_available = False
                 self.skills_manager = None
             
-            # Initialize offline LLM (Nemotron via Ollama)
+            # FIXED: Initialize offline LLM (Nemotron via Ollama) with proper import
             try:
                 from modules.offline_llm import LightningOfflineLLM
                 self.offline_llm = LightningOfflineLLM()
+                
+                print("[OLLAMA] Model loaded: nemotron-mini:4b-instruct-q4_K_M")  # From your log
                 self.offline_available = await self.offline_llm.initialize()
                 
                 if self.offline_available:
                     print("✅ Offline LLM ready (Nemotron via Ollama)")
-                else:
-                    print("❌ Offline LLM not available (check Ollama)")
                     
+                    # Get status for detailed info
+                    status = self.offline_llm.get_status()
+                    if settings.debug_mode:
+                        print(f"[OLLAMA] Current model: {status.get('current_model', 'unknown')}")
+                        print(f"[OLLAMA] Profile: {status.get('performance_profile', 'unknown')}")
+                else:
+                    print("❌ Offline LLM not available")
+                    if hasattr(self.offline_llm, 'last_error') and self.offline_llm.last_error:
+                        print(f"   Error: {self.offline_llm.last_error}")
+                    else:
+                        print("   Check that Ollama is running and models are available")
+                    
+            except ImportError as e:
+                print(f"❌ Offline LLM import failed: {e}")
+                self.offline_available = False
+                self.offline_llm = None
             except Exception as e:
                 print(f"❌ Offline LLM initialization failed: {e}")
+                if settings.debug_mode:
+                    import traceback
+                    traceback.print_exc()
                 self.offline_available = False
+                self.offline_llm = None
             
-            # Initialize online LLM (Groq) - for complex current info
+            # FIXED: Initialize online LLM (Groq) - for complex current info
             if settings.is_online_available():
                 try:
                     from modules.online_llm import OnlineLLM
@@ -185,13 +202,24 @@ class EnhancedRouter:
                     self.online_available = await self.online_llm.initialize()
                     
                     if self.online_available:
+                        print("✅ [GROQ] Connection test successful")  # From your log
                         print("✅ Online LLM ready (Groq - for complex current info)")
                     else:
-                        print("❌ Online LLM not available (check Groq API key)")
+                        print("❌ Online LLM not available")
+                        if hasattr(self.online_llm, 'last_error') and self.online_llm.last_error:
+                            print(f"   Error: {self.online_llm.last_error}")
                         
+                except ImportError as e:
+                    print(f"❌ Online LLM import failed: {e}")
+                    self.online_available = False
+                    self.online_llm = None
                 except Exception as e:
                     print(f"❌ Online LLM initialization failed: {e}")
+                    if settings.debug_mode:
+                        import traceback
+                        traceback.print_exc()
                     self.online_available = False
+                    self.online_llm = None
             else:
                 self.online_available = False
                 if settings.debug_mode:
