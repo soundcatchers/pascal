@@ -1,5 +1,5 @@
 """
-Pascal AI Assistant - Enhanced Main Entry Point (v4.0)
+Pascal AI Assistant - FIXED Main Entry Point (v4.0)
 Features: Enhanced Skills + Nemotron + Groq with 3-tier routing
 """
 
@@ -22,7 +22,7 @@ from modules.personality import PersonalityManager
 from modules.memory import MemoryManager
 
 class Pascal:
-    """Enhanced Pascal AI Assistant with 3-tier system"""
+    """FIXED Enhanced Pascal AI Assistant with 3-tier system"""
     
     def __init__(self):
         self.console = Console()
@@ -45,7 +45,7 @@ class Pascal:
         }
     
     async def initialize(self):
-        """Initialize Pascal's enhanced components"""
+        """FIXED: Initialize Pascal's enhanced components"""
         try:
             self.console.print(Panel.fit(
                 Text("⚡ Pascal AI Assistant v4.0 - Enhanced Skills Edition", style="bold cyan"),
@@ -60,10 +60,10 @@ class Pascal:
             await self.personality_manager.load_personality("default")
             await self.memory_manager.load_session()
             
-            # Initialize enhanced router with skills
+            # FIXED: Initialize enhanced router with skills
             self.router = LightningRouter(self.personality_manager, self.memory_manager)
             
-            # Check enhanced system availability
+            # FIXED: Check enhanced system availability
             await self.router._check_system_availability()
             
             # Verify at least one system is available
@@ -92,7 +92,7 @@ class Pascal:
             return False
     
     def display_status(self):
-        """Display Pascal's enhanced status with performance metrics"""
+        """FIXED: Display Pascal's enhanced status with performance metrics"""
         config = settings.get_config_summary()
         router_stats = self.router.get_router_stats() if self.router else {}
         
@@ -194,7 +194,7 @@ class Pascal:
             self.console.print(Panel(rec_text, title="💡 Recommendations", border_style="yellow"))
     
     async def process_command(self, user_input: str) -> bool:
-        """Process special commands including enhanced skills commands"""
+        """FIXED: Process special commands including enhanced skills commands"""
         command = user_input.lower().strip()
         
         if command in ['quit', 'exit', 'bye']:
@@ -295,7 +295,7 @@ class Pascal:
         return True  # Continue running
     
     async def chat_loop(self):
-        """Enhanced chat interaction loop with 3-tier routing"""
+        """FIXED: Enhanced chat interaction loop with 3-tier routing"""
         import time
         self.session_stats['start_time'] = time.time()
         
