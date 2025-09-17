@@ -1,6 +1,6 @@
 """
-Pascal AI Assistant - FIXED Offline LLM (Ollama Integration)
-Properly named class with robust Ollama connectivity
+Pascal AI Assistant - High-Performance Offline LLM (Ollama Integration)
+OPTIMIZED for Raspberry Pi 5 - Target: 2-4 second responses
 """
 
 import asyncio
@@ -15,280 +15,272 @@ except ImportError:
     AIOHTTP_AVAILABLE = False
 
 class LightningOfflineLLM:
-    """FIXED: Properly named Lightning Offline LLM with robust Ollama integration"""
+    """High-performance offline LLM optimized for Pi 5 with sub-4s responses"""
     
     def __init__(self):
         from config.settings import settings
         self.settings = settings
+        
+        # Connection management
         self.session = None
+        self.connector = None
         self.available = False
         self.model_loaded = False
         self.current_model = None
         self.keep_alive_task = None
         
-        # Ollama configuration - FIXED with better defaults
+        # Ollama configuration - OPTIMIZED for Pi 5
         self.host = settings.ollama_host
-        self.timeout = min(settings.ollama_timeout, 20)  # Reasonable timeout
-        self.keep_alive_duration = settings.ollama_keep_alive
+        self.keep_alive_duration = "30m"  # Keep model loaded for 30 minutes
         
         # Performance tracking
         self.request_count = 0
         self.total_time = 0.0
         self.error_count = 0
         self.last_error = None
+        self.response_times = []
         
-        # FIXED generation settings optimized for Pi 5
-        self.generation_config = {
+        # OPTIMIZED generation settings for Pi 5 speed
+        self.fast_config = {
             'temperature': 0.7,
             'top_p': 0.9,
             'top_k': 40,
             'repeat_penalty': 1.05,
-            'num_predict': 150,      # Balanced response length
-            'num_ctx': 1024,         # Reasonable context for Pi 5
+            'num_predict': 100,      # Reduced for speed
+            'num_ctx': 512,          # Reduced context for Pi 5
             'num_thread': 4,         # Use all Pi 5 cores
             'num_gpu': 0,            # CPU only on Pi
             'stop': ["</s>", "<|end|>", "<|eot_id|>", "Human:", "User:", "\n\nHuman:", "\n\nUser:"]
         }
         
-        # Performance profiles optimized for different use cases
+        # Performance profiles - OPTIMIZED
         self.performance_profiles = {
             'speed': {
-                'num_predict': 80,       # Quick responses
+                'num_predict': 50,       # Very short responses
                 'temperature': 0.3,      # More focused
-                'num_ctx': 512,          # Less context for speed
-                'timeout': 10,
-                'description': 'Fast responses (1-3s)'
+                'num_ctx': 256,          # Minimal context
+                'timeout': 5,
+                'description': 'Ultra-fast (1-2s)'
             },
             'balanced': {
-                'num_predict': 150,      # Balanced length
+                'num_predict': 100,      # Balanced length
                 'temperature': 0.7,
-                'num_ctx': 1024,         # Good context
-                'timeout': 15,
-                'description': 'Balanced performance (2-5s)'
+                'num_ctx': 512,          # Reasonable context
+                'timeout': 8,
+                'description': 'Balanced (2-4s)'
             },
             'quality': {
-                'num_predict': 250,      # Longer responses
+                'num_predict': 200,      # Longer responses
                 'temperature': 0.8,
-                'num_ctx': 2048,         # Full context
-                'timeout': 25,
-                'description': 'Best quality (3-8s)'
+                'num_ctx': 1024,         # Full context
+                'timeout': 15,
+                'description': 'Best quality (4-8s)'
             }
         }
-        self.current_profile = 'balanced'
+        self.current_profile = 'balanced'  # Start with balanced
+        
+        # Model preferences - OPTIMIZED order
+        self.preferred_models = [
+            'nemotron-fast',                    # Our optimized model
+            'nemotron-mini:4b-instruct-q4_K_M', # Original model
+            'qwen2.5:3b',                       # Fallback 1
+            'phi3:mini',                        # Fallback 2
+            'llama3.2:3b',                      # Fallback 3
+        ]
     
     async def initialize(self) -> bool:
-        """FIXED: Initialize Ollama client with proper error handling"""
+        """Initialize with optimized connection settings"""
         if not AIOHTTP_AVAILABLE:
-            self.last_error = "aiohttp not available - install with: pip install aiohttp"
-            if self.settings.debug_mode:
-                print(f"[OLLAMA] ❌ {self.last_error}")
+            self.last_error = "aiohttp not available - install: pip install aiohttp"
             return False
         
         try:
-            # Create session with reasonable timeouts
+            # OPTIMIZED connection settings for Pi 5
             timeout = aiohttp.ClientTimeout(
-                total=30,           # Overall timeout
-                connect=5,          # Connection timeout
-                sock_read=20        # Read timeout
+                total=20,           # Reasonable total timeout
+                connect=3,          # Fast connection timeout
+                sock_read=15        # Read timeout
             )
-            connector = aiohttp.TCPConnector(
-                limit=5,            # Connection pool limit
-                force_close=True,   # Always close connections
-                enable_cleanup_closed=True
-            )
-            self.session = aiohttp.ClientSession(timeout=timeout, connector=connector)
             
-            # Test Ollama connection
-            if not await self._test_ollama_connection():
-                self.last_error = "Cannot connect to Ollama service"
+            # Optimized connector for Pi 5
+            self.connector = aiohttp.TCPConnector(
+                limit=2,                    # Minimal connection pool
+                limit_per_host=2,           # Per-host limit
+                force_close=True,           # Always close connections
+                enable_cleanup_closed=True, # Cleanup
+                keepalive_timeout=30,       # Short keepalive
+                use_dns_cache=True          # Cache DNS
+            )
+            
+            self.session = aiohttp.ClientSession(
+                timeout=timeout, 
+                connector=self.connector,
+                headers={'Connection': 'close'}  # Don't keep connections open
+            )
+            
+            # Test connection with fast timeout
+            if not await self._test_connection_fast():
+                self.last_error = "Cannot connect to Ollama - check service"
                 return False
             
-            # Load best available model
-            if await self._load_best_model():
-                # Start keep-alive task
-                self.keep_alive_task = asyncio.create_task(self._keep_alive_loop())
+            # Load optimized model
+            if await self._load_optimized_model():
+                # Start lightweight keep-alive
+                self.keep_alive_task = asyncio.create_task(self._keep_alive_lightweight())
                 self.available = True
                 
                 if self.settings.debug_mode:
-                    print(f"[OLLAMA] ✅ Model loaded: {self.current_model}")
-                    print(f"[OLLAMA] ✅ Profile: {self.current_profile}")
-                    print(f"[OLLAMA] ✅ Context: {self.generation_config['num_ctx']} tokens")
+                    print(f"[OLLAMA] ✅ Optimized model loaded: {self.current_model}")
+                    print(f"[OLLAMA] ✅ Profile: {self.current_profile} ({self.performance_profiles[self.current_profile]['description']})")
+                    print(f"[OLLAMA] ✅ Context: {self.fast_config['num_ctx']} tokens")
                 
                 return True
             else:
-                self.last_error = "No suitable model found or failed to load"
+                self.last_error = "Failed to load optimized model"
                 return False
                 
         except Exception as e:
             self.last_error = f"Initialization failed: {str(e)}"
             if self.settings.debug_mode:
-                print(f"[OLLAMA] ❌ Initialization failed: {e}")
+                print(f"[OLLAMA] ❌ Initialization error: {e}")
             return False
     
-    async def _test_ollama_connection(self) -> bool:
-        """FIXED: Test Ollama connection with better error handling"""
+    async def _test_connection_fast(self) -> bool:
+        """Fast connection test with minimal timeout"""
         try:
-            if self.settings.debug_mode:
-                print(f"[OLLAMA] Testing connection to {self.host}")
-            
             async with self.session.get(
                 f"{self.host}/api/version",
-                timeout=aiohttp.ClientTimeout(total=8)
+                timeout=aiohttp.ClientTimeout(total=5)
             ) as response:
                 if response.status == 200:
-                    version_data = await response.json()
+                    data = await response.json()
                     if self.settings.debug_mode:
-                        print(f"[OLLAMA] ✅ Connected - Ollama version: {version_data.get('version', 'unknown')}")
+                        print(f"[OLLAMA] ✅ Connected - Ollama v{data.get('version', 'unknown')}")
                     return True
-                else:
-                    if self.settings.debug_mode:
-                        print(f"[OLLAMA] ❌ Connection failed: HTTP {response.status}")
-                    return False
-                    
-        except asyncio.TimeoutError:
-            if self.settings.debug_mode:
-                print(f"[OLLAMA] ❌ Connection timeout to {self.host}")
-            return False
+                return False
         except Exception as e:
             if self.settings.debug_mode:
-                print(f"[OLLAMA] ❌ Connection error: {e}")
+                print(f"[OLLAMA] ❌ Connection test failed: {e}")
             return False
     
-    async def _get_available_models(self) -> List[str]:
-        """FIXED: Get available models with error handling"""
+    async def _get_available_models_fast(self) -> List[str]:
+        """Get available models with fast timeout"""
         try:
             async with self.session.get(
                 f"{self.host}/api/tags",
-                timeout=aiohttp.ClientTimeout(total=10)
+                timeout=aiohttp.ClientTimeout(total=8)
             ) as response:
                 if response.status == 200:
                     data = await response.json()
                     models = [model['name'] for model in data.get('models', [])]
-                    if self.settings.debug_mode:
-                        print(f"[OLLAMA] Available models: {models}")
                     return models
-                else:
-                    if self.settings.debug_mode:
-                        print(f"[OLLAMA] ❌ Failed to get models: HTTP {response.status}")
-                    return []
+                return []
         except Exception as e:
             if self.settings.debug_mode:
-                print(f"[OLLAMA] ❌ Error getting models: {e}")
+                print(f"[OLLAMA] ❌ Error listing models: {e}")
             return []
     
-    async def _load_best_model(self) -> bool:
-        """FIXED: Load the best available model with fallbacks"""
+    async def _load_optimized_model(self) -> bool:
+        """Load the best optimized model available"""
         try:
-            available_models = await self._get_available_models()
+            available_models = await self._get_available_models_fast()
             
             if not available_models:
                 if self.settings.debug_mode:
                     print("[OLLAMA] ❌ No models available")
-                    print("[OLLAMA] 💡 Try: ollama pull nemotron-mini:4b-instruct-q4_K_M")
                 return False
             
-            # Preferred models in order of preference
-            preferred_models = [
-                'nemotron-mini:4b-instruct-q4_K_M',  # Primary choice
-                'nemotron-mini',                      # Alternative naming
-                'qwen2.5:3b',                        # Fallback 1
-                'phi3:mini',                         # Fallback 2
-                'llama3.2:3b',                       # Fallback 3
-                'gemma2:2b'                          # Fallback 4
-            ]
-            
+            # Find best model
             model_to_load = None
-            
-            # Find best available model
-            for preferred in preferred_models:
+            for preferred in self.preferred_models:
                 for available in available_models:
-                    if preferred in available or available in preferred:
+                    if preferred == available or preferred in available:
                         model_to_load = available
                         break
                 if model_to_load:
                     break
             
-            # If no preferred model found, use first available
             if not model_to_load:
                 model_to_load = available_models[0]
                 if self.settings.debug_mode:
-                    print(f"[OLLAMA] ⚠️ Using first available model: {model_to_load}")
-            else:
-                if self.settings.debug_mode:
-                    print(f"[OLLAMA] ✅ Selected preferred model: {model_to_load}")
+                    print(f"[OLLAMA] ⚠️ Using first available: {model_to_load}")
             
-            # Load the model
-            return await self._load_specific_model(model_to_load)
+            # Load model with optimized settings
+            return await self._load_model_optimized(model_to_load)
             
         except Exception as e:
             if self.settings.debug_mode:
-                print(f"[OLLAMA] ❌ Model loading failed: {e}")
+                print(f"[OLLAMA] ❌ Model loading error: {e}")
             return False
     
-    async def _load_specific_model(self, model_name: str) -> bool:
-        """FIXED: Load a specific model with proper configuration"""
+    async def _load_model_optimized(self, model_name: str) -> bool:
+        """Load model with Pi 5 optimized settings"""
         try:
             if self.settings.debug_mode:
-                print(f"[OLLAMA] Loading model: {model_name}")
+                print(f"[OLLAMA] Loading optimized model: {model_name}")
             
-            # Use current profile settings
-            profile_config = self.performance_profiles[self.current_profile].copy()
-            config = {**self.generation_config}
-            config.update({k: v for k, v in profile_config.items() 
+            # Get current profile settings
+            profile = self.performance_profiles[self.current_profile]
+            config = {**self.fast_config}
+            config.update({k: v for k, v in profile.items() 
                           if k not in ['timeout', 'description']})
             
+            # Optimized test payload
             payload = {
                 "model": model_name,
-                "keep_alive": self.keep_alive_duration,
-                "prompt": "Hello",  # Simple test prompt
+                "prompt": "Hi",  # Minimal test prompt
                 "options": config,
-                "stream": False
+                "stream": False,
+                "keep_alive": self.keep_alive_duration
             }
             
-            load_timeout = profile_config.get('timeout', 15)
+            timeout_val = profile.get('timeout', 8)
             
             async with self.session.post(
                 f"{self.host}/api/generate",
                 json=payload,
-                timeout=aiohttp.ClientTimeout(total=load_timeout + 10)  # Extra time for loading
+                timeout=aiohttp.ClientTimeout(total=timeout_val + 5)
             ) as response:
                 if response.status == 200:
                     data = await response.json()
                     if 'response' in data:
                         self.current_model = model_name
                         self.model_loaded = True
+                        
                         if self.settings.debug_mode:
-                            print(f"[OLLAMA] ✅ Model loaded successfully: {model_name}")
+                            load_time = data.get('total_duration', 0) / 1e9
+                            print(f"[OLLAMA] ✅ Model loaded in {load_time:.2f}s: {model_name}")
+                        
                         return True
                     else:
                         if self.settings.debug_mode:
-                            print(f"[OLLAMA] ❌ Invalid response from model: {data}")
+                            print(f"[OLLAMA] ❌ Invalid response: {data}")
                         return False
                 else:
                     error_text = await response.text()
                     if self.settings.debug_mode:
-                        print(f"[OLLAMA] ❌ Failed to load model: {response.status} - {error_text[:200]}")
+                        print(f"[OLLAMA] ❌ Load failed: {response.status} - {error_text[:100]}")
                     return False
                     
         except asyncio.TimeoutError:
             if self.settings.debug_mode:
-                print(f"[OLLAMA] ❌ Model loading timeout for {model_name}")
+                print(f"[OLLAMA] ❌ Model load timeout: {model_name}")
             return False
         except Exception as e:
             if self.settings.debug_mode:
-                print(f"[OLLAMA] ❌ Model loading error: {e}")
+                print(f"[OLLAMA] ❌ Model load error: {e}")
             return False
     
-    async def _keep_alive_loop(self):
-        """FIXED: Keep-alive loop with better error handling"""
+    async def _keep_alive_lightweight(self):
+        """Lightweight keep-alive to prevent model unloading"""
         while self.model_loaded and self.current_model:
             try:
-                await asyncio.sleep(60)  # Check every minute
+                await asyncio.sleep(300)  # Check every 5 minutes
                 
                 if not self.current_model:
                     break
                 
-                # Send minimal keep-alive request
+                # Minimal keep-alive request
                 payload = {
                     "model": self.current_model,
                     "keep_alive": self.keep_alive_duration,
@@ -299,114 +291,84 @@ class LightningOfflineLLM:
                 async with self.session.post(
                     f"{self.host}/api/generate",
                     json=payload,
-                    timeout=aiohttp.ClientTimeout(total=10)
+                    timeout=aiohttp.ClientTimeout(total=8)
                 ) as response:
-                    if response.status != 200 and self.settings.debug_mode:
+                    if self.settings.debug_mode and response.status != 200:
                         print(f"[OLLAMA] ⚠️ Keep-alive warning: {response.status}")
                         
             except asyncio.CancelledError:
                 if self.settings.debug_mode:
-                    print("[OLLAMA] Keep-alive task cancelled")
+                    print("[OLLAMA] Keep-alive cancelled")
                 break
             except Exception as e:
                 if self.settings.debug_mode:
                     print(f"[OLLAMA] ⚠️ Keep-alive error: {e}")
-                # Continue trying - don't break on errors
-                await asyncio.sleep(30)  # Wait before retrying
+                # Continue trying
+                await asyncio.sleep(60)
+    
+    def _build_fast_prompt(self, query: str, personality_context: str, memory_context: str) -> str:
+        """Build optimized prompt for fast inference"""
+        # Keep prompt minimal for speed
+        parts = []
+        
+        # Essential personality context only (truncated)
+        if personality_context:
+            parts.append(personality_context[:200])
+        
+        # Recent memory only (truncated)
+        if memory_context:
+            parts.append(f"Context: {memory_context[:150]}")
+        
+        # Build based on current model
+        if self.current_model and 'nemotron' in self.current_model.lower():
+            # Nemotron format - simple and fast
+            if parts:
+                context = " ".join(parts)
+                prompt = f"System: {context}\n\nUser: {query}\nAssistant:"
+            else:
+                prompt = f"User: {query}\nAssistant:"
+        else:
+            # Generic format
+            if parts:
+                context = " ".join(parts)
+                prompt = f"{context}\n\nUser: {query}\nAssistant:"
+            else:
+                prompt = f"User: {query}\nAssistant:"
+        
+        return prompt
     
     def set_performance_profile(self, profile: str):
-        """FIXED: Set performance profile with validation"""
+        """Set performance profile with immediate effect"""
         if profile in self.performance_profiles:
             self.current_profile = profile
             
-            # Update generation config
+            # Update fast_config
             profile_config = self.performance_profiles[profile]
-            self.generation_config.update({
+            self.fast_config.update({
                 k: v for k, v in profile_config.items() 
                 if k not in ['timeout', 'description']
             })
             
             if self.settings.debug_mode:
-                print(f"[OLLAMA] ✅ Set profile: {profile} - {profile_config['description']}")
-                print(f"[OLLAMA] Settings: predict={self.generation_config['num_predict']}, "
-                      f"ctx={self.generation_config['num_ctx']}")
+                print(f"[OLLAMA] ✅ Profile: {profile} - {profile_config['description']}")
         else:
             if self.settings.debug_mode:
                 print(f"[OLLAMA] ❌ Invalid profile: {profile}")
     
-    def _build_optimized_prompt(self, query: str, personality_context: str, memory_context: str) -> str:
-        """FIXED: Build optimized prompt for the current model"""
-        # Keep contexts short for performance
-        context_parts = []
-        
-        if personality_context:
-            context_parts.append(personality_context[:300])  # Limit personality context
-        
-        if memory_context:
-            context_parts.append(f"Recent context: {memory_context[:200]}")  # Limit memory context
-        
-        # Build prompt based on model type
-        if self.current_model:
-            model_lower = self.current_model.lower()
-            
-            if 'nemotron' in model_lower:
-                # Nemotron format
-                base_context = " ".join(context_parts)
-                if base_context:
-                    prompt = f"System: {base_context}\n\nUser: {query}\nAssistant:"
-                else:
-                    prompt = f"User: {query}\nAssistant:"
-                    
-            elif 'gemma' in model_lower:
-                # Gemma format
-                base_context = " ".join(context_parts)
-                if base_context:
-                    prompt = f"<start_of_turn>system\n{base_context}<end_of_turn>\n<start_of_turn>user\n{query}<end_of_turn>\n<start_of_turn>model\n"
-                else:
-                    prompt = f"<start_of_turn>user\n{query}<end_of_turn>\n<start_of_turn>model\n"
-                    
-            elif 'phi' in model_lower:
-                # Phi format
-                base_context = " ".join(context_parts)
-                if base_context:
-                    prompt = f"<|system|>\n{base_context}<|end|>\n<|user|>\n{query}<|end|>\n<|assistant|>\n"
-                else:
-                    prompt = f"<|user|>\n{query}<|end|>\n<|assistant|>\n"
-                    
-            elif 'llama' in model_lower:
-                # Llama format
-                base_context = " ".join(context_parts)
-                if base_context:
-                    prompt = f"<|begin_of_text|><|start_header_id|>system<|end_header_id|>\n{base_context}<|eot_id|><|start_header_id|>user<|end_header_id|>\n{query}<|eot_id|><|start_header_id|>assistant<|end_header_id|>\n"
-                else:
-                    prompt = f"<|begin_of_text|><|start_header_id|>user<|end_header_id|>\n{query}<|eot_id|><|start_header_id|>assistant<|end_header_id|>\n"
-            else:
-                # Generic format
-                base_context = " ".join(context_parts)
-                if base_context:
-                    prompt = f"{base_context}\n\nUser: {query}\nAssistant:"
-                else:
-                    prompt = f"User: {query}\nAssistant:"
-        else:
-            # Fallback format
-            prompt = f"User: {query}\nAssistant:"
-        
-        return prompt
-    
     async def generate_response(self, query: str, personality_context: str, memory_context: str) -> str:
-        """FIXED: Generate response with proper error handling"""
+        """Generate response with Pi 5 optimization"""
         if not self.available or not self.model_loaded:
-            return "Offline model is not available. Please check that Ollama is running and a model is loaded."
+            return "Offline model unavailable. Check Ollama service and models."
+        
+        start_time = time.time()
         
         try:
-            start_time = time.time()
+            prompt = self._build_fast_prompt(query, personality_context, memory_context)
             
-            prompt = self._build_optimized_prompt(query, personality_context, memory_context)
-            
-            # Use current profile settings
-            profile_config = self.performance_profiles[self.current_profile].copy()
-            config = {**self.generation_config}
-            config.update({k: v for k, v in profile_config.items() 
+            # Use current profile
+            profile = self.performance_profiles[self.current_profile]
+            config = {**self.fast_config}
+            config.update({k: v for k, v in profile.items() 
                           if k not in ['timeout', 'description']})
             
             payload = {
@@ -417,71 +379,76 @@ class LightningOfflineLLM:
                 "keep_alive": self.keep_alive_duration
             }
             
-            request_timeout = profile_config.get('timeout', 15)
+            timeout_val = profile.get('timeout', 8)
             
             async with self.session.post(
                 f"{self.host}/api/generate",
                 json=payload,
-                timeout=aiohttp.ClientTimeout(total=request_timeout)
+                timeout=aiohttp.ClientTimeout(total=timeout_val)
             ) as response:
                 if response.status == 200:
                     data = await response.json()
                     response_text = data.get('response', '').strip()
                     
-                    # Update stats
-                    self.request_count += 1
-                    elapsed_time = time.time() - start_time
-                    self.total_time += elapsed_time
+                    # Update performance tracking
+                    elapsed = time.time() - start_time
+                    self._update_performance_stats(elapsed, True)
                     
                     if self.settings.debug_mode:
-                        print(f"[OLLAMA] ✅ Response in {elapsed_time:.2f}s (profile: {self.current_profile})")
+                        tokens_per_sec = data.get('eval_count', 0) / max(data.get('eval_duration', 1) / 1e9, 0.001)
+                        print(f"[OLLAMA] ✅ Response in {elapsed:.2f}s ({tokens_per_sec:.1f} tok/s)")
                     
                     return response_text or "I wasn't able to generate a response."
                     
                 else:
                     error_text = await response.text()
-                    self.error_count += 1
-                    self.last_error = f"HTTP {response.status}: {error_text[:100]}"
+                    self._update_performance_stats(time.time() - start_time, False)
+                    self.last_error = f"HTTP {response.status}"
                     
                     if self.settings.debug_mode:
-                        print(f"[OLLAMA] ❌ API error: {self.last_error}")
+                        print(f"[OLLAMA] ❌ API error: {response.status}")
                     
-                    return f"I encountered an error: {self.last_error}"
+                    return f"Model error: {response.status}"
                     
         except asyncio.TimeoutError:
-            self.error_count += 1
-            elapsed_time = time.time() - start_time
-            self.last_error = f"Timeout after {elapsed_time:.1f}s"
+            elapsed = time.time() - start_time
+            self._update_performance_stats(elapsed, False)
+            self.last_error = f"Timeout after {elapsed:.1f}s"
             
             if self.settings.debug_mode:
-                print(f"[OLLAMA] ❌ {self.last_error}")
+                print(f"[OLLAMA] ❌ Timeout after {elapsed:.1f}s")
             
-            return f"Response timed out after {elapsed_time:.1f}s. Try the 'speed' profile for faster responses."
+            # Suggest faster profile
+            if self.current_profile != 'speed':
+                return f"Response timed out. Try 'speed' profile for faster responses."
+            else:
+                return f"Response timed out even on speed profile. Check Ollama performance."
             
         except Exception as e:
-            self.error_count += 1
+            elapsed = time.time() - start_time
+            self._update_performance_stats(elapsed, False)
             self.last_error = str(e)
             
             if self.settings.debug_mode:
                 print(f"[OLLAMA] ❌ Error: {e}")
             
-            return f"I encountered an error: {str(e)[:100]}"
+            return f"Model error: {str(e)[:50]}"
     
     async def generate_response_stream(self, query: str, personality_context: str, memory_context: str) -> AsyncGenerator[str, None]:
-        """FIXED: Generate streaming response with proper error handling"""
+        """Generate streaming response with Pi 5 optimization"""
         if not self.available or not self.model_loaded:
-            yield "Offline model is not available. Please check that Ollama is running and a model is loaded."
+            yield "Offline model unavailable. Check Ollama service and models."
             return
         
+        start_time = time.time()
+        
         try:
-            start_time = time.time()
+            prompt = self._build_fast_prompt(query, personality_context, memory_context)
             
-            prompt = self._build_optimized_prompt(query, personality_context, memory_context)
-            
-            # Use current profile settings
-            profile_config = self.performance_profiles[self.current_profile].copy()
-            config = {**self.generation_config}
-            config.update({k: v for k, v in profile_config.items() 
+            # Use current profile
+            profile = self.performance_profiles[self.current_profile]
+            config = {**self.fast_config}
+            config.update({k: v for k, v in profile.items() 
                           if k not in ['timeout', 'description']})
             
             payload = {
@@ -492,14 +459,15 @@ class LightningOfflineLLM:
                 "keep_alive": self.keep_alive_duration
             }
             
-            request_timeout = profile_config.get('timeout', 15)
+            timeout_val = profile.get('timeout', 8)
             
             async with self.session.post(
                 f"{self.host}/api/generate",
                 json=payload,
-                timeout=aiohttp.ClientTimeout(total=request_timeout + 5)  # Extra time for streaming
+                timeout=aiohttp.ClientTimeout(total=timeout_val + 10)  # Extra time for streaming
             ) as response:
                 if response.status == 200:
+                    first_chunk = True
                     response_received = False
                     
                     async for line in response.content:
@@ -511,107 +479,194 @@ class LightningOfflineLLM:
                                     chunk = data['response']
                                     yield chunk
                                     response_received = True
+                                    
+                                    # Log first chunk timing
+                                    if first_chunk and self.settings.debug_mode:
+                                        first_chunk_time = time.time() - start_time
+                                        print(f"[OLLAMA] ⚡ First chunk in {first_chunk_time:.2f}s")
+                                        first_chunk = False
                                 
                                 if data.get('done', False):
-                                    self.request_count += 1
-                                    elapsed_time = time.time() - start_time
-                                    self.total_time += elapsed_time
+                                    elapsed = time.time() - start_time
+                                    self._update_performance_stats(elapsed, True)
                                     
                                     if self.settings.debug_mode:
-                                        print(f"\n[OLLAMA] ✅ Streaming complete in {elapsed_time:.2f}s")
+                                        print(f"[OLLAMA] ✅ Streaming complete in {elapsed:.2f}s")
                                     break
                                     
                             except json.JSONDecodeError:
                                 continue
                     
                     if not response_received:
-                        yield "I wasn't able to generate a response."
+                        yield "No response generated."
                         
                 else:
                     error_text = await response.text()
-                    self.error_count += 1
-                    self.last_error = f"HTTP {response.status}: {error_text[:100]}"
+                    self._update_performance_stats(time.time() - start_time, False)
                     
                     if self.settings.debug_mode:
-                        print(f"[OLLAMA] ❌ Streaming error: {self.last_error}")
+                        print(f"[OLLAMA] ❌ Streaming error: {response.status}")
                     
-                    yield f"I encountered an error: {self.last_error}"
+                    yield f"Streaming error: {response.status}"
                     
         except asyncio.TimeoutError:
-            self.error_count += 1
-            elapsed_time = time.time() - start_time
-            self.last_error = f"Streaming timeout after {elapsed_time:.1f}s"
+            elapsed = time.time() - start_time
+            self._update_performance_stats(elapsed, False)
             
             if self.settings.debug_mode:
-                print(f"[OLLAMA] ❌ {self.last_error}")
+                print(f"[OLLAMA] ❌ Streaming timeout after {elapsed:.1f}s")
             
-            yield f"\n\nResponse timed out after {elapsed_time:.1f}s. Try the 'speed' profile for faster responses."
+            yield f"\n\nStreaming timed out after {elapsed:.1f}s."
             
         except Exception as e:
-            self.error_count += 1
-            self.last_error = str(e)
+            elapsed = time.time() - start_time
+            self._update_performance_stats(elapsed, False)
             
             if self.settings.debug_mode:
                 print(f"[OLLAMA] ❌ Streaming error: {e}")
             
-            yield f"I encountered an error: {str(e)[:100]}"
+            yield f"Streaming error: {str(e)[:50]}"
+    
+    def _update_performance_stats(self, response_time: float, success: bool):
+        """Update performance statistics"""
+        self.request_count += 1
+        self.total_time += response_time
+        
+        if not success:
+            self.error_count += 1
+        
+        # Keep rolling window of recent response times
+        self.response_times.append(response_time)
+        if len(self.response_times) > 20:
+            self.response_times = self.response_times[-20:]
     
     def get_status(self) -> Dict[str, Any]:
-        """FIXED: Get comprehensive status information"""
-        avg_time = self.total_time / self.request_count if self.request_count > 0 else 0
+        """Get comprehensive status with performance metrics"""
+        avg_time = self.total_time / max(self.request_count, 1)
         success_rate = ((self.request_count - self.error_count) / max(self.request_count, 1)) * 100
+        
+        recent_avg = 0
+        if self.response_times:
+            recent_avg = sum(self.response_times[-5:]) / len(self.response_times[-5:])
         
         return {
             'available': self.available,
             'model_loaded': self.model_loaded,
             'current_model': self.current_model,
             'performance_profile': self.current_profile,
+            'profile_description': self.performance_profiles[self.current_profile]['description'],
             'host': self.host,
             'keep_alive_duration': self.keep_alive_duration,
+            'optimization_level': 'high_performance_pi5',
             'stats': {
                 'request_count': self.request_count,
                 'error_count': self.error_count,
                 'avg_response_time': f"{avg_time:.2f}s",
-                'success_rate': f"{success_rate:.1f}%"
+                'recent_avg_time': f"{recent_avg:.2f}s",
+                'success_rate': f"{success_rate:.1f}%",
+                'target_time': f"{self.performance_profiles[self.current_profile].get('timeout', 8)}s"
             },
             'current_settings': {
-                'num_predict': self.generation_config['num_predict'],
-                'num_ctx': self.generation_config['num_ctx'],
-                'temperature': self.generation_config['temperature'],
-                'timeout': f"{self.performance_profiles[self.current_profile].get('timeout', 15)}s"
+                'num_predict': self.fast_config['num_predict'],
+                'num_ctx': self.fast_config['num_ctx'],
+                'temperature': self.fast_config['temperature'],
+                'num_thread': self.fast_config['num_thread']
             },
             'last_error': self.last_error,
             'keep_alive_active': self.keep_alive_task and not self.keep_alive_task.done() if self.keep_alive_task else False,
-            'available_profiles': list(self.performance_profiles.keys())
+            'available_profiles': list(self.performance_profiles.keys()),
+            'preferred_models': self.preferred_models,
+            'performance_tips': self._get_performance_tips()
         }
     
+    def _get_performance_tips(self) -> List[str]:
+        """Get performance optimization tips"""
+        tips = []
+        
+        if self.response_times:
+            recent_avg = sum(self.response_times[-5:]) / len(self.response_times[-5:])
+            
+            if recent_avg > 8:
+                tips.append("Responses are slow - try 'speed' profile")
+            elif recent_avg > 4 and self.current_profile != 'speed':
+                tips.append("Consider 'speed' profile for faster responses")
+            elif recent_avg < 2:
+                tips.append("Great performance! Consider 'quality' profile for better responses")
+        
+        if self.error_count > 0:
+            error_rate = (self.error_count / max(self.request_count, 1)) * 100
+            if error_rate > 20:
+                tips.append("High error rate - check Ollama service")
+        
+        if not self.model_loaded:
+            tips.append("No model loaded - run optimization script")
+        
+        return tips
+    
     async def switch_model(self, model_name: str) -> bool:
-        """FIXED: Switch to a different model"""
+        """Switch to a different model"""
         if not self.available:
             return False
         
         try:
-            if await self._load_specific_model(model_name):
+            if await self._load_model_optimized(model_name):
                 if self.settings.debug_mode:
-                    print(f"[OLLAMA] ✅ Switched to model: {model_name}")
+                    print(f"[OLLAMA] ✅ Switched to: {model_name}")
                 return True
-            else:
-                if self.settings.debug_mode:
-                    print(f"[OLLAMA] ❌ Failed to switch to model: {model_name}")
-                return False
+            return False
         except Exception as e:
             if self.settings.debug_mode:
                 print(f"[OLLAMA] ❌ Model switch error: {e}")
             return False
     
     async def list_models(self) -> List[str]:
-        """FIXED: List available models"""
+        """List available models"""
         if not self.available:
             return []
-        return await self._get_available_models()
+        return await self._get_available_models_fast()
+    
+    def get_performance_report(self) -> Dict[str, Any]:
+        """Get detailed performance report"""
+        if not self.response_times:
+            return {"message": "No performance data available"}
+        
+        response_times = self.response_times[-10:]  # Last 10 requests
+        
+        return {
+            "current_profile": self.current_profile,
+            "target_time": f"{self.performance_profiles[self.current_profile].get('timeout', 8)}s",
+            "recent_responses": len(response_times),
+            "avg_time": f"{sum(response_times) / len(response_times):.2f}s",
+            "min_time": f"{min(response_times):.2f}s",
+            "max_time": f"{max(response_times):.2f}s",
+            "under_4s": sum(1 for t in response_times if t < 4),
+            "under_2s": sum(1 for t in response_times if t < 2),
+            "performance_grade": self._calculate_performance_grade(response_times),
+            "optimization_status": "Pi 5 optimized",
+            "recommendations": self._get_performance_tips()
+        }
+    
+    def _calculate_performance_grade(self, response_times: List[float]) -> str:
+        """Calculate performance grade based on response times"""
+        if not response_times:
+            return "N/A"
+        
+        avg_time = sum(response_times) / len(response_times)
+        under_4s_percent = (sum(1 for t in response_times if t < 4) / len(response_times)) * 100
+        
+        if avg_time < 2 and under_4s_percent >= 90:
+            return "A+ (Excellent)"
+        elif avg_time < 3 and under_4s_percent >= 80:
+            return "A (Very Good)"
+        elif avg_time < 4 and under_4s_percent >= 70:
+            return "B (Good)"
+        elif avg_time < 6:
+            return "C (Fair)"
+        else:
+            return "D (Poor - needs optimization)"
     
     async def close(self):
-        """FIXED: Close with proper cleanup"""
+        """Close with optimized cleanup"""
         if self.keep_alive_task:
             self.keep_alive_task.cancel()
             try:
@@ -623,12 +678,19 @@ class LightningOfflineLLM:
             await self.session.close()
             self.session = None
         
+        if self.connector:
+            await self.connector.close()
+            self.connector = None
+        
         self.available = False
         self.model_loaded = False
         self.current_model = None
         
         if self.settings.debug_mode:
-            print("[OLLAMA] 🔌 Connection closed")
+            if self.request_count > 0:
+                avg_time = self.total_time / self.request_count
+                print(f"[OLLAMA] 📊 Session stats: {self.request_count} requests, {avg_time:.2f}s avg")
+            print("[OLLAMA] 🔌 Optimized connection closed")
 
-# FIXED: Ensure compatibility with existing imports
+# Maintain compatibility
 OptimizedOfflineLLM = LightningOfflineLLM
