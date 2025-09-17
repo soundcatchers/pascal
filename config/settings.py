@@ -1,6 +1,6 @@
 """
-Pascal AI Assistant - Settings Configuration (Simplified)
-Optimized for Nemotron + Groq only
+Pascal AI Assistant - Optimized Settings Configuration
+Performance-tuned for Raspberry Pi 5 with sub-4s response targets
 """
 
 import os
@@ -13,7 +13,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 class Settings:
-    """Simplified settings for Nemotron + Groq only"""
+    """Optimized settings for high-performance Pi 5 operation"""
     
     def __init__(self):
         self.base_dir = Path(__file__).parent.parent
@@ -28,53 +28,83 @@ class Settings:
         
         # Pascal identity
         self.name = "Pascal"
-        self.version = "4.0.0"
+        self.version = "4.1.0"  # Performance optimized version
         
         # Debug settings
         self.debug_mode = os.getenv("DEBUG", "false").lower() == "true"
         self.log_level = os.getenv("LOG_LEVEL", "INFO")
         self.verbose_logging = self.debug_mode
         
-        # SIMPLIFIED: Groq ONLY for online
+        # API Configuration - Groq only for online
         self.groq_api_key = self._load_groq_api_key()
         
-        # Performance settings (optimized for Pi 5)
+        # PERFORMANCE SETTINGS - Optimized for Pi 5
         self.performance_mode = os.getenv("PERFORMANCE_MODE", "balanced")
-        self.target_response_time = float(os.getenv("TARGET_RESPONSE_TIME", "2.0"))
+        self.target_response_time = float(os.getenv("TARGET_RESPONSE_TIME", "3.0"))  # Realistic for Pi 5
+        self.max_response_time = float(os.getenv("MAX_RESPONSE_TIME", "8.0"))
         self.streaming_enabled = os.getenv("STREAMING_ENABLED", "true").lower() == "true"
-        self.max_response_tokens = int(os.getenv("MAX_RESPONSE_TOKENS", "200"))
+        self.max_response_tokens = int(os.getenv("MAX_RESPONSE_TOKENS", "150"))  # Reduced for speed
         
-        # LLM Configuration
+        # LLM Configuration - Performance optimized
         self.default_personality = "default"
-        self.max_context_length = 1024
+        self.max_context_length = 512  # Reduced for Pi 5 performance
         self.temperature = 0.7
         
-        # Ollama settings (for Nemotron)
+        # OLLAMA SETTINGS - Optimized for Pi 5
         self.ollama_host = os.getenv("OLLAMA_HOST", "http://localhost:11434")
-        self.ollama_timeout = int(os.getenv("OLLAMA_TIMEOUT", "30"))
+        self.ollama_timeout = int(os.getenv("OLLAMA_TIMEOUT", "15"))  # Reduced timeout
         self.ollama_keep_alive = os.getenv("OLLAMA_KEEP_ALIVE", "30m")
         
-        # Memory settings
-        self.short_term_memory_limit = 5
-        self.long_term_memory_enabled = True
-        self.memory_save_interval = 300
+        # Performance-specific Ollama settings
+        self.ollama_num_parallel = 1  # Single request at a time for Pi 5
+        self.ollama_max_loaded_models = 1  # One model only
+        self.ollama_num_thread = 4  # Use all Pi 5 cores
+        self.ollama_flash_attention = False  # Disabled for stability
         
-        # SIMPLIFIED: Single offline model preference
-        self.preferred_offline_model = "nemotron-mini:4b-instruct-q4_K_M"
+        # Memory settings - Optimized
+        self.short_term_memory_limit = 3  # Reduced for performance
+        self.long_term_memory_enabled = True
+        self.memory_save_interval = 600  # Save every 10 minutes
+        
+        # Model preferences - Performance ordered
+        self.preferred_offline_models = [
+            "nemotron-fast",                    # Our optimized model (highest priority)
+            "nemotron-mini:4b-instruct-q4_K_M", # Original model
+            "qwen2.5:3b",                       # Fast alternative
+            "phi3:mini",                        # Compact alternative
+        ]
+        self.preferred_offline_model = self.preferred_offline_models[0]
         
         # Current info settings
         self.auto_route_current_info = True
         self.force_online_current_info = True
         
-        # Pi 5 Hardware Detection
+        # Performance monitoring
+        self.enable_performance_monitoring = True
+        self.performance_log_interval = 300  # Log every 5 minutes
+        self.response_time_threshold = 4.0   # Warn if responses > 4s
+        
+        # Connection optimization
+        self.connection_pool_size = 2  # Minimal for Pi 5
+        self.connection_timeout = 3    # Fast connection timeout
+        self.read_timeout = 12         # Reasonable read timeout
+        
+        # Hardware detection and optimization
         self.is_raspberry_pi = self._detect_raspberry_pi()
         self.pi_model = self._get_pi_model()
         self.available_ram_gb = self._get_available_ram()
+        self.cpu_cores = self._get_cpu_cores()
+        
+        # Auto-optimize based on hardware
+        if self.is_raspberry_pi:
+            self._apply_pi_optimizations()
         
         if self.debug_mode:
-            print(f"[SETTINGS] Pascal v{self.version} - Simplified (Nemotron + Groq)")
+            print(f"[SETTINGS] Pascal v{self.version} - Performance Optimized")
+            print(f"[SETTINGS] Hardware: {self.pi_model} ({self.available_ram_gb}GB RAM, {self.cpu_cores} cores)")
+            print(f"[SETTINGS] Target response time: {self.target_response_time}s")
             print(f"[SETTINGS] Groq configured: {bool(self.groq_api_key)}")
-            print(f"[SETTINGS] Debug mode: {self.debug_mode}")
+            print(f"[SETTINGS] Performance mode: {self.performance_mode}")
     
     def _create_directories(self):
         """Create necessary directories"""
@@ -91,7 +121,7 @@ class Settings:
             directory.mkdir(parents=True, exist_ok=True)
     
     def _load_groq_api_key(self) -> Optional[str]:
-        """Load Groq API key with proper validation"""
+        """Load Groq API key with validation"""
         # Try GROQ_API_KEY first (preferred)
         groq_key = os.getenv("GROQ_API_KEY")
         if groq_key and self._validate_groq_key(groq_key):
@@ -123,7 +153,7 @@ class Settings:
         if key.lower() in [v.lower() for v in invalid_values]:
             return False
         
-        # Accept both gsk_ (new) and gsk- (deprecated) but prefer gsk_
+        # Accept both gsk_ (new) and gsk- (deprecated)
         if key.startswith('gsk_') or key.startswith('gsk-'):
             return len(key) > 20
         
@@ -164,6 +194,68 @@ class Settings:
             return 8.0
         return 8.0
     
+    def _get_cpu_cores(self) -> int:
+        """Get number of CPU cores"""
+        return os.cpu_count() or 4
+    
+    def _apply_pi_optimizations(self):
+        """Apply Pi-specific optimizations"""
+        if self.pi_model == 'Pi 5':
+            # Pi 5 specific optimizations
+            self.target_response_time = 3.0  # Realistic for Pi 5
+            self.max_context_length = 512    # Optimal for Pi 5
+            self.max_response_tokens = 150   # Balanced for Pi 5
+            self.ollama_timeout = 15         # Appropriate for Pi 5
+            
+            if self.available_ram_gb >= 16:
+                # 16GB Pi 5 - can handle more
+                self.max_context_length = 1024
+                self.max_response_tokens = 200
+            elif self.available_ram_gb >= 8:
+                # 8GB Pi 5 - balanced settings
+                self.max_context_length = 512
+                self.max_response_tokens = 150
+            else:
+                # 4GB Pi 5 - conservative settings
+                self.max_context_length = 256
+                self.max_response_tokens = 100
+                
+        elif self.pi_model == 'Pi 4':
+            # Pi 4 conservative settings
+            self.target_response_time = 5.0
+            self.max_context_length = 256
+            self.max_response_tokens = 100
+            self.ollama_timeout = 20
+        
+        if self.debug_mode:
+            print(f"[SETTINGS] Applied {self.pi_model} optimizations")
+    
+    def get_ollama_optimization_config(self) -> Dict[str, Any]:
+        """Get Ollama optimization configuration"""
+        return {
+            "num_parallel": self.ollama_num_parallel,
+            "max_loaded_models": self.ollama_max_loaded_models,
+            "num_thread": self.ollama_num_thread,
+            "flash_attention": self.ollama_flash_attention,
+            "keep_alive": self.ollama_keep_alive,
+            "host": self.ollama_host,
+            "timeout": self.ollama_timeout
+        }
+    
+    def get_performance_config(self) -> Dict[str, Any]:
+        """Get performance configuration"""
+        return {
+            "target_response_time": self.target_response_time,
+            "max_response_time": self.max_response_time,
+            "max_context_length": self.max_context_length,
+            "max_response_tokens": self.max_response_tokens,
+            "performance_mode": self.performance_mode,
+            "streaming_enabled": self.streaming_enabled,
+            "connection_timeout": self.connection_timeout,
+            "read_timeout": self.read_timeout,
+            "monitoring_enabled": self.enable_performance_monitoring
+        }
+    
     def validate_groq_api_key(self, api_key: str) -> bool:
         """Validate Groq API key format (public method)"""
         return self._validate_groq_key(api_key)
@@ -185,14 +277,16 @@ class Settings:
         return self.debug_mode
     
     def get_hardware_info(self) -> Dict[str, Any]:
-        """Get hardware information for optimization"""
+        """Get hardware information"""
         return {
             'is_raspberry_pi': self.is_raspberry_pi,
             'pi_model': self.pi_model,
             'available_ram_gb': self.available_ram_gb,
-            'cpu_cores': os.cpu_count() or 4,
+            'cpu_cores': self.cpu_cores,
             'performance_mode': self.performance_mode,
-            'streaming_enabled': self.streaming_enabled
+            'streaming_enabled': self.streaming_enabled,
+            'target_response_time': self.target_response_time,
+            'optimization_level': 'high_performance' if self.pi_model == 'Pi 5' else 'standard'
         }
     
     def get_config_summary(self) -> Dict[str, Any]:
@@ -210,21 +304,108 @@ class Settings:
             "hardware_info": self.get_hardware_info(),
             "streaming_enabled": self.streaming_enabled,
             "target_response_time": self.target_response_time,
-            "preferred_offline_model": self.preferred_offline_model,
-            "supported_providers": ["Groq"]  # Only Groq
+            "preferred_offline_models": self.preferred_offline_models,
+            "supported_providers": ["Groq"],
+            "optimization_level": "Pi 5 High Performance" if self.pi_model == 'Pi 5' else "Standard",
+            "ollama_config": self.get_ollama_optimization_config(),
+            "performance_config": self.get_performance_config()
         }
     
     def set_performance_mode(self, mode: str):
-        """Set performance mode"""
-        if mode in ['speed', 'balanced', 'quality']:
+        """Set performance mode with validation"""
+        valid_modes = ['speed', 'balanced', 'quality']
+        if mode in valid_modes:
             self.performance_mode = mode
+            
+            # Adjust settings based on mode
+            if mode == 'speed':
+                self.target_response_time = 2.0
+                self.max_response_tokens = 100
+                self.max_context_length = 256
+            elif mode == 'balanced':
+                self.target_response_time = 3.0
+                self.max_response_tokens = 150
+                self.max_context_length = 512
+            elif mode == 'quality':
+                self.target_response_time = 5.0
+                self.max_response_tokens = 250
+                self.max_context_length = 1024
+            
             if self.debug_mode:
-                print(f"Performance mode set to: {mode}")
+                print(f"[SETTINGS] Performance mode: {mode} (target: {self.target_response_time}s)")
+        else:
+            if self.debug_mode:
+                print(f"[SETTINGS] Invalid performance mode: {mode}")
+    
+    def get_performance_thresholds(self) -> Dict[str, float]:
+        """Get performance monitoring thresholds"""
+        return {
+            "excellent": self.target_response_time * 0.7,  # 70% of target
+            "good": self.target_response_time,              # Target time
+            "fair": self.target_response_time * 1.5,        # 150% of target
+            "poor": self.max_response_time,                 # Max allowed time
+            "timeout": self.max_response_time * 1.5         # Timeout threshold
+        }
+    
+    def should_optimize_for_speed(self) -> bool:
+        """Check if we should prioritize speed over quality"""
+        return (self.performance_mode == 'speed' or 
+                self.target_response_time <= 2.0 or
+                (self.is_raspberry_pi and self.available_ram_gb < 8))
+    
+    def get_model_config_for_hardware(self) -> Dict[str, Any]:
+        """Get model configuration optimized for current hardware"""
+        config = {
+            "num_ctx": self.max_context_length,
+            "num_predict": self.max_response_tokens,
+            "temperature": self.temperature,
+            "num_thread": self.cpu_cores,
+            "num_gpu": 0,  # CPU only for Pi
+        }
+        
+        # Hardware-specific adjustments
+        if self.pi_model == 'Pi 5':
+            if self.available_ram_gb >= 16:
+                # High-end Pi 5 configuration
+                config.update({
+                    "top_p": 0.9,
+                    "top_k": 40,
+                    "repeat_penalty": 1.05,
+                })
+            else:
+                # Standard Pi 5 configuration
+                config.update({
+                    "top_p": 0.8,
+                    "top_k": 30,
+                    "repeat_penalty": 1.1,
+                })
+        else:
+            # Conservative configuration for Pi 4 or unknown
+            config.update({
+                "num_ctx": min(config["num_ctx"], 256),
+                "num_predict": min(config["num_predict"], 100),
+                "top_p": 0.7,
+                "top_k": 20,
+                "repeat_penalty": 1.2,
+            })
+        
+        return config
+    
+    def log_performance_issue(self, issue_type: str, details: str):
+        """Log performance issues for debugging"""
+        if self.debug_mode:
+            timestamp = self.get_current_timestamp()
+            print(f"[PERFORMANCE] {timestamp} - {issue_type}: {details}")
+    
+    def get_current_timestamp(self) -> str:
+        """Get current timestamp for logging"""
+        from datetime import datetime
+        return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
 # Global settings instance
 settings = Settings()
 
-# Export commonly used paths
+# Export commonly used paths and configs
 BASE_DIR = settings.base_dir
 CONFIG_DIR = settings.config_dir
 DATA_DIR = settings.data_dir
