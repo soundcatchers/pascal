@@ -7,7 +7,7 @@ FOCUS: Minimal overhead, aggressive timeouts, speed-first optimizations
 import os
 import json
 from pathlib import Path
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List  # Added List import here
 from dotenv import load_dotenv
 
 # Load environment variables
