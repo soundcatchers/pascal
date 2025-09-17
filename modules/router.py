@@ -7,7 +7,7 @@ FOCUS: Fast offline routing with minimal processing delays
 import asyncio
 import time
 import re
-from typing import Optional, AsyncGenerator
+from typing import Optional, AsyncGenerator, Dict, Any, List  # Added List import
 from enum import Enum
 
 from config.settings import settings
@@ -294,7 +294,7 @@ class LightningRouter:
             count = self.stats['online_requests']
             self.stats['online_avg_time'] = ((current_avg * (count - 1)) + response_time) / count
     
-    def get_router_stats(self) -> dict:
+    def get_router_stats(self) -> Dict[str, Any]:
         """Get minimal router stats"""
         total_requests = self.stats['offline_requests'] + self.stats['online_requests']
         
@@ -333,7 +333,7 @@ class LightningRouter:
             ]
         }
     
-    def get_system_health(self) -> dict:
+    def get_system_health(self) -> Dict[str, Any]:
         """Get system health (simplified)"""
         health_score = 0
         
@@ -368,5 +368,5 @@ class LightningRouter:
         if self.online_llm:
             await self.online_llm.close()
 
-# Maintain compatibility
+# Maintain compatibility - Alias for EnhancedRouter
 EnhancedRouter = LightningRouter
