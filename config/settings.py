@@ -1,6 +1,6 @@
 """
-Pascal AI Assistant - Optimized Settings Configuration
-Performance-tuned for Raspberry Pi 5 with sub-4s response targets
+Pascal AI Assistant - UPDATED Settings Configuration
+Performance-tuned for Raspberry Pi 5 with FIXED model preferences
 """
 
 import os
@@ -13,7 +13,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 class Settings:
-    """Optimized settings for high-performance Pi 5 operation"""
+    """UPDATED settings with fixed model preferences for optimization script"""
     
     def __init__(self):
         self.base_dir = Path(__file__).parent.parent
@@ -66,12 +66,13 @@ class Settings:
         self.long_term_memory_enabled = True
         self.memory_save_interval = 600  # Save every 10 minutes
         
-        # Model preferences - Performance ordered
+        # FIXED Model preferences - Updated to match optimization script output
         self.preferred_offline_models = [
-            "nemotron-fast",                    # Our optimized model (highest priority)
-            "nemotron-mini:4b-instruct-q4_K_M", # Original model
+            "nemotron-fast",                    # Optimized model from script (highest priority)
+            "nemotron-mini:4b-instruct-q4_K_M", # Original base model
             "qwen2.5:3b",                       # Fast alternative
             "phi3:mini",                        # Compact alternative
+            "llama3.2:3b",                      # Additional fallback
         ]
         self.preferred_offline_model = self.preferred_offline_models[0]
         
@@ -105,6 +106,7 @@ class Settings:
             print(f"[SETTINGS] Target response time: {self.target_response_time}s")
             print(f"[SETTINGS] Groq configured: {bool(self.groq_api_key)}")
             print(f"[SETTINGS] Performance mode: {self.performance_mode}")
+            print(f"[SETTINGS] Preferred offline models: {self.preferred_offline_models}")
     
     def _create_directories(self):
         """Create necessary directories"""
