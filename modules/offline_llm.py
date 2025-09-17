@@ -1,6 +1,7 @@
 """
-Pascal AI Assistant - High-Performance Offline LLM (Ollama Integration)
+Pascal AI Assistant - FIXED High-Performance Offline LLM (Ollama Integration)
 OPTIMIZED for Raspberry Pi 5 - Target: 2-4 second responses
+FIXES: Configuration conflicts and model loading issues
 """
 
 import asyncio
@@ -15,7 +16,7 @@ except ImportError:
     AIOHTTP_AVAILABLE = False
 
 class LightningOfflineLLM:
-    """High-performance offline LLM optimized for Pi 5 with sub-4s responses"""
+    """FIXED High-performance offline LLM optimized for Pi 5"""
     
     def __init__(self):
         from config.settings import settings
@@ -40,7 +41,7 @@ class LightningOfflineLLM:
         self.last_error = None
         self.response_times = []
         
-        # OPTIMIZED generation settings for Pi 5 speed
+        # FIXED generation settings for Pi 5 speed
         self.fast_config = {
             'temperature': 0.7,
             'top_p': 0.9,
@@ -79,9 +80,9 @@ class LightningOfflineLLM:
         }
         self.current_profile = 'balanced'  # Start with balanced
         
-        # Model preferences - OPTIMIZED order
+        # FIXED Model preferences - Updated to match optimization script
         self.preferred_models = [
-            'nemotron-fast',                    # Our optimized model
+            'nemotron-fast',                    # Our optimized model (from script)
             'nemotron-mini:4b-instruct-q4_K_M', # Original model
             'qwen2.5:3b',                       # Fallback 1
             'phi3:mini',                        # Fallback 2
@@ -89,33 +90,32 @@ class LightningOfflineLLM:
         ]
     
     async def initialize(self) -> bool:
-        """Initialize with optimized connection settings"""
+        """FIXED Initialize with resolved connection settings"""
         if not AIOHTTP_AVAILABLE:
             self.last_error = "aiohttp not available - install: pip install aiohttp"
             return False
         
         try:
-            # OPTIMIZED connection settings for Pi 5
+            # FIXED connection settings - resolve the configuration conflict
             timeout = aiohttp.ClientTimeout(
                 total=20,           # Reasonable total timeout
                 connect=3,          # Fast connection timeout
                 sock_read=15        # Read timeout
             )
             
-            # Optimized connector for Pi 5
+            # FIXED connector for Pi 5 - removed conflicting settings
             self.connector = aiohttp.TCPConnector(
                 limit=2,                    # Minimal connection pool
                 limit_per_host=2,           # Per-host limit
-                force_close=True,           # Always close connections
                 enable_cleanup_closed=True, # Cleanup
-                keepalive_timeout=30,       # Short keepalive
                 use_dns_cache=True          # Cache DNS
+                # REMOVED: force_close=True and keepalive_timeout - they conflict!
             )
             
             self.session = aiohttp.ClientSession(
                 timeout=timeout, 
-                connector=self.connector,
-                headers={'Connection': 'close'}  # Don't keep connections open
+                connector=self.connector
+                # REMOVED: headers with Connection: close - let aiohttp manage
             )
             
             # Test connection with fast timeout
@@ -143,6 +143,8 @@ class LightningOfflineLLM:
             self.last_error = f"Initialization failed: {str(e)}"
             if self.settings.debug_mode:
                 print(f"[OLLAMA] ❌ Initialization error: {e}")
+                import traceback
+                traceback.print_exc()
             return False
     
     async def _test_connection_fast(self) -> bool:
@@ -173,6 +175,8 @@ class LightningOfflineLLM:
                 if response.status == 200:
                     data = await response.json()
                     models = [model['name'] for model in data.get('models', [])]
+                    if self.settings.debug_mode:
+                        print(f"[OLLAMA] Available models: {models}")
                     return models
                 return []
         except Exception as e:
@@ -181,26 +185,35 @@ class LightningOfflineLLM:
             return []
     
     async def _load_optimized_model(self) -> bool:
-        """Load the best optimized model available"""
+        """FIXED Load the best optimized model available"""
         try:
             available_models = await self._get_available_models_fast()
             
             if not available_models:
                 if self.settings.debug_mode:
                     print("[OLLAMA] ❌ No models available")
+                self.last_error = "No Ollama models found"
                 return False
             
-            # Find best model
+            # FIXED: Find best model with better matching logic
             model_to_load = None
             for preferred in self.preferred_models:
                 for available in available_models:
-                    if preferred == available or preferred in available:
+                    # Exact match first
+                    if preferred == available:
+                        model_to_load = available
+                        break
+                    # Partial match for variations
+                    elif preferred in available or available in preferred:
                         model_to_load = available
                         break
                 if model_to_load:
+                    if self.settings.debug_mode:
+                        print(f"[OLLAMA] Found preferred model: {model_to_load}")
                     break
             
             if not model_to_load:
+                # Use first available as fallback
                 model_to_load = available_models[0]
                 if self.settings.debug_mode:
                     print(f"[OLLAMA] ⚠️ Using first available: {model_to_load}")
@@ -211,10 +224,11 @@ class LightningOfflineLLM:
         except Exception as e:
             if self.settings.debug_mode:
                 print(f"[OLLAMA] ❌ Model loading error: {e}")
+            self.last_error = f"Model loading error: {str(e)}"
             return False
     
     async def _load_model_optimized(self, model_name: str) -> bool:
-        """Load model with Pi 5 optimized settings"""
+        """FIXED Load model with Pi 5 optimized settings"""
         try:
             if self.settings.debug_mode:
                 print(f"[OLLAMA] Loading optimized model: {model_name}")
@@ -225,7 +239,7 @@ class LightningOfflineLLM:
             config.update({k: v for k, v in profile.items() 
                           if k not in ['timeout', 'description']})
             
-            # Optimized test payload
+            # FIXED: Optimized test payload
             payload = {
                 "model": model_name,
                 "prompt": "Hi",  # Minimal test prompt
@@ -248,31 +262,35 @@ class LightningOfflineLLM:
                         self.model_loaded = True
                         
                         if self.settings.debug_mode:
-                            load_time = data.get('total_duration', 0) / 1e9
+                            load_time = data.get('total_duration', 0) / 1e9 if data.get('total_duration') else 0
                             print(f"[OLLAMA] ✅ Model loaded in {load_time:.2f}s: {model_name}")
                         
                         return True
                     else:
                         if self.settings.debug_mode:
                             print(f"[OLLAMA] ❌ Invalid response: {data}")
+                        self.last_error = "Invalid model response"
                         return False
                 else:
                     error_text = await response.text()
+                    self.last_error = f"Model load failed: HTTP {response.status}"
                     if self.settings.debug_mode:
                         print(f"[OLLAMA] ❌ Load failed: {response.status} - {error_text[:100]}")
                     return False
                     
         except asyncio.TimeoutError:
+            self.last_error = f"Model load timeout: {model_name}"
             if self.settings.debug_mode:
                 print(f"[OLLAMA] ❌ Model load timeout: {model_name}")
             return False
         except Exception as e:
+            self.last_error = f"Model load error: {str(e)}"
             if self.settings.debug_mode:
                 print(f"[OLLAMA] ❌ Model load error: {e}")
             return False
     
     async def _keep_alive_lightweight(self):
-        """Lightweight keep-alive to prevent model unloading"""
+        """FIXED Lightweight keep-alive to prevent model unloading"""
         while self.model_loaded and self.current_model:
             try:
                 await asyncio.sleep(300)  # Check every 5 minutes
@@ -356,7 +374,7 @@ class LightningOfflineLLM:
                 print(f"[OLLAMA] ❌ Invalid profile: {profile}")
     
     async def generate_response(self, query: str, personality_context: str, memory_context: str) -> str:
-        """Generate response with Pi 5 optimization"""
+        """FIXED Generate response with Pi 5 optimization"""
         if not self.available or not self.model_loaded:
             return "Offline model unavailable. Check Ollama service and models."
         
@@ -395,7 +413,9 @@ class LightningOfflineLLM:
                     self._update_performance_stats(elapsed, True)
                     
                     if self.settings.debug_mode:
-                        tokens_per_sec = data.get('eval_count', 0) / max(data.get('eval_duration', 1) / 1e9, 0.001)
+                        eval_count = data.get('eval_count', 0)
+                        eval_duration = data.get('eval_duration', 1)
+                        tokens_per_sec = eval_count / max(eval_duration / 1e9, 0.001) if eval_count > 0 else 0
                         print(f"[OLLAMA] ✅ Response in {elapsed:.2f}s ({tokens_per_sec:.1f} tok/s)")
                     
                     return response_text or "I wasn't able to generate a response."
@@ -406,7 +426,7 @@ class LightningOfflineLLM:
                     self.last_error = f"HTTP {response.status}"
                     
                     if self.settings.debug_mode:
-                        print(f"[OLLAMA] ❌ API error: {response.status}")
+                        print(f"[OLLAMA] ❌ API error: {response.status} - {error_text[:100]}")
                     
                     return f"Model error: {response.status}"
                     
@@ -435,7 +455,7 @@ class LightningOfflineLLM:
             return f"Model error: {str(e)[:50]}"
     
     async def generate_response_stream(self, query: str, personality_context: str, memory_context: str) -> AsyncGenerator[str, None]:
-        """Generate streaming response with Pi 5 optimization"""
+        """FIXED Generate streaming response with Pi 5 optimization"""
         if not self.available or not self.model_loaded:
             yield "Offline model unavailable. Check Ollama service and models."
             return
@@ -505,7 +525,7 @@ class LightningOfflineLLM:
                     self._update_performance_stats(time.time() - start_time, False)
                     
                     if self.settings.debug_mode:
-                        print(f"[OLLAMA] ❌ Streaming error: {response.status}")
+                        print(f"[OLLAMA] ❌ Streaming error: {response.status} - {error_text[:100]}")
                     
                     yield f"Streaming error: {response.status}"
                     
@@ -666,7 +686,7 @@ class LightningOfflineLLM:
             return "D (Poor - needs optimization)"
     
     async def close(self):
-        """Close with optimized cleanup"""
+        """FIXED Close with optimized cleanup"""
         if self.keep_alive_task:
             self.keep_alive_task.cancel()
             try:
