@@ -1,6 +1,6 @@
 """
 Pascal AI Assistant - FIXED Offline LLM Module
-Resolved compatibility issues and improved error handling
+Resolved the critical aiohttp scoping error and improved error handling
 """
 
 import asyncio
@@ -9,14 +9,16 @@ import time
 import re
 from typing import Optional, AsyncGenerator, Dict, Any, List
 
+# Import aiohttp at module level to avoid scoping issues
 try:
     import aiohttp
     AIOHTTP_AVAILABLE = True
 except ImportError:
     AIOHTTP_AVAILABLE = False
+    aiohttp = None
 
 class LightningOfflineLLM:
-    """Fixed offline LLM with resolved compatibility issues"""
+    """Fixed offline LLM with resolved aiohttp scoping error"""
     
     def __init__(self):
         from config.settings import settings
@@ -61,27 +63,27 @@ class LightningOfflineLLM:
         # Performance profiles
         self.profiles = {
             'speed': {
-                'num_predict': 40,
+                'num_predict': 50,
                 'temperature': 0.1,
                 'num_ctx': 256,
-                'timeout': 6,
+                'timeout': 8,
                 'description': 'Ultra-fast (<2s)',
                 'top_p': 0.7,
                 'top_k': 15,
                 'repeat_penalty': 1.02,
             },
             'balanced': {
-                'num_predict': 80,
+                'num_predict': 100,
                 'temperature': 0.3,
                 'num_ctx': 512,
-                'timeout': 10,
+                'timeout': 12,
                 'description': 'Balanced (2-4s)',
                 'top_p': 0.8,
                 'top_k': 25,
                 'repeat_penalty': 1.05,
             },
             'quality': {
-                'num_predict': 150,
+                'num_predict': 200,
                 'temperature': 0.7,
                 'num_ctx': 1024,
                 'timeout': 20,
@@ -103,10 +105,10 @@ class LightningOfflineLLM:
         
         try:
             # Create session with fixed connector settings
-            await self._create_fixed_session()
+            await self._create_session()
             
             # Test connection
-            if not await self._test_connection_fast():
+            if not await self._test_connection():
                 self.last_error = "Cannot connect to Ollama service"
                 if self.settings.debug_mode:
                     print(f"[OLLAMA] ❌ Connection failed")
@@ -138,35 +140,28 @@ class LightningOfflineLLM:
                 print(f"[OLLAMA] ❌ Init failed: {e}")
             return False
     
-    async def _create_fixed_session(self):
-        """Create session with fixed compatibility settings"""
-        # Fixed timeout configuration
+    async def _create_session(self):
+        """Create aiohttp session with proper configuration for Pi 5"""
+        if not AIOHTTP_AVAILABLE:
+            raise RuntimeError("aiohttp not available")
+        
+        # Create timeout with reasonable values for Pi 5
         timeout = aiohttp.ClientTimeout(
-            total=15,
-            connect=3,
-            sock_read=12
+            total=20,
+            connect=5,
+            sock_read=15
         )
         
-        # Fixed connector - removed tcp_nodelay to prevent compatibility issues
+        # Create connector with Pi 5 optimized settings
+        # Removed tcp_nodelay to avoid compatibility issues
         connector_kwargs = {
-            'limit': 1,
-            'limit_per_host': 1,
+            'limit': 2,
+            'limit_per_host': 2,
             'enable_cleanup_closed': True,
             'use_dns_cache': True,
-            'keepalive_timeout': 600,
+            'keepalive_timeout': 300,
             'force_close': False
         }
-        
-        # Only add tcp_nodelay if the aiohttp version supports it
-        try:
-            import aiohttp
-            version = tuple(map(int, aiohttp.__version__.split('.')[:2]))
-            # tcp_nodelay was added in aiohttp 3.9, but causes issues on some systems
-            # We'll skip it for compatibility
-            if version >= (3, 9) and False:  # Disabled for compatibility
-                connector_kwargs['tcp_nodelay'] = True
-        except:
-            pass
         
         self.connector = aiohttp.TCPConnector(**connector_kwargs)
         
@@ -179,12 +174,12 @@ class LightningOfflineLLM:
             }
         )
     
-    async def _test_connection_fast(self) -> bool:
-        """Test connection with proper error handling"""
+    async def _test_connection(self) -> bool:
+        """Test connection to Ollama service"""
         try:
             async with self.session.get(
                 f"{self.host}/api/version",
-                timeout=aiohttp.ClientTimeout(total=3)
+                timeout=aiohttp.ClientTimeout(total=5)
             ) as response:
                 if response.status == 200:
                     data = await response.json()
@@ -198,11 +193,11 @@ class LightningOfflineLLM:
             return False
     
     async def _get_available_models(self) -> List[Dict[str, Any]]:
-        """Get available models with error handling"""
+        """Get available models from Ollama"""
         try:
             async with self.session.get(
                 f"{self.host}/api/tags",
-                timeout=aiohttp.ClientTimeout(total=5)
+                timeout=aiohttp.ClientTimeout(total=8)
             ) as response:
                 if response.status == 200:
                     data = await response.json()
@@ -230,7 +225,7 @@ class LightningOfflineLLM:
         for preferred in self.preferred_models:
             for model_name in model_names:
                 if preferred == model_name or preferred in model_name:
-                    if await self._test_model_fast(model_name):
+                    if await self._test_model(model_name):
                         self.current_model = model_name
                         self.model_loaded = True
                         if self.settings.debug_mode:
@@ -240,7 +235,7 @@ class LightningOfflineLLM:
         # Try any available model
         for model in available_models:
             model_name = model.get('name', '')
-            if model_name and await self._test_model_fast(model_name):
+            if model_name and await self._test_model(model_name):
                 self.current_model = model_name
                 self.model_loaded = True
                 if self.settings.debug_mode:
@@ -249,8 +244,8 @@ class LightningOfflineLLM:
         
         return False
     
-    async def _test_model_fast(self, model_name: str) -> bool:
-        """Quick model test"""
+    async def _test_model(self, model_name: str) -> bool:
+        """Quick test of a model"""
         try:
             payload = {
                 "model": model_name,
@@ -268,7 +263,7 @@ class LightningOfflineLLM:
             async with self.session.post(
                 f"{self.host}/api/generate",
                 json=payload,
-                timeout=aiohttp.ClientTimeout(total=8)
+                timeout=aiohttp.ClientTimeout(total=10)
             ) as response:
                 if response.status == 200:
                     data = await response.json()
@@ -491,6 +486,39 @@ class LightningOfflineLLM:
             self._update_performance_stats(elapsed, False)
             yield f"Error: {str(e)[:50]}"
     
+    def _validate_response(self, response: str, query: str) -> bool:
+        """Validate response quality"""
+        if not response or len(response.strip()) < 2:
+            return False
+        
+        # Check for common error patterns
+        error_patterns = [
+            'model error',
+            'connection error',
+            'timeout',
+            'failed to',
+            'unable to'
+        ]
+        
+        response_lower = response.lower()
+        if any(pattern in response_lower for pattern in error_patterns):
+            return False
+        
+        # Check for repetitive patterns (sign of poor generation)
+        words = response.split()
+        if len(words) > 5:
+            # Check for excessive repetition
+            word_counts = {}
+            for word in words:
+                word_counts[word] = word_counts.get(word, 0) + 1
+            
+            # If any word appears more than 30% of the time, it's likely repetitive
+            max_count = max(word_counts.values())
+            if max_count > len(words) * 0.3:
+                return False
+        
+        return True
+    
     def _update_performance_stats(self, response_time: float, success: bool):
         """Update performance statistics"""
         self.request_count += 1
@@ -535,7 +563,7 @@ class LightningOfflineLLM:
         }
     
     async def close(self):
-        """Clean close"""
+        """Clean close with proper resource cleanup"""
         if self.keep_alive_task:
             self.keep_alive_task.cancel()
             try:
