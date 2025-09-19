@@ -168,3 +168,235 @@ class QuickFix:
         print("\n🔍 Testing routing system...")
         
         try:
+            from modules.router import LightningRouter
+            from modules.personality import PersonalityManager
+            from modules.memory import MemoryManager
+            
+            print("  ✅ Router modules imported")
+            
+            # Create components
+            personality_manager = PersonalityManager()
+            memory_manager = MemoryManager()
+            router = LightningRouter(personality_manager, memory_manager)
+            
+            print("  ✅ Router components created")
+            
+            # Test availability check
+            await router._check_llm_availability()
+            
+            print(f"  ℹ️ Offline available: {router.offline_available}")
+            print(f"  ℹ️ Online available: {router.online_available}")
+            print(f"  ℹ️ Skills available: {router.skills_available}")
+            
+            # Test routing decision
+            test_query = "Hello, how are you?"
+            decision = router._decide_route_enhanced(test_query)
+            print(f"  ✅ Routing test: '{test_query}' -> {decision.route_type}")
+            
+            await router.close()
+            return True
+            
+        except Exception as e:
+            print(f"  ❌ Routing system test failed: {e}")
+            self.issues_found.append(f"Routing system error: {e}")
+            return False
+    
+    def apply_fixes(self):
+        """Apply automatic fixes for common issues"""
+        print("\n🔧 Applying automatic fixes...")
+        
+        fixes_applied = 0
+        
+        # Fix 1: Install missing aiohttp
+        if any('aiohttp' in issue for issue in self.issues_found):
+            print("  🔧 Fixing aiohttp installation...")
+            try:
+                subprocess.run([sys.executable, '-m', 'pip', 'install', 'aiohttp==3.9.5'], 
+                             check=True, capture_output=True)
+                print("  ✅ aiohttp installed/updated")
+                fixes_applied += 1
+            except Exception as e:
+                print(f"  ❌ aiohttp fix failed: {e}")
+        
+        # Fix 2: Start Ollama service
+        if any('service not running' in issue for issue in self.issues_found):
+            print("  🔧 Starting Ollama service...")
+            try:
+                subprocess.run(['sudo', 'systemctl', 'start', 'ollama'], 
+                             check=True, capture_output=True)
+                print("  ✅ Ollama service started")
+                fixes_applied += 1
+            except Exception as e:
+                print(f"  ⚠️ Ollama service fix failed: {e}")
+                print("    Try manually: sudo systemctl start ollama")
+        
+        # Fix 3: Install Ollama if missing
+        if any('not installed' in issue for issue in self.issues_found):
+            print("  ℹ️ Ollama installation required")
+            print("    Run: curl -fsSL https://ollama.ai/install.sh | sh")
+        
+        self.fixes_applied = [f"Applied {fixes_applied} automatic fixes"]
+        return fixes_applied > 0
+    
+    def generate_recommendations(self):
+        """Generate specific recommendations based on issues found"""
+        print("\n💡 Recommendations:")
+        
+        if not self.issues_found:
+            print("  🎉 No major issues detected! Pascal should work.")
+            print("  ➡️ Try running: ./run.sh")
+            return
+        
+        # aiohttp issues
+        if any('aiohttp' in issue for issue in self.issues_found):
+            print("  🔧 aiohttp Issues:")
+            print("    • pip install aiohttp==3.9.5")
+            print("    • Or try: pip install aiohttp==3.8.6")
+            print("    • Check: python -c 'import aiohttp; print(aiohttp.__version__)'")
+        
+        # Ollama issues
+        if any('ollama' in issue.lower() for issue in self.issues_found):
+            print("  🔧 Ollama Issues:")
+            print("    • Install: curl -fsSL https://ollama.ai/install.sh | sh")
+            print("    • Start: sudo systemctl start ollama")
+            print("    • Enable: sudo systemctl enable ollama")
+            print("    • Download model: ollama pull nemotron-mini:4b-instruct-q4_K_M")
+        
+        # Pascal module issues
+        if any('modules' in issue for issue in self.issues_found):
+            print("  🔧 Pascal Module Issues:")
+            print("    • Check you're in the pascal directory")
+            print("    • Verify all files are present")
+            print("    • Check Python path")
+        
+        # LLM integration issues
+        if any('LLM' in issue for issue in self.issues_found):
+            print("  🔧 LLM Integration Issues:")
+            print("    • Check aiohttp version compatibility")
+            print("    • Verify Ollama is running and accessible")
+            print("    • Test with: python ollama_diagnostic.py")
+        
+        # General recommendations
+        print("  🔧 General Fixes:")
+        print("    • Run full diagnostic: python complete_diagnostic.py")
+        print("    • Check logs for detailed errors")
+        print("    • Verify virtual environment: source venv/bin/activate")
+    
+    def create_repair_script(self):
+        """Create a repair script for manual execution"""
+        repair_script = """#!/bin/bash
+
+# Pascal Repair Script
+# Generated by quick_fix.py
+
+echo "🔧 Pascal Repair Script"
+echo "======================"
+
+# Fix 1: Update aiohttp
+echo "Updating aiohttp..."
+pip install aiohttp==3.9.5
+
+# Fix 2: Start Ollama
+echo "Starting Ollama service..."
+sudo systemctl start ollama
+sudo systemctl enable ollama
+
+# Fix 3: Download model if needed
+echo "Checking for Nemotron model..."
+if ! ollama list | grep -q "nemotron"; then
+    echo "Downloading Nemotron model..."
+    ollama pull nemotron-mini:4b-instruct-q4_K_M
+fi
+
+# Fix 4: Test installation
+echo "Testing Pascal..."
+python quick_fix.py
+
+echo "✅ Repair script completed"
+"""
+        
+        with open('repair_pascal.sh', 'w') as f:
+            f.write(repair_script)
+        
+        os.chmod('repair_pascal.sh', 0o755)
+        print("  📝 Created repair_pascal.sh script")
+
+async def main():
+    """Main quick fix function"""
+    print("⚡ Pascal Quick Fix Tool")
+    print("=" * 40)
+    
+    fixer = QuickFix()
+    
+    # Run diagnostics
+    tests = [
+        ("Python Imports", fixer.check_python_imports),
+        ("Pascal Modules", fixer.check_pascal_modules),
+        ("Ollama Service", fixer.check_ollama_service),
+        ("LLM Integration", fixer.check_llm_integration),
+        ("Routing System", fixer.test_routing_system)
+    ]
+    
+    passed_tests = 0
+    total_tests = len(tests)
+    
+    for test_name, test_func in tests:
+        try:
+            if asyncio.iscoroutinefunction(test_func):
+                result = await test_func()
+            else:
+                result = test_func()
+            
+            if result:
+                passed_tests += 1
+        except Exception as e:
+            print(f"  ❌ {test_name} test error: {e}")
+            fixer.issues_found.append(f"{test_name} test failed: {e}")
+    
+    # Summary
+    health_score = (passed_tests / total_tests) * 100
+    print(f"\n📊 Quick Diagnostic Summary")
+    print("=" * 30)
+    print(f"Tests passed: {passed_tests}/{total_tests} ({health_score:.0f}%)")
+    
+    if fixer.issues_found:
+        print(f"Issues found: {len(fixer.issues_found)}")
+        for i, issue in enumerate(fixer.issues_found, 1):
+            print(f"  {i}. {issue}")
+    
+    # Apply fixes if issues found
+    if fixer.issues_found:
+        print(f"\n🔧 Attempting automatic fixes...")
+        fixes_applied = fixer.apply_fixes()
+        
+        if fixes_applied:
+            print(f"✅ Some fixes applied - rerun quick_fix.py to test")
+        
+        # Generate recommendations
+        fixer.generate_recommendations()
+        
+        # Create repair script
+        fixer.create_repair_script()
+    else:
+        print(f"\n🎉 No critical issues found!")
+        print(f"Pascal should be ready to run.")
+        print(f"\n➡️ Next steps:")
+        print(f"  • Start Pascal: ./run.sh")
+        print(f"  • Test with: 'Hello Pascal'")
+    
+    return health_score >= 80
+
+if __name__ == "__main__":
+    try:
+        result = asyncio.run(main())
+        if result:
+            print(f"\n✅ Quick fix completed successfully!")
+        else:
+            print(f"\n⚠️ Issues remain - check recommendations above")
+        sys.exit(0 if result else 1)
+    except KeyboardInterrupt:
+        print(f"\n⏹️ Quick fix interrupted")
+        sys.exit(1)
+    except Exception as e:
+        print(f"\n❌ Quick fix failed: {e}")
+        sys.exit(1)
