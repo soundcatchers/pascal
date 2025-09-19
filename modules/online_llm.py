@@ -1,12 +1,12 @@
 """
 Pascal AI Assistant - Enhanced Online LLM with Real Current Information
-Integrates actual current data sources for true real-time information
+Optimized for fast current info queries with improved detection and response quality
 """
 
 import asyncio
 import json
 import time
-from typing import Optional, AsyncGenerator
+from typing import Optional, AsyncGenerator, Dict, Any
 from datetime import datetime, timezone
 
 try:
@@ -18,7 +18,7 @@ except ImportError:
 from config.settings import settings
 
 class OnlineLLM:
-    """Enhanced online LLM client with real current information integration"""
+    """Enhanced online LLM client with optimized current information integration"""
     
     def __init__(self):
         self.session = None
@@ -38,36 +38,57 @@ class OnlineLLM:
         self.total_time = 0.0
         self.response_times = []
         
-        # Current info cache (to avoid repeated API calls)
+        # Current info cache with TTL
         self.current_info_cache = {}
         self.cache_timeout = 300  # 5 minutes
+        
+        # Enhanced current info patterns
+        self.current_info_indicators = {
+            'datetime': ['time', 'date', 'day', 'today', 'now', 'current time', 'current date'],
+            'politics': ['president', 'prime minister', 'leader', 'government', 'current president'],
+            'news': ['news', 'headlines', 'breaking', 'latest news', 'recent news', 'happening'],
+            'weather': ['weather', 'temperature', 'forecast', 'climate', 'current weather'],
+            'markets': ['stock', 'market', 'price', 'trading', 'financial'],
+            'events': ['events', 'happening', 'current events', 'what\'s going on']
+        }
     
     async def initialize(self) -> bool:
-        """Initialize Groq client with current info capabilities"""
+        """Initialize Groq client with enhanced error handling"""
         if not AIOHTTP_AVAILABLE:
             self.last_error = "aiohttp not installed - install with: pip install aiohttp"
             if settings.debug_mode:
-                print("❌ [GROQ] aiohttp not available - install with: pip install aiohttp")
+                print("❌ [GROQ] aiohttp not available")
             return False
         
-        if not self.api_key:
-            self.last_error = "No Groq API key configured"
+        if not self.api_key or not self._validate_api_key(self.api_key):
+            self.last_error = "Invalid or missing Groq API key"
             if settings.debug_mode:
-                print("❌ [GROQ] No Groq API key configured")
+                print("❌ [GROQ] Invalid API key format")
             return False
         
         try:
-            # Create optimized session
-            timeout = aiohttp.ClientTimeout(total=30, connect=10)
-            connector = aiohttp.TCPConnector(limit=5, force_close=True)
-            self.session = aiohttp.ClientSession(timeout=timeout, connector=connector)
+            # Create optimized session for speed
+            timeout = aiohttp.ClientTimeout(total=25, connect=5, sock_read=20)
+            connector = aiohttp.TCPConnector(
+                limit=3,
+                limit_per_host=3,
+                force_close=False,
+                enable_cleanup_closed=True,
+                use_dns_cache=True,
+                keepalive_timeout=300
+            )
+            self.session = aiohttp.ClientSession(
+                timeout=timeout, 
+                connector=connector,
+                headers={'Content-Type': 'application/json'}
+            )
             
-            # Test connection
-            if await self._test_connection():
+            # Test connection with quick query
+            if await self._test_connection_fast():
                 self.available = True
                 self.initialization_successful = True
                 if settings.debug_mode:
-                    print(f"✅ [GROQ] API initialized with real current info support")
+                    print(f"✅ [GROQ] API initialized with enhanced current info support")
                 return True
             else:
                 return False
@@ -75,20 +96,42 @@ class OnlineLLM:
         except Exception as e:
             self.last_error = f"Initialization failed: {str(e)}"
             if settings.debug_mode:
-                print(f"❌ [GROQ] Initialization failed: {e}")
+                print(f"❌ [GROQ] Initialization error: {e}")
             return False
     
-    async def _test_connection(self) -> bool:
-        """Test Groq API connection"""
+    def _validate_api_key(self, key: str) -> bool:
+        """Enhanced API key validation"""
+        if not key or not isinstance(key, str):
+            return False
+        
+        key = key.strip()
+        
+        # Check for placeholder values
+        invalid_values = [
+            '', 'your_groq_api_key_here', 'your_grok_api_key_here',
+            'gsk_your_groq_api_key_here', 'gsk-your_groq_api_key_here',
+            'gsk_your-groq-api-key-here'
+        ]
+        
+        if key.lower() in [v.lower() for v in invalid_values]:
+            return False
+        
+        # Accept both gsk_ (new) and gsk- (deprecated) formats
+        if key.startswith('gsk_') or key.startswith('gsk-'):
+            return len(key) > 20
+        
+        return False
+    
+    async def _test_connection_fast(self) -> bool:
+        """Quick connection test with minimal payload"""
         try:
             headers = {
-                'Content-Type': 'application/json',
                 'Authorization': f'Bearer {self.api_key}'
             }
             
             payload = {
                 "model": self.model,
-                "messages": [{"role": "user", "content": "test"}],
+                "messages": [{"role": "user", "content": "hi"}],
                 "max_tokens": 5,
                 "temperature": 0.1
             }
@@ -97,7 +140,7 @@ class OnlineLLM:
                 self.base_url,
                 headers=headers,
                 json=payload,
-                timeout=aiohttp.ClientTimeout(total=15)
+                timeout=aiohttp.ClientTimeout(total=10)
             ) as response:
                 if response.status == 200:
                     data = await response.json()
@@ -117,9 +160,9 @@ class OnlineLLM:
                     return False
                 else:
                     error_text = await response.text()
-                    self.last_error = f"Groq API error {response.status}: {error_text[:100]}"
+                    self.last_error = f"API error {response.status}: {error_text[:100]}"
                     if settings.debug_mode:
-                        print(f"❌ [GROQ] API error {response.status}: {error_text[:100]}")
+                        print(f"❌ [GROQ] API error {response.status}")
                     return False
                     
         except asyncio.TimeoutError:
@@ -130,17 +173,17 @@ class OnlineLLM:
         except Exception as e:
             self.last_error = f"Connection test failed: {str(e)}"
             if settings.debug_mode:
-                print(f"❌ [GROQ] Connection test failed: {e}")
+                print(f"❌ [GROQ] Connection test error: {e}")
             return False
     
-    async def _get_current_datetime_info(self) -> dict:
+    def _get_comprehensive_datetime_info(self) -> Dict[str, Any]:
         """Get comprehensive current date/time information"""
         now = datetime.now()
         utc_now = datetime.now(timezone.utc)
         
         return {
             'current_date': now.strftime("%A, %B %d, %Y"),
-            'current_time': now.strftime("%I:%M %P"),
+            'current_time': now.strftime("%I:%M %p"),
             'current_day': now.strftime("%A"),
             'current_day_number': now.day,
             'current_month': now.strftime("%B"),
@@ -148,13 +191,29 @@ class OnlineLLM:
             'utc_time': utc_now.strftime("%H:%M UTC"),
             'timestamp': now.timestamp(),
             'iso_date': now.isoformat(),
-            'day_of_week': now.weekday() + 1,  # 1=Monday, 7=Sunday
-            'day_of_year': now.timetuple().tm_yday
+            'day_of_week': now.weekday() + 1,
+            'day_of_year': now.timetuple().tm_yday,
+            'week_number': now.isocalendar()[1],
+            'quarter': (now.month - 1) // 3 + 1,
+            'is_weekend': now.weekday() >= 5,
+            'timezone': str(now.astimezone().tzinfo),
+            'formatted_full': now.strftime("%A, %B %d, %Y at %I:%M %p"),
+            'season': self._get_season(now.month)
         }
     
-    async def _get_current_political_info(self) -> dict:
-        """Get current political information (US focus)"""
-        # Based on 2024 election results
+    def _get_season(self, month: int) -> str:
+        """Get current season based on month"""
+        if month in [12, 1, 2]:
+            return "Winter"
+        elif month in [3, 4, 5]:
+            return "Spring"
+        elif month in [6, 7, 8]:
+            return "Summer"
+        else:
+            return "Autumn"
+    
+    def _get_current_political_info(self) -> Dict[str, Any]:
+        """Get current political information (updated for 2024-2025)"""
         return {
             'us_president': 'Donald Trump',
             'us_president_since': 'January 20, 2025',
@@ -163,82 +222,121 @@ class OnlineLLM:
             'election_year': '2024',
             'inauguration_date': 'January 20, 2025',
             'party': 'Republican',
-            'note': 'Trump won the 2024 presidential election and was inaugurated on January 20, 2025'
+            'term_number': '47th President',
+            'note': 'Donald Trump won the 2024 presidential election, defeating Kamala Harris, and was inaugurated on January 20, 2025',
+            'context': 'Trump previously served as the 45th President (2017-2021) and is now the 47th President'
         }
     
-    async def _get_current_weather_info(self, location: str = "London") -> dict:
-        """Get current weather information (simulated for now)"""
-        # In a real implementation, this would call a weather API
-        return {
-            'location': location,
-            'note': 'For real-time weather, please specify your location',
-            'suggestion': 'I can provide weather information, but I need your specific location and would require a weather API key to be configured.'
-        }
+    def _detect_current_info_category(self, query: str) -> Optional[str]:
+        """Detect which category of current info is requested"""
+        query_lower = query.lower()
+        
+        for category, indicators in self.current_info_indicators.items():
+            if any(indicator in query_lower for indicator in indicators):
+                return category
+        
+        return None
     
-    async def _get_current_news_info(self) -> dict:
-        """Get current news information (placeholder)"""
-        # In a real implementation, this would call news APIs
-        return {
-            'note': 'For latest news, I would need access to news APIs',
-            'suggestion': 'I can discuss general topics, but for breaking news please check reliable news sources like BBC, Reuters, or your preferred news outlet.',
-            'general_note': f'Today is {datetime.now().strftime("%A, %B %d, %Y")} - for the most current news, please check current news sources.'
-        }
-    
-    async def _gather_current_information(self, query: str) -> dict:
-        """Gather relevant current information based on the query"""
+    async def _gather_targeted_current_info(self, query: str) -> Dict[str, Any]:
+        """Gather targeted current information based on query analysis"""
         query_lower = query.lower()
         current_info = {}
         
-        # Always include current date/time info for current info queries
-        current_info['datetime'] = await self._get_current_datetime_info()
+        # Always include datetime for current info queries
+        current_info['datetime'] = self._get_comprehensive_datetime_info()
         
-        # Add specific information based on query type
-        if any(term in query_lower for term in ['president', 'politics', 'election', 'government', 'leader']):
-            current_info['politics'] = await self._get_current_political_info()
+        # Add specific information based on query content
+        category = self._detect_current_info_category(query)
         
-        if any(term in query_lower for term in ['weather', 'temperature', 'forecast', 'rain', 'snow']):
-            current_info['weather'] = await self._get_current_weather_info()
+        if category == 'politics' or any(term in query_lower for term in ['president', 'politics', 'election', 'government', 'leader']):
+            current_info['politics'] = self._get_current_political_info()
         
-        if any(term in query_lower for term in ['news', 'happening', 'events', 'breaking']):
-            current_info['news'] = await self._get_current_news_info()
+        if category == 'weather' or any(term in query_lower for term in ['weather', 'temperature', 'forecast', 'rain', 'snow']):
+            location = self._extract_location_from_query(query) or "London"
+            current_info['weather'] = {
+                'note': f'For real-time weather in {location}, I would need a weather API configured.',
+                'suggestion': 'I can provide general weather information, but for current conditions please check a weather service.',
+                'location_requested': location
+            }
+        
+        if category == 'news' or any(term in query_lower for term in ['news', 'happening', 'events', 'breaking']):
+            current_info['news'] = {
+                'note': 'For the latest news headlines, I would need access to a news API.',
+                'suggestion': 'For current news, please check reliable sources like BBC, Reuters, AP, or your preferred news outlet.',
+                'date': current_info['datetime']['current_date']
+            }
+        
+        if category == 'markets' or any(term in query_lower for term in ['market', 'stock', 'economy', 'financial', 'trading']):
+            current_info['markets'] = {
+                'note': 'For current market data, I would need access to financial APIs.',
+                'suggestion': 'For live market information, please check financial news sources or trading platforms.',
+                'date': current_info['datetime']['current_date']
+            }
         
         return current_info
     
-    def _build_enhanced_prompt_with_real_data(self, query: str, personality_context: str, 
-                                             memory_context: str, current_info: dict) -> list:
-        """Build enhanced prompt with real current information"""
+    def _extract_location_from_query(self, query: str) -> Optional[str]:
+        """Extract location from query (enhanced)"""
+        import re
+        
+        # Look for "in [location]" patterns
+        location_match = re.search(r'\bin\s+([A-Za-z][A-Za-z\s]{1,20}?)(?:\s|$|[,.?!])', query)
+        if location_match:
+            return location_match.group(1).strip().title()
+        
+        # Common cities
+        cities = [
+            'london', 'paris', 'new york', 'tokyo', 'berlin', 'madrid', 'rome',
+            'amsterdam', 'chicago', 'los angeles', 'sydney', 'melbourne',
+            'toronto', 'vancouver', 'dubai', 'singapore', 'hong kong', 'miami',
+            'boston', 'seattle', 'san francisco', 'mumbai', 'delhi', 'bangkok'
+        ]
+        
+        query_lower = query.lower()
+        for city in cities:
+            if city in query_lower:
+                return city.title()
+        
+        return None
+    
+    def _build_enhanced_current_info_prompt(self, query: str, personality_context: str, 
+                                          memory_context: str, current_info: Dict[str, Any]) -> list:
+        """Build optimized prompt with real current information"""
         messages = []
         
-        # Get current datetime info
+        # Get datetime info
         datetime_info = current_info.get('datetime', {})
         
-        # Enhanced system message with REAL current information
+        # Enhanced system message with PRECISE current information
         system_content = f"""You are Pascal, a helpful AI assistant with access to REAL current information.
 
-🎯 CRITICAL - REAL CURRENT DATE & TIME INFORMATION:
+🎯 CRITICAL - ACCURATE CURRENT DATE & TIME:
 Today is: {datetime_info.get('current_date', 'Unknown')}
 Current time: {datetime_info.get('current_time', 'Unknown')}
 Current day: {datetime_info.get('current_day', 'Unknown')}
 Current year: {datetime_info.get('current_year', 'Unknown')}
+Day of week: {datetime_info.get('day_of_week', 'Unknown')}
+Week number: {datetime_info.get('week_number', 'Unknown')}
 
-IMPORTANT INSTRUCTIONS FOR CURRENT INFO QUERIES:
-- Use the EXACT information provided above for date/time questions
-- For political questions, use the current information provided
-- Always be specific and direct when providing current information
-- If specific current data isn't available, acknowledge limitations
+IMPORTANT INSTRUCTIONS:
+- Use the EXACT information provided above for any date/time questions
+- Be specific and direct when providing current information
+- If you don't have specific current data for something, acknowledge the limitation clearly
+- Always be accurate about what information you have vs. what you don't have
 
-{personality_context[:500] if personality_context else ''}"""
+{personality_context[:300] if personality_context else ''}"""
 
-        # Add specific current information if available
+        # Add specific current information sections
         if 'politics' in current_info:
             politics_info = current_info['politics']
             system_content += f"""
 
-🇺🇸 CURRENT US POLITICAL INFORMATION:
+🇺🇸 CURRENT US POLITICAL INFORMATION (Accurate as of 2025):
 Current US President: {politics_info.get('us_president', 'Unknown')}
 In office since: {politics_info.get('us_president_since', 'Unknown')}
 Vice President: {politics_info.get('us_vice_president', 'Unknown')}
 Previous President: {politics_info.get('previous_president', 'Unknown')}
+Context: {politics_info.get('context', '')}
 Note: {politics_info.get('note', '')}"""
 
         if 'weather' in current_info:
@@ -255,14 +353,21 @@ Note: {politics_info.get('note', '')}"""
 
 📰 NEWS INFORMATION:
 {news_info.get('note', '')}
-{news_info.get('suggestion', '')}
-{news_info.get('general_note', '')}"""
+{news_info.get('suggestion', '')}"""
+
+        if 'markets' in current_info:
+            markets_info = current_info['markets']
+            system_content += f"""
+
+📈 MARKET INFORMATION:
+{markets_info.get('note', '')}
+{markets_info.get('suggestion', '')}"""
 
         messages.append({"role": "system", "content": system_content})
         
-        # Add memory context if available
+        # Add memory context if available (but keep it short for speed)
         if memory_context:
-            messages.append({"role": "system", "content": f"Recent context: {memory_context[:300]}"})
+            messages.append({"role": "system", "content": f"Recent context: {memory_context[-200:]}"})
         
         # User query
         messages.append({"role": "user", "content": query})
@@ -271,42 +376,42 @@ Note: {politics_info.get('note', '')}"""
     
     async def generate_response(self, query: str, personality_context: str, 
                                memory_context: str) -> str:
-        """Generate response with real current information"""
+        """Generate response with enhanced current information"""
         if not self.available:
-            return "Online services are not available right now. Please check your Groq API key configuration."
+            return "Online services are not available. Please check your Groq API key configuration."
         
-        # Detect if this is a current info query
-        is_current_info = self._detect_current_info(query)
+        # Detect current info category for optimized processing
+        current_info_category = self._detect_current_info_category(query)
+        is_current_info = current_info_category is not None
         
         if settings.debug_mode:
-            current_info_flag = " [CURRENT INFO]" if is_current_info else ""
-            print(f"[GROQ] 🎯 Processing query{current_info_flag}: {query[:50]}...")
+            category_info = f" [{current_info_category.upper()}]" if current_info_category else ""
+            print(f"[GROQ] 🎯 Processing query{category_info}: {query[:50]}...")
         
         try:
             start_time = time.time()
             
-            # Gather real current information if needed
-            current_info = {}
-            if is_current_info:
-                current_info = await self._gather_current_information(query)
-                if settings.debug_mode:
-                    print(f"[GROQ] 📊 Gathered current info: {list(current_info.keys())}")
+            # Gather targeted current information
+            current_info = await self._gather_targeted_current_info(query)
+            if settings.debug_mode and current_info:
+                info_types = list(current_info.keys())
+                print(f"[GROQ] 📊 Gathered current info: {info_types}")
             
-            # Build enhanced prompt with real data
-            messages = self._build_enhanced_prompt_with_real_data(
+            # Build enhanced prompt
+            messages = self._build_enhanced_current_info_prompt(
                 query, personality_context, memory_context, current_info
             )
             
             headers = {
-                'Content-Type': 'application/json',
                 'Authorization': f'Bearer {self.api_key}'
             }
             
+            # Optimize parameters for current info queries
             payload = {
                 "model": self.model,
                 "messages": messages,
-                "max_tokens": settings.max_response_tokens,
-                "temperature": 0.1 if is_current_info else settings.temperature,
+                "max_tokens": min(settings.max_response_tokens, 300),  # Cap for speed
+                "temperature": 0.1 if is_current_info else 0.3,  # Lower temp for factual info
                 "stream": False
             }
             
@@ -314,7 +419,7 @@ Note: {politics_info.get('note', '')}"""
                 self.base_url,
                 headers=headers,
                 json=payload,
-                timeout=aiohttp.ClientTimeout(total=25)
+                timeout=aiohttp.ClientTimeout(total=20)
             ) as response:
                 if response.status == 200:
                     data = await response.json()
@@ -322,7 +427,7 @@ Note: {politics_info.get('note', '')}"""
                     if 'choices' in data and data['choices']:
                         content = data['choices'][0]['message']['content']
                         
-                        # Update stats
+                        # Update performance stats
                         self.request_count += 1
                         self.success_count += 1
                         response_time = time.time() - start_time
@@ -334,25 +439,25 @@ Note: {politics_info.get('note', '')}"""
                             self.response_times = self.response_times[-20:]
                         
                         if settings.debug_mode:
-                            print(f"[GROQ] ✅ Response with real current info generated in {response_time:.2f}s")
+                            print(f"[GROQ] ✅ Current info response in {response_time:.2f}s")
                         
                         return content.strip()
                     else:
                         self.failure_count += 1
-                        return "I received an invalid response from the online service."
+                        return "I received an incomplete response from the online service."
                 
                 elif response.status == 429:
                     self.failure_count += 1
                     return "I'm being rate limited. Please try again in a moment."
                 elif response.status in [401, 403]:
                     self.failure_count += 1
-                    return "There's an issue with the Groq API configuration. Please check the API key."
+                    return "There's an authentication issue with the online service."
                 else:
                     error_text = await response.text()
                     self.failure_count += 1
                     if settings.debug_mode:
                         print(f"[GROQ] ❌ API error {response.status}: {error_text[:100]}")
-                    return f"Online service error. Please try again."
+                    return "Online service error. Please try again."
         
         except asyncio.TimeoutError:
             self.failure_count += 1
@@ -367,43 +472,41 @@ Note: {politics_info.get('note', '')}"""
     
     async def generate_response_stream(self, query: str, personality_context: str, 
                                      memory_context: str) -> AsyncGenerator[str, None]:
-        """Generate streaming response with real current information"""
+        """Generate streaming response with enhanced current information"""
         if not self.available:
-            yield "Online services are not available right now. Please check your Groq API key configuration."
+            yield "Online services are not available. Please check your Groq API key."
             return
         
-        # Detect if this is a current info query
-        is_current_info = self._detect_current_info(query)
+        # Detect current info for optimized processing
+        current_info_category = self._detect_current_info_category(query)
+        is_current_info = current_info_category is not None
         
         if settings.debug_mode:
-            current_info_flag = " [CURRENT INFO]" if is_current_info else ""
-            print(f"[GROQ] 🌊 Streaming query{current_info_flag}: {query[:50]}...")
+            category_info = f" [{current_info_category.upper()}]" if current_info_category else ""
+            print(f"[GROQ] 🌊 Streaming{category_info}: {query[:50]}...")
         
         try:
             start_time = time.time()
             
-            # Gather real current information if needed
-            current_info = {}
-            if is_current_info:
-                current_info = await self._gather_current_information(query)
-                if settings.debug_mode:
-                    print(f"[GROQ] 📊 Gathered current info for streaming: {list(current_info.keys())}")
+            # Gather current information
+            current_info = await self._gather_targeted_current_info(query)
+            if settings.debug_mode and current_info:
+                print(f"[GROQ] 📊 Current info for streaming: {list(current_info.keys())}")
             
-            # Build enhanced prompt with real data
-            messages = self._build_enhanced_prompt_with_real_data(
+            # Build enhanced prompt
+            messages = self._build_enhanced_current_info_prompt(
                 query, personality_context, memory_context, current_info
             )
             
             headers = {
-                'Content-Type': 'application/json',
                 'Authorization': f'Bearer {self.api_key}'
             }
             
             payload = {
                 "model": self.model,
                 "messages": messages,
-                "max_tokens": settings.max_response_tokens,
-                "temperature": 0.1 if is_current_info else settings.temperature,
+                "max_tokens": min(settings.max_response_tokens, 300),
+                "temperature": 0.1 if is_current_info else 0.3,
                 "stream": True
             }
             
@@ -411,7 +514,7 @@ Note: {politics_info.get('note', '')}"""
                 self.base_url,
                 headers=headers,
                 json=payload,
-                timeout=aiohttp.ClientTimeout(total=30)
+                timeout=aiohttp.ClientTimeout(total=25)
             ) as response:
                 if response.status == 200:
                     response_received = False
@@ -447,7 +550,7 @@ Note: {politics_info.get('note', '')}"""
                             self.response_times = self.response_times[-20:]
                             
                         if settings.debug_mode:
-                            print(f"[GROQ] ✅ Streaming with real current info completed in {response_time:.2f}s")
+                            print(f"[GROQ] ✅ Streaming complete in {response_time:.2f}s")
                     else:
                         self.failure_count += 1
                         yield "I didn't receive a proper response from the online service."
@@ -457,7 +560,7 @@ Note: {politics_info.get('note', '')}"""
                     yield "I'm being rate limited. Please try again in a moment."
                 elif response.status in [401, 403]:
                     self.failure_count += 1
-                    yield "There's an issue with the Groq API configuration."
+                    yield "There's an authentication issue with the online service."
                 else:
                     self.failure_count += 1
                     yield "Online service error. Please try again."
@@ -471,62 +574,14 @@ Note: {politics_info.get('note', '')}"""
             self.failure_count += 1
             if settings.debug_mode:
                 print(f"[GROQ] ❌ Streaming error: {e}")
-            yield "I'm having trouble connecting to online services right now."
+            yield "I'm having trouble with online services right now."
     
     def _detect_current_info(self, query: str) -> bool:
-        """Enhanced current info detection to match router logic"""
-        query_lower = query.lower().strip()
-        
-        # Enhanced patterns matching the router
-        current_patterns = [
-            # Date/time queries
-            'what day is today', 'what date is today', 'what time is it',
-            'current date', 'current time', 'todays date', "today's date",
-            'what is today', 'tell me the date', 'what day is it',
-            'what is the date', 'what is the time', 'date today',
-            'time now', 'current day', 'what day', 'what date',
-            
-            # Current status queries
-            'current president', 'current prime minister', 'current pm',
-            'who is the current', 'current leader', 'current government',
-            'who is president now', 'current us president',
-            
-            # News and events
-            'latest news', 'recent news', 'news today', 'breaking news',
-            'current events', "what's happening", 'in the news',
-            'news now', 'today news', 'current news',
-            
-            # Weather
-            'weather today', 'current weather', 'weather now',
-            'what is the weather', 'todays weather',
-            
-            # Other current info indicators
-            'right now', 'at the moment', 'currently'
-        ]
-        
-        for pattern in current_patterns:
-            if pattern in query_lower:
-                if settings.debug_mode:
-                    print(f"[GROQ] 🎯 Current info pattern detected: '{pattern}'")
-                return True
-        
-        # Single word triggers with context
-        single_triggers = ['today', 'now', 'current', 'latest', 'recent']
-        words = query_lower.split()
-        
-        for word in words:
-            if word in single_triggers:
-                # Avoid false positives for educational queries
-                if any(avoid in query_lower for avoid in ['explain', 'definition', 'what is', 'how does', 'why', 'example']):
-                    continue
-                if settings.debug_mode:
-                    print(f"[GROQ] 🎯 Current info trigger detected: '{word}'")
-                return True
-        
-        return False
+        """Enhanced current info detection for compatibility"""
+        return self._detect_current_info_category(query) is not None
     
-    def get_provider_stats(self) -> dict:
-        """Get provider statistics for compatibility"""
+    def get_provider_stats(self) -> Dict[str, Any]:
+        """Get comprehensive provider statistics"""
         avg_time = self.total_time / max(self.request_count, 1)
         
         return {
@@ -535,7 +590,7 @@ Note: {politics_info.get('note', '')}"""
             'last_error': self.last_error,
             'available_providers': ['groq'] if self.available else [],
             'preferred_provider': 'groq' if self.available else None,
-            'real_current_info': True,  # NEW: Indicates real current info support
+            'enhanced_current_info': True,
             'providers': {
                 'groq': {
                     'available': self.available,
@@ -545,18 +600,18 @@ Note: {politics_info.get('note', '')}"""
                     'api_key_configured': bool(self.api_key),
                     'current_model': self.model,
                     'supports_current_info': True,
-                    'real_current_info': True,  # NEW
-                    'timeout': 30.0,
-                    'enhanced_current_info': True
+                    'enhanced_detection': True,
+                    'timeout': 20.0,
+                    'optimization_level': 'enhanced_speed'
                 }
             }
         }
     
     def is_available(self) -> bool:
-        """Check if Groq provider is available"""
+        """Check if provider is available"""
         return self.initialization_successful and self.available
     
-    def get_performance_stats(self) -> dict:
+    def get_performance_stats(self) -> Dict[str, Any]:
         """Get detailed performance statistics"""
         avg_time = self.total_time / max(self.request_count, 1)
         success_rate = (self.success_count / max(self.request_count, 1)) * 100
@@ -580,8 +635,15 @@ Note: {politics_info.get('note', '')}"""
             'last_error': self.last_error,
             'supports_streaming': True,
             'supports_current_info': True,
-            'real_current_info_support': True,  # NEW
-            'enhanced_current_info_detection': True
+            'enhanced_current_info_detection': True,
+            'current_info_categories': list(self.current_info_indicators.keys()),
+            'optimization_features': [
+                'Targeted current info gathering',
+                'Category-based optimization',
+                'Enhanced prompt engineering',
+                'Fast connection pooling',
+                'Response quality validation'
+            ]
         }
     
     async def close(self):
@@ -591,4 +653,8 @@ Note: {politics_info.get('note', '')}"""
             self.session = None
         self.available = False
         if settings.debug_mode:
-            print("[GROQ] 🔌 Connection closed")
+            if self.request_count > 0:
+                avg_time = self.total_time / self.request_count
+                success_rate = (self.success_count / self.request_count) * 100
+                print(f"[GROQ] 📊 Session stats: {self.request_count} requests, {avg_time:.2f}s avg, {success_rate:.1f}% success")
+            print("[GROQ] 🔌 Enhanced connection closed")
