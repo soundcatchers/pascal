@@ -1,7 +1,6 @@
 """
-Pascal AI Assistant - ULTRA-FAST Offline LLM (Complete Rewrite)
-Optimized for sub-2 second responses with robust error handling
-FOCUS: Speed, reliability, and coherent responses
+Pascal AI Assistant - FIXED Offline LLM Module
+Resolved compatibility issues and improved error handling
 """
 
 import asyncio
@@ -17,7 +16,7 @@ except ImportError:
     AIOHTTP_AVAILABLE = False
 
 class LightningOfflineLLM:
-    """Ultra-fast offline LLM with robust error handling and optimized prompts"""
+    """Fixed offline LLM with resolved compatibility issues"""
     
     def __init__(self):
         from config.settings import settings
@@ -34,7 +33,7 @@ class LightningOfflineLLM:
         # Ollama configuration
         self.host = settings.ollama_host
         self.keep_alive_duration = "30m"
-        self.keep_alive_interval = 30  # seconds
+        self.keep_alive_interval = 30
         
         # Performance tracking
         self.request_count = 0
@@ -48,14 +47,8 @@ class LightningOfflineLLM:
         # Response quality tracking
         self.response_cache = {}
         self.cache_max_size = 50
-        self.nonsense_patterns = [
-            r'^\d+$',  # Just numbers
-            r'^\d+\s*[\+\-\*\/]\s*\d+$',  # Math expressions
-            r'^\d+:\d+\s*(AM|PM)?$',  # Time formats
-            r'^[A-Za-z]$',  # Single letters
-        ]
         
-        # Model preferences - prioritize working models
+        # Model preferences
         self.preferred_models = [
             'nemotron-mini:4b-instruct-q4_K_M',
             'nemotron-fast',
@@ -65,7 +58,7 @@ class LightningOfflineLLM:
             'gemma2:2b',
         ]
         
-        # Optimized generation settings by profile
+        # Performance profiles
         self.profiles = {
             'speed': {
                 'num_predict': 40,
@@ -98,59 +91,35 @@ class LightningOfflineLLM:
                 'repeat_penalty': 1.1,
             }
         }
-        self.current_profile = 'speed'  # Default to fastest
-        
-        # Smart prompt templates for different query types
-        self.prompt_templates = {
-            'greeting': {
-                'template': "User: {query}\nAssistant: ",
-                'system': "You are Pascal, a helpful AI assistant. Give a brief, friendly greeting."
-            },
-            'simple_question': {
-                'template': "User: {query}\nAssistant: ",
-                'system': "You are Pascal, a helpful AI assistant. Give a direct, concise answer."
-            },
-            'calculation': {
-                'template': "User: {query}\nAssistant: ",
-                'system': "You are Pascal. Solve this calculation and explain briefly."
-            },
-            'explanation': {
-                'template': "System: You are Pascal, a helpful AI assistant. Explain things clearly and concisely.\n\nUser: {query}\nAssistant: ",
-                'system': None  # Already in template
-            },
-            'conversation': {
-                'template': "System: You are Pascal, a helpful and friendly AI assistant.\n\nUser: {query}\nAssistant: ",
-                'system': None
-            }
-        }
+        self.current_profile = 'speed'
     
     async def initialize(self) -> bool:
-        """Ultra-fast initialization with robust error handling"""
+        """Fixed initialization with proper error handling"""
         if not AIOHTTP_AVAILABLE:
-            self.last_error = "aiohttp not available - install with: pip install aiohttp"
+            self.last_error = "aiohttp not available - install with: pip install aiohttp==3.8.6"
             if self.settings.debug_mode:
                 print(f"[OLLAMA] ❌ {self.last_error}")
             return False
         
         try:
-            # Create optimized HTTP session
-            await self._create_optimized_session()
+            # Create session with fixed connector settings
+            await self._create_fixed_session()
             
-            # Test connection with short timeout
+            # Test connection
             if not await self._test_connection_fast():
                 self.last_error = "Cannot connect to Ollama service"
                 if self.settings.debug_mode:
                     print(f"[OLLAMA] ❌ Connection failed")
                 return False
             
-            # Load and test best available model
+            # Load best model
             if not await self._load_best_model():
                 self.last_error = "No working models found"
                 if self.settings.debug_mode:
                     print(f"[OLLAMA] ❌ Model loading failed")
                 return False
             
-            # Start keep-alive task
+            # Start keep-alive
             await self._start_keep_alive()
             
             self.available = True
@@ -158,8 +127,8 @@ class LightningOfflineLLM:
             self.last_successful_time = time.time()
             
             if self.settings.debug_mode:
-                print(f"[OLLAMA] ✅ Ultra-fast LLM ready: {self.current_model}")
-                print(f"[OLLAMA] 🚀 Profile: {self.current_profile} ({self.profiles[self.current_profile]['description']})")
+                print(f"[OLLAMA] ✅ Fixed LLM ready: {self.current_model}")
+                print(f"[OLLAMA] 🚀 Profile: {self.current_profile}")
             
             return True
             
@@ -169,25 +138,37 @@ class LightningOfflineLLM:
                 print(f"[OLLAMA] ❌ Init failed: {e}")
             return False
     
-    async def _create_optimized_session(self):
-        """Create highly optimized HTTP session"""
-        # Ultra-fast timeouts
+    async def _create_fixed_session(self):
+        """Create session with fixed compatibility settings"""
+        # Fixed timeout configuration
         timeout = aiohttp.ClientTimeout(
             total=15,
             connect=3,
             sock_read=12
         )
         
-        # Optimized connector
-        self.connector = aiohttp.TCPConnector(
-            limit=1,
-            limit_per_host=1,
-            enable_cleanup_closed=True,
-            use_dns_cache=True,
-            keepalive_timeout=600,  # 10 minutes
-            force_close=False,
-            tcp_nodelay=True
-        )
+        # Fixed connector - removed tcp_nodelay to prevent compatibility issues
+        connector_kwargs = {
+            'limit': 1,
+            'limit_per_host': 1,
+            'enable_cleanup_closed': True,
+            'use_dns_cache': True,
+            'keepalive_timeout': 600,
+            'force_close': False
+        }
+        
+        # Only add tcp_nodelay if the aiohttp version supports it
+        try:
+            import aiohttp
+            version = tuple(map(int, aiohttp.__version__.split('.')[:2]))
+            # tcp_nodelay was added in aiohttp 3.9, but causes issues on some systems
+            # We'll skip it for compatibility
+            if version >= (3, 9) and False:  # Disabled for compatibility
+                connector_kwargs['tcp_nodelay'] = True
+        except:
+            pass
+        
+        self.connector = aiohttp.TCPConnector(**connector_kwargs)
         
         self.session = aiohttp.ClientSession(
             timeout=timeout,
@@ -199,7 +180,7 @@ class LightningOfflineLLM:
         )
     
     async def _test_connection_fast(self) -> bool:
-        """Ultra-fast connection test"""
+        """Test connection with proper error handling"""
         try:
             async with self.session.get(
                 f"{self.host}/api/version",
@@ -269,10 +250,8 @@ class LightningOfflineLLM:
         return False
     
     async def _test_model_fast(self, model_name: str) -> bool:
-        """Quick model test with timeout"""
+        """Quick model test"""
         try:
-            profile = self.profiles[self.current_profile]
-            
             payload = {
                 "model": model_name,
                 "prompt": "Hi",
@@ -295,7 +274,6 @@ class LightningOfflineLLM:
                     data = await response.json()
                     response_text = data.get('response', '').strip()
                     
-                    # Check if response is reasonable
                     if response_text and len(response_text) > 0:
                         if self.settings.debug_mode:
                             print(f"[OLLAMA] ✅ Model test passed: {model_name}")
@@ -321,7 +299,6 @@ class LightningOfflineLLM:
             try:
                 await asyncio.sleep(self.keep_alive_interval)
                 
-                # Send minimal keep-alive request
                 payload = {
                     "model": self.current_model,
                     "prompt": "",
@@ -335,142 +312,32 @@ class LightningOfflineLLM:
                     json=payload,
                     timeout=aiohttp.ClientTimeout(total=5)
                 ) as response:
-                    pass  # Just keeping connection alive
+                    pass
                     
             except asyncio.CancelledError:
                 break
             except Exception:
-                # Keep-alive failure is not critical
                 pass
     
-    def _classify_query(self, query: str) -> str:
-        """Classify query to choose optimal prompt template"""
-        query_lower = query.lower().strip()
-        
-        # Greeting patterns
-        greetings = ['hello', 'hi', 'hey', 'good morning', 'good afternoon', 'good evening']
-        if any(greeting in query_lower for greeting in greetings):
-            return 'greeting'
-        
-        # Simple questions
-        simple_patterns = ['what is', 'who is', 'where is', 'when is', 'how much', 'how many']
-        if any(pattern in query_lower for pattern in simple_patterns) and len(query.split()) <= 6:
-            return 'simple_question'
-        
-        # Calculations
-        if re.search(r'\d+\s*[\+\-\*\/]\s*\d+', query) or 'calculate' in query_lower:
-            return 'calculation'
-        
-        # Explanation requests
-        explain_patterns = ['explain', 'describe', 'tell me about', 'what does', 'how does']
-        if any(pattern in query_lower for pattern in explain_patterns):
-            return 'explanation'
-        
-        # Default to conversation
-        return 'conversation'
-    
-    def _build_optimized_prompt(self, query: str, personality_context: str, memory_context: str) -> str:
-        """Build optimized prompt based on query classification"""
-        query_type = self._classify_query(query)
-        template_info = self.prompt_templates[query_type]
-        
-        # For speed profile, use minimal context
-        if self.current_profile == 'speed':
-            return template_info['template'].format(query=query)
-        
-        # For other profiles, add context if available
-        if template_info['system'] and (personality_context or memory_context):
-            context_parts = []
-            if personality_context:
-                context_parts.append(personality_context[:200])  # Limit context length
-            if memory_context:
-                context_parts.append(memory_context[-100:])  # Use recent memory only
-            
-            if context_parts:
-                full_system = template_info['system'] + " " + " ".join(context_parts)
-                return f"System: {full_system}\n\nUser: {query}\nAssistant: "
-        
-        return template_info['template'].format(query=query)
-    
-    def _validate_response(self, response: str, query: str) -> bool:
-        """Validate response quality"""
-        if not response or len(response.strip()) < 2:
-            return False
-        
-        response_lower = response.lower().strip()
-        
-        # Check for nonsense patterns
-        for pattern in self.nonsense_patterns:
-            if re.match(pattern, response_lower):
-                return False
-        
-        # Check if response seems unrelated to query
-        query_words = set(query.lower().split())
-        response_words = set(response_lower.split())
-        
-        # For greetings, check for appropriate response
-        if any(word in query_words for word in ['hello', 'hi', 'hey']):
-            greeting_words = ['hello', 'hi', 'hey', 'good', 'morning', 'help', 'assist']
-            if not any(word in response_words for word in greeting_words):
-                return False
-        
-        return True
-    
-    def _get_cached_response(self, query: str) -> Optional[str]:
-        """Get cached response for similar queries"""
-        query_key = query.lower().strip()
-        
-        # Exact match
-        if query_key in self.response_cache:
-            return self.response_cache[query_key]
-        
-        # Similar greeting patterns
-        greeting_patterns = ['hello', 'hi', 'hey', 'good morning']
-        query_lower = query_key.lower()
-        
-        for pattern in greeting_patterns:
-            if pattern in query_lower:
-                for cached_query, cached_response in self.response_cache.items():
-                    if pattern in cached_query:
-                        return cached_response
-        
-        return None
-    
-    def _cache_response(self, query: str, response: str):
-        """Cache response for future use"""
-        if len(self.response_cache) >= self.cache_max_size:
-            # Remove oldest entry
-            oldest_key = next(iter(self.response_cache))
-            del self.response_cache[oldest_key]
-        
-        self.response_cache[query.lower().strip()] = response
-    
     def set_performance_profile(self, profile: str):
-        """Set performance profile with immediate effect"""
+        """Set performance profile"""
         if profile in self.profiles:
             self.current_profile = profile
             if self.settings.debug_mode:
                 print(f"[OLLAMA] ⚡ Profile: {profile} - {self.profiles[profile]['description']}")
     
     async def generate_response(self, query: str, personality_context: str, memory_context: str) -> str:
-        """Generate response with quality validation and caching"""
+        """Generate response with fixed error handling"""
         if not self.available or not self.model_loaded:
             return "Offline model unavailable. Please check Ollama service."
-        
-        # Check cache first for common queries
-        cached_response = self._get_cached_response(query)
-        if cached_response and self.current_profile == 'speed':
-            if self.settings.debug_mode:
-                print(f"[OLLAMA] ⚡ Cache hit: {query[:30]}...")
-            return cached_response
         
         start_time = time.time()
         max_retries = 2
         
         for attempt in range(max_retries):
             try:
-                # Build optimized prompt
-                prompt = self._build_optimized_prompt(query, personality_context, memory_context)
+                # Build simple prompt for speed
+                prompt = f"User: {query}\nAssistant: "
                 
                 # Get profile settings
                 profile = self.profiles[self.current_profile]
@@ -506,28 +373,17 @@ class LightningOfflineLLM:
                         
                         elapsed = time.time() - start_time
                         
-                        # Validate response quality
-                        if self._validate_response(response_text, query):
-                            # Update performance stats
+                        if response_text and len(response_text) > 1:
                             self._update_performance_stats(elapsed, True)
                             
-                            # Cache good responses
-                            if len(response_text) < 500:  # Don't cache very long responses
-                                self._cache_response(query, response_text)
-                            
                             if self.settings.debug_mode:
-                                eval_count = data.get('eval_count', 0)
-                                eval_duration = data.get('eval_duration', 1)
-                                tokens_per_sec = eval_count / max(eval_duration / 1e9, 0.001) if eval_count > 0 else 0
-                                print(f"[OLLAMA] ✅ Response in {elapsed:.2f}s ({tokens_per_sec:.1f} tok/s)")
+                                print(f"[OLLAMA] ✅ Response in {elapsed:.2f}s")
                             
                             self.consecutive_errors = 0
                             return response_text
                         else:
                             if self.settings.debug_mode:
-                                print(f"[OLLAMA] ⚠️ Invalid response (attempt {attempt + 1}): '{response_text[:50]}...'")
-                            if attempt < max_retries - 1:
-                                continue  # Retry with different approach
+                                print(f"[OLLAMA] ⚠️ Empty response (attempt {attempt + 1})")
                     else:
                         if self.settings.debug_mode:
                             print(f"[OLLAMA] ❌ HTTP {response.status} (attempt {attempt + 1})")
@@ -546,14 +402,10 @@ class LightningOfflineLLM:
         self._update_performance_stats(elapsed, False)
         self.consecutive_errors += 1
         
-        # Return helpful error message
-        if self.consecutive_errors > 3:
-            return "I'm having persistent issues. Please check the Ollama service status."
-        else:
-            return f"I'm having trouble responding right now. Please try rephrasing your question."
+        return "I'm having trouble responding right now. Please try again."
     
     async def generate_response_stream(self, query: str, personality_context: str, memory_context: str) -> AsyncGenerator[str, None]:
-        """Generate streaming response with quality validation"""
+        """Generate streaming response"""
         if not self.available or not self.model_loaded:
             yield "Offline model unavailable. Please check Ollama service."
             return
@@ -561,7 +413,7 @@ class LightningOfflineLLM:
         start_time = time.time()
         
         try:
-            prompt = self._build_optimized_prompt(query, personality_context, memory_context)
+            prompt = f"User: {query}\nAssistant: "
             profile = self.profiles[self.current_profile]
             
             options = {
@@ -583,7 +435,7 @@ class LightningOfflineLLM:
                 "keep_alive": self.keep_alive_duration
             }
             
-            timeout_val = profile['timeout'] + 5  # Extra time for streaming
+            timeout_val = profile['timeout'] + 5
             
             async with self.session.post(
                 f"{self.host}/api/generate",
@@ -613,14 +465,8 @@ class LightningOfflineLLM:
                                 
                                 if data.get('done', False):
                                     elapsed = time.time() - start_time
-                                    
-                                    # Validate full response
-                                    if self._validate_response(full_response, query):
-                                        self._update_performance_stats(elapsed, True)
-                                        self._cache_response(query, full_response)
-                                        self.consecutive_errors = 0
-                                    else:
-                                        self._update_performance_stats(elapsed, False)
+                                    self._update_performance_stats(elapsed, True)
+                                    self.consecutive_errors = 0
                                     
                                     if self.settings.debug_mode:
                                         print(f"[OLLAMA] ✅ Streaming complete in {elapsed:.2f}s")
@@ -638,7 +484,7 @@ class LightningOfflineLLM:
         except asyncio.TimeoutError:
             elapsed = time.time() - start_time
             self._update_performance_stats(elapsed, False)
-            yield f"\n\nTimed out after {elapsed:.1f}s. Try 'speed' profile for faster responses."
+            yield f"Timed out after {elapsed:.1f}s."
             
         except Exception as e:
             elapsed = time.time() - start_time
@@ -655,13 +501,12 @@ class LightningOfflineLLM:
         else:
             self.last_successful_time = time.time()
         
-        # Keep rolling window of recent response times
         self.response_times.append(response_time)
         if len(self.response_times) > 20:
             self.response_times = self.response_times[-20:]
     
     def get_status(self) -> Dict[str, Any]:
-        """Get comprehensive status with performance metrics"""
+        """Get comprehensive status"""
         avg_time = self.total_time / max(self.request_count, 1)
         success_rate = ((self.request_count - self.error_count) / max(self.request_count, 1)) * 100
         
@@ -675,7 +520,7 @@ class LightningOfflineLLM:
             'current_model': self.current_model,
             'performance_profile': self.current_profile,
             'profile_description': self.profiles[self.current_profile]['description'],
-            'optimization_level': 'ultra_fast_rewrite',
+            'optimization_level': 'fixed_compatibility',
             'stats': {
                 'request_count': self.request_count,
                 'error_count': self.error_count,
@@ -683,44 +528,14 @@ class LightningOfflineLLM:
                 'avg_response_time': f"{avg_time:.2f}s",
                 'recent_avg_time': f"{recent_avg:.2f}s",
                 'success_rate': f"{success_rate:.1f}%",
-                'target_time': f"<{self.profiles[self.current_profile]['timeout']}s",
-                'speed_grade': self._calculate_speed_grade(recent_avg),
-                'cache_size': len(self.response_cache)
-            },
-            'current_settings': {
-                'num_predict': self.profiles[self.current_profile]['num_predict'],
-                'num_ctx': self.profiles[self.current_profile]['num_ctx'],
-                'temperature': self.profiles[self.current_profile]['temperature'],
-                'profile_optimizations': self.profiles[self.current_profile]
+                'target_time': f"<{self.profiles[self.current_profile]['timeout']}s"
             },
             'last_error': self.last_error,
-            'preferred_models': self.preferred_models,
-            'quality_features': [
-                'Response validation',
-                'Intelligent caching',
-                'Query classification',
-                'Retry with validation',
-                'Nonsense detection',
-                'Context optimization'
-            ]
+            'preferred_models': self.preferred_models
         }
     
-    def _calculate_speed_grade(self, avg_time: float) -> str:
-        """Calculate speed grade"""
-        if avg_time < 1:
-            return "A+ (Lightning)"
-        elif avg_time < 2:
-            return "A (Excellent)"
-        elif avg_time < 3:
-            return "B (Good)"
-        elif avg_time < 5:
-            return "C (Fair)"
-        else:
-            return "D (Slow)"
-    
     async def close(self):
-        """Clean close with performance summary"""
-        # Cancel keep-alive task
+        """Clean close"""
         if self.keep_alive_task:
             self.keep_alive_task.cancel()
             try:
@@ -728,7 +543,6 @@ class LightningOfflineLLM:
             except asyncio.CancelledError:
                 pass
         
-        # Close HTTP session
         if self.session:
             await self.session.close()
             self.session = None
@@ -746,7 +560,7 @@ class LightningOfflineLLM:
                 avg_time = self.total_time / self.request_count
                 success_rate = ((self.request_count - self.error_count) / self.request_count) * 100
                 print(f"[OLLAMA] 📊 Session stats: {self.request_count} requests, {avg_time:.2f}s avg, {success_rate:.1f}% success")
-            print("[OLLAMA] 🔌 Ultra-fast connection closed")
+            print("[OLLAMA] 🔌 Fixed connection closed")
 
 # Maintain compatibility
 OptimizedOfflineLLM = LightningOfflineLLM
