@@ -1,20 +1,19 @@
 """
-Pascal AI Assistant - SPEED-OPTIMIZED Settings Configuration
-Ultra-fast configuration targeting <3 second responses
-FOCUS: Minimal overhead, aggressive timeouts, speed-first optimizations
+Pascal AI Assistant - ULTRA-SPEED Settings Configuration
+Extreme optimizations for sub-2 second responses on Pi 5
 """
 
 import os
 import json
 from pathlib import Path
-from typing import Dict, Any, Optional, List  # Added List import here
+from typing import Dict, Any, Optional, List
 from dotenv import load_dotenv
 
 # Load environment variables
 load_dotenv()
 
 class Settings:
-    """SPEED-OPTIMIZED settings for sub-3-second responses"""
+    """ULTRA-SPEED optimized settings for sub-2-second responses"""
     
     def __init__(self):
         self.base_dir = Path(__file__).parent.parent
@@ -29,7 +28,7 @@ class Settings:
         
         # Pascal identity
         self.name = "Pascal"
-        self.version = "4.2.0"  # Speed-optimized version
+        self.version = "4.3.0"  # Ultra-speed-optimized version
         
         # Debug settings
         self.debug_mode = os.getenv("DEBUG", "false").lower() == "true"
@@ -39,56 +38,58 @@ class Settings:
         # API Configuration - Groq only for online
         self.groq_api_key = self._load_groq_api_key()
         
-        # SPEED-FIRST PERFORMANCE SETTINGS
+        # ULTRA-SPEED PERFORMANCE SETTINGS
         self.performance_mode = os.getenv("PERFORMANCE_MODE", "speed")  # Default to speed
-        self.target_response_time = float(os.getenv("TARGET_RESPONSE_TIME", "2.0"))  # Aggressive 2s target
-        self.max_response_time = float(os.getenv("MAX_RESPONSE_TIME", "5.0"))  # Hard limit
+        self.target_response_time = float(os.getenv("TARGET_RESPONSE_TIME", "1.5"))  # Ultra-aggressive 1.5s target
+        self.max_response_time = float(os.getenv("MAX_RESPONSE_TIME", "4.0"))  # Hard limit
         self.streaming_enabled = os.getenv("STREAMING_ENABLED", "true").lower() == "true"
-        self.max_response_tokens = int(os.getenv("MAX_RESPONSE_TOKENS", "80"))  # Reduced for speed
+        self.max_response_tokens = int(os.getenv("MAX_RESPONSE_TOKENS", "60"))  # Very short for speed
         
-        # LLM Configuration - SPEED OPTIMIZED
+        # LLM Configuration - ULTRA-SPEED OPTIMIZED
         self.default_personality = "default"
-        self.max_context_length = 256  # Aggressive reduction for speed
-        self.temperature = 0.3  # Lower for faster, more focused responses
+        self.max_context_length = 128  # Ultra-aggressive reduction for speed
+        self.temperature = 0.1  # Very low for faster, more focused responses
         
-        # OLLAMA SETTINGS - ULTRA-FAST CONFIGURATION
+        # OLLAMA SETTINGS - ULTRA-SPEED CONFIGURATION
         self.ollama_host = os.getenv("OLLAMA_HOST", "http://localhost:11434")
-        self.ollama_timeout = int(os.getenv("OLLAMA_TIMEOUT", "8"))  # Aggressive timeout
+        self.ollama_timeout = int(os.getenv("OLLAMA_TIMEOUT", "6"))  # Ultra-aggressive timeout
         self.ollama_keep_alive = os.getenv("OLLAMA_KEEP_ALIVE", "30m")
         
-        # Speed-specific Ollama settings
+        # Ultra-speed Ollama settings
         self.ollama_num_parallel = 1  # Single request at a time
         self.ollama_max_loaded_models = 1  # One model only
-        self.ollama_num_thread = 4  # Use all Pi 5 cores
-        self.ollama_flash_attention = False  # Disabled for stability
+        self.ollama_num_thread = 4  # Use all 4 Pi 5 cores
+        self.ollama_flash_attention = False  # Disabled for compatibility
         
-        # Memory settings - MINIMAL for speed
-        self.short_term_memory_limit = 1  # Minimal memory for speed
+        # Memory settings - ULTRA-MINIMAL for speed
+        self.short_term_memory_limit = 1  # Ultra-minimal memory for speed
         self.long_term_memory_enabled = False  # Disabled for speed
-        self.memory_save_interval = 3600  # Save less frequently
+        self.memory_save_interval = 7200  # Save less frequently
         
-        # SPEED-OPTIMIZED Model preferences
+        # ULTRA-SPEED Model preferences
         self.preferred_offline_models = [
-            "nemotron-fast",                    # Speed-optimized version
-            "nemotron-mini:4b-instruct-q4_K_M", # Original model
+            "nemotron-fast",                    # Speed-optimized custom version
+            "nemotron-mini:4b-instruct-q4_K_M", # Original optimized model
             "qwen2.5:3b",                       # Fast alternative
             "phi3:mini",                        # Compact option
+            "gemma2:2b",                        # Ultra-compact
         ]
         self.preferred_offline_model = self.preferred_offline_models[0]
         
-        # Current info settings - simplified
+        # Current info settings - simplified but aggressive routing
         self.auto_route_current_info = True
         self.force_online_current_info = True
+        self.current_info_confidence_threshold = 0.7  # Lower threshold for more aggressive routing
         
         # Performance monitoring - minimal overhead
         self.enable_performance_monitoring = True
-        self.performance_log_interval = 600  # Log every 10 minutes
-        self.response_time_threshold = 3.0   # Warn if responses > 3s
+        self.performance_log_interval = 900  # Log every 15 minutes
+        self.response_time_threshold = 2.0   # Warn if responses > 2s
         
-        # Connection optimization - AGGRESSIVE
+        # Connection optimization - ULTRA-AGGRESSIVE
         self.connection_pool_size = 1  # Single connection for Pi 5
-        self.connection_timeout = 2    # Very fast connection timeout
-        self.read_timeout = 6          # Fast read timeout
+        self.connection_timeout = 1.5  # Ultra-fast connection timeout
+        self.read_timeout = 4          # Fast read timeout
         
         # Hardware detection and optimization
         self.is_raspberry_pi = self._detect_raspberry_pi()
@@ -98,15 +99,24 @@ class Settings:
         
         # Auto-optimize based on hardware
         if self.is_raspberry_pi:
-            self._apply_speed_optimizations()
+            self._apply_ultra_speed_optimizations()
+        
+        # Speed-specific settings
+        self.enable_turbo_mode = os.getenv("ENABLE_TURBO_MODE", "false").lower() == "true"
+        self.minimal_prompts = True
+        self.aggressive_timeouts = True
+        self.skip_context_for_short_queries = True
+        self.short_query_threshold = 8  # Words
         
         if self.debug_mode:
-            print(f"[SETTINGS] Pascal v{self.version} - SPEED OPTIMIZED")
+            print(f"[SETTINGS] Pascal v{self.version} - ULTRA-SPEED OPTIMIZED")
             print(f"[SETTINGS] Hardware: {self.pi_model} ({self.available_ram_gb}GB RAM, {self.cpu_cores} cores)")
-            print(f"[SETTINGS] Target response time: {self.target_response_time}s (AGGRESSIVE)")
+            print(f"[SETTINGS] Target response time: {self.target_response_time}s (ULTRA-AGGRESSIVE)")
             print(f"[SETTINGS] Groq configured: {bool(self.groq_api_key)}")
             print(f"[SETTINGS] Performance mode: {self.performance_mode}")
-            print(f"[SETTINGS] Speed optimizations: ENABLED")
+            print(f"[SETTINGS] Speed optimizations: ULTRA-ENABLED")
+            if self.enable_turbo_mode:
+                print(f"[SETTINGS] 🚀 TURBO MODE ENABLED")
     
     def _create_directories(self):
         """Create necessary directories"""
@@ -200,40 +210,43 @@ class Settings:
         """Get number of CPU cores"""
         return os.cpu_count() or 4
     
-    def _apply_speed_optimizations(self):
-        """Apply AGGRESSIVE speed optimizations for Pi"""
+    def _apply_ultra_speed_optimizations(self):
+        """Apply ULTRA-AGGRESSIVE speed optimizations for Pi"""
         if self.pi_model == 'Pi 5':
-            # Pi 5 SPEED optimizations
-            self.target_response_time = 2.0  # Aggressive target
-            self.max_context_length = 256    # Very small context
-            self.max_response_tokens = 80    # Short responses
-            self.ollama_timeout = 8          # Fast timeout
+            # Pi 5 ULTRA-SPEED optimizations
+            self.target_response_time = 1.5  # Ultra-aggressive target
+            self.max_context_length = 128    # Ultra-small context
+            self.max_response_tokens = 50    # Very short responses
+            self.ollama_timeout = 5          # Ultra-fast timeout
             
             if self.available_ram_gb >= 16:
                 # 16GB Pi 5 - can afford slightly more
-                self.max_context_length = 384
-                self.max_response_tokens = 100
-            elif self.available_ram_gb >= 8:
-                # 8GB Pi 5 - balanced speed settings
                 self.max_context_length = 256
-                self.max_response_tokens = 80
-            else:
-                # 4GB Pi 5 - ultra-conservative for speed
+                self.max_response_tokens = 60
+                self.target_response_time = 1.3  # Even faster for 16GB
+            elif self.available_ram_gb >= 8:
+                # 8GB Pi 5 - balanced ultra-speed settings
                 self.max_context_length = 128
                 self.max_response_tokens = 50
+                self.target_response_time = 1.5
+            else:
+                # 4GB Pi 5 - ultra-conservative for speed
+                self.max_context_length = 64
+                self.max_response_tokens = 40
+                self.target_response_time = 2.0
                 
         elif self.pi_model == 'Pi 4':
             # Pi 4 ultra-conservative settings
-            self.target_response_time = 4.0
-            self.max_context_length = 128
-            self.max_response_tokens = 60
-            self.ollama_timeout = 12
+            self.target_response_time = 3.0
+            self.max_context_length = 64
+            self.max_response_tokens = 40
+            self.ollama_timeout = 8
         
         if self.debug_mode:
-            print(f"[SETTINGS] Applied SPEED optimizations for {self.pi_model}")
+            print(f"[SETTINGS] Applied ULTRA-SPEED optimizations for {self.pi_model}")
     
     def get_ollama_speed_config(self) -> Dict[str, Any]:
-        """Get Ollama SPEED configuration"""
+        """Get Ollama ULTRA-SPEED configuration"""
         return {
             "num_parallel": self.ollama_num_parallel,
             "max_loaded_models": self.ollama_max_loaded_models,
@@ -242,16 +255,19 @@ class Settings:
             "keep_alive": self.ollama_keep_alive,
             "host": self.ollama_host,
             "timeout": self.ollama_timeout,
-            "speed_optimizations": {
+            "ultra_speed_optimizations": {
                 "aggressive_timeouts": True,
                 "minimal_context": True,
-                "short_responses": True,
-                "single_model_focus": True
+                "ultra_short_responses": True,
+                "single_model_focus": True,
+                "turbo_mode": self.enable_turbo_mode,
+                "skip_context_short_queries": self.skip_context_for_short_queries,
+                "minimal_prompts": self.minimal_prompts
             }
         }
     
     def get_speed_config(self) -> Dict[str, Any]:
-        """Get SPEED configuration"""
+        """Get ULTRA-SPEED configuration"""
         return {
             "target_response_time": self.target_response_time,
             "max_response_time": self.max_response_time,
@@ -261,18 +277,23 @@ class Settings:
             "streaming_enabled": self.streaming_enabled,
             "connection_timeout": self.connection_timeout,
             "read_timeout": self.read_timeout,
+            "turbo_mode": self.enable_turbo_mode,
             "memory_optimizations": {
-                "minimal_memory": True,
+                "ultra_minimal_memory": True,
                 "no_long_term": not self.long_term_memory_enabled,
-                "reduced_context": True
+                "ultra_reduced_context": True,
+                "skip_context_short_queries": self.skip_context_for_short_queries
             },
-            "speed_features": [
-                "Aggressive timeouts",
-                "Minimal context windows",
-                "Short response limits",
+            "ultra_speed_features": [
+                f"Target: <{self.target_response_time}s responses",
+                "Ultra-aggressive timeouts",
+                "Minimal context windows (64-256 tokens)",
+                "Ultra-short response limits (40-60 tokens)",
                 "Single connection pooling",
                 "Compiled regex patterns",
-                "Direct model access"
+                "Direct model access",
+                "Turbo mode support",
+                "Context skipping for short queries"
             ]
         }
     
@@ -296,6 +317,14 @@ class Settings:
         """Check if debug mode is enabled"""
         return self.debug_mode
     
+    def should_skip_context(self, query: str) -> bool:
+        """Check if we should skip context for this query (speed optimization)"""
+        if not self.skip_context_for_short_queries:
+            return False
+        
+        word_count = len(query.split())
+        return word_count <= self.short_query_threshold
+    
     def get_hardware_info(self) -> Dict[str, Any]:
         """Get hardware information"""
         return {
@@ -306,168 +335,4 @@ class Settings:
             'performance_mode': self.performance_mode,
             'streaming_enabled': self.streaming_enabled,
             'target_response_time': self.target_response_time,
-            'optimization_level': 'ultra_fast_pi5' if self.pi_model == 'Pi 5' else 'fast_standard',
-            'speed_grade': 'A+' if self.target_response_time <= 2.0 else 'A' if self.target_response_time <= 3.0 else 'B'
-        }
-    
-    def get_config_summary(self) -> Dict[str, Any]:
-        """Get configuration summary for status display"""
-        return {
-            "pascal_version": self.version,
-            "personality": self.default_personality,
-            "groq_configured": bool(self.groq_api_key),
-            "online_available": self.is_online_available(),
-            "auto_route_current_info": self.auto_route_current_info,
-            "force_online_current_info": self.force_online_current_info,
-            "debug_mode": self.debug_mode,
-            "memory_enabled": self.long_term_memory_enabled,
-            "performance_mode": self.performance_mode,
-            "hardware_info": self.get_hardware_info(),
-            "streaming_enabled": self.streaming_enabled,
-            "target_response_time": self.target_response_time,
-            "preferred_offline_models": self.preferred_offline_models,
-            "supported_providers": ["Groq"],
-            "optimization_level": "SPEED OPTIMIZED - Pi 5 Ultra-Fast" if self.pi_model == 'Pi 5' else "SPEED OPTIMIZED - Standard",
-            "ollama_config": self.get_ollama_speed_config(),
-            "speed_config": self.get_speed_config(),
-            "speed_features": [
-                f"Target: {self.target_response_time}s responses",
-                f"Context: {self.max_context_length} tokens",
-                f"Responses: {self.max_response_tokens} tokens max",
-                "Minimal memory overhead",
-                "Aggressive timeouts",
-                "Single model focus"
-            ]
-        }
-    
-    def set_performance_mode(self, mode: str):
-        """Set performance mode with SPEED focus"""
-        valid_modes = ['speed', 'balanced', 'quality']
-        if mode in valid_modes:
-            self.performance_mode = mode
-            
-            # Adjust settings based on mode - AGGRESSIVE for speed
-            if mode == 'speed':
-                self.target_response_time = 1.5  # Ultra-aggressive
-                self.max_response_tokens = 50
-                self.max_context_length = 128
-            elif mode == 'balanced':
-                self.target_response_time = 2.5
-                self.max_response_tokens = 80
-                self.max_context_length = 256
-            elif mode == 'quality':
-                self.target_response_time = 4.0
-                self.max_response_tokens = 150
-                self.max_context_length = 512
-            
-            if self.debug_mode:
-                print(f"[SETTINGS] Performance mode: {mode} (target: {self.target_response_time}s)")
-        else:
-            if self.debug_mode:
-                print(f"[SETTINGS] Invalid performance mode: {mode}")
-    
-    def get_speed_thresholds(self) -> Dict[str, float]:
-        """Get SPEED performance monitoring thresholds"""
-        return {
-            "lightning": 1.0,                    # Lightning fast
-            "excellent": self.target_response_time * 0.8,  # 80% of target
-            "good": self.target_response_time,              # Target time
-            "acceptable": self.target_response_time * 1.5,  # 150% of target
-            "slow": self.max_response_time,                 # Max allowed time
-            "timeout": self.max_response_time * 1.2         # Timeout threshold
-        }
-    
-    def should_use_speed_mode(self) -> bool:
-        """Check if we should use maximum speed optimizations"""
-        return (self.performance_mode == 'speed' or 
-                self.target_response_time <= 2.0 or
-                (self.is_raspberry_pi and self.available_ram_gb < 8))
-    
-    def get_model_speed_config(self) -> Dict[str, Any]:
-        """Get model configuration optimized for SPEED"""
-        config = {
-            "num_ctx": self.max_context_length,
-            "num_predict": self.max_response_tokens,
-            "temperature": self.temperature,
-            "num_thread": self.cpu_cores,
-            "num_gpu": 0,  # CPU only for Pi
-            "top_p": 0.8,   # Reduced for speed
-            "top_k": 20,    # Reduced for speed
-            "repeat_penalty": 1.05,
-        }
-        
-        # Hardware-specific SPEED adjustments
-        if self.pi_model == 'Pi 5':
-            if self.available_ram_gb >= 16:
-                # High-end Pi 5 - slightly more generous
-                config.update({
-                    "top_p": 0.9,
-                    "top_k": 30,
-                })
-            else:
-                # Standard Pi 5 - keep aggressive settings
-                config.update({
-                    "top_p": 0.8,
-                    "top_k": 20,
-                })
-        else:
-            # Pi 4 or unknown - ultra-conservative for speed
-            config.update({
-                "num_ctx": min(config["num_ctx"], 128),
-                "num_predict": min(config["num_predict"], 50),
-                "top_p": 0.7,
-                "top_k": 15,
-            })
-        
-        return config
-    
-    def log_speed_issue(self, issue_type: str, response_time: float, details: str):
-        """Log speed performance issues"""
-        if self.debug_mode:
-            timestamp = self.get_current_timestamp()
-            threshold = self.get_speed_thresholds()
-            
-            if response_time > threshold['slow']:
-                severity = "CRITICAL"
-            elif response_time > threshold['acceptable']:
-                severity = "WARNING"
-            else:
-                severity = "INFO"
-            
-            print(f"[SPEED-{severity}] {timestamp} - {issue_type}: {response_time:.2f}s - {details}")
-    
-    def get_current_timestamp(self) -> str:
-        """Get current timestamp for logging"""
-        from datetime import datetime
-        return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    
-    def get_speed_recommendations(self) -> List[str]:
-        """Get speed optimization recommendations"""
-        recommendations = []
-        
-        if self.target_response_time > 3.0:
-            recommendations.append("Set more aggressive target response time (<3s)")
-        
-        if self.max_context_length > 512:
-            recommendations.append("Reduce context length to 256 for maximum speed")
-        
-        if self.max_response_tokens > 100:
-            recommendations.append("Reduce response token limit for faster generation")
-        
-        if self.long_term_memory_enabled:
-            recommendations.append("Disable long-term memory for speed boost")
-        
-        if not self.is_raspberry_pi:
-            recommendations.append("Run on Raspberry Pi 5 for optimal performance")
-        elif self.pi_model != 'Pi 5':
-            recommendations.append("Upgrade to Raspberry Pi 5 for best speed")
-        
-        return recommendations
-
-# Global settings instance
-settings = Settings()
-
-# Export commonly used paths and configs
-BASE_DIR = settings.base_dir
-CONFIG_DIR = settings.config_dir
-DATA_DIR = settings.data_dir
+            'optimization_level': 'ultra_speed_pi5' if self.pi_model == 'Pi 5' else 'ultra_speed_
