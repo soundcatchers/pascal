@@ -1,6 +1,6 @@
 """
 Pascal AI Assistant - FIXED Enhanced Skills Manager
-Provides reliable instant responses for datetime, calculator, and API-based queries
+Only handles simple instant queries, allows router to handle current info
 """
 
 import asyncio
@@ -34,14 +34,14 @@ class SkillResult:
             self.data = {}
 
 class EnhancedSkillsManager:
-    """FIXED: Enhanced skills manager with reliable instant responses"""
+    """FIXED: Skills manager that only handles simple instant responses"""
     
     def __init__(self):
         from config.settings import settings
         self.settings = settings
         self.session = None
         
-        # API Keys - better validation
+        # API Keys
         self.weather_api_key = self._get_env_var('OPENWEATHER_API_KEY')
         self.news_api_key = self._get_env_var('NEWS_API_KEY')
         
@@ -59,20 +59,14 @@ class EnhancedSkillsManager:
             'news': {'executions': 0, 'total_time': 0.0, 'success_count': 0}
         }
         
-        # ENHANCED: Better skill detection patterns
+        # FIXED: Only simple, instant patterns - NO current info patterns
         self.skill_patterns = {
             'datetime': [
-                r'\bwhat time is it\b',
-                r'\bwhat day is (?:it|today)\b',
-                r'\bwhat (?:is )?(?:the )?date\b',
-                r'\bcurrent time\b',
-                r'\bcurrent date\b',
-                r'\btoday\'?s? date\b',
-                r'\bwhat is the time\b',
-                r'\btime now\b',
-                r'\bdate now\b',
-                r'\bwhat day\b',
-                r'\bwhat time\b'
+                # ONLY simple time queries - NOT comprehensive current info
+                r'^what time is it\??$',
+                r'^time\??$',
+                r'^current time\??$',
+                # REMOVED: date queries that should go to online for current info
             ],
             'calculator': [
                 r'\b\d+\s*[\+\-\*\/\%]\s*\d+',
@@ -109,7 +103,7 @@ class EnhancedSkillsManager:
         }
     
     def _get_env_var(self, var_name: str) -> Optional[str]:
-        """FIXED: Better environment variable validation"""
+        """Better environment variable validation"""
         import os
         value = os.getenv(var_name)
         
@@ -130,9 +124,9 @@ class EnhancedSkillsManager:
         return value
     
     async def initialize(self) -> Dict[str, Dict[str, Any]]:
-        """FIXED: More robust initialization"""
+        """Initialize skills manager"""
         if self.settings.debug_mode:
-            print("🚀 Initializing Enhanced Skills Manager...")
+            print("🚀 Initializing FIXED Enhanced Skills Manager...")
         
         # Initialize HTTP session for API calls
         if AIOHTTP_AVAILABLE:
@@ -149,13 +143,13 @@ class EnhancedSkillsManager:
                     print(f"[SKILLS] ⚠️ HTTP session creation failed: {e}")
                 self.session = None
         
-        # Test API connections with better error handling
+        # Test API connections
         await self._test_api_connections()
         
         return self.api_status
     
     async def _test_api_connections(self):
-        """FIXED: More robust API testing"""
+        """Test API connections"""
         # Test OpenWeatherMap API
         if self.weather_api_key and self.session:
             try:
@@ -194,22 +188,11 @@ class EnhancedSkillsManager:
                             'available': False,
                             'message': f'API error: {response.status}'
                         }
-                        if self.settings.debug_mode:
-                            print(f"[WEATHER] ❌ API test failed: {response.status}")
-            except asyncio.TimeoutError:
-                self.api_status['weather'] = {
-                    'available': False,
-                    'message': 'Connection timeout'
-                }
-                if self.settings.debug_mode:
-                    print(f"[WEATHER] ❌ API test timeout")
             except Exception as e:
                 self.api_status['weather'] = {
                     'available': False,
                     'message': f'Connection error: {str(e)[:50]}'
                 }
-                if self.settings.debug_mode:
-                    print(f"[WEATHER] ❌ API test error: {e}")
         else:
             if not self.weather_api_key:
                 self.api_status['weather'] = {
@@ -256,22 +239,11 @@ class EnhancedSkillsManager:
                             'available': False,
                             'message': f'API error: {response.status}'
                         }
-                        if self.settings.debug_mode:
-                            print(f"[NEWS] ❌ API test failed: {response.status}")
-            except asyncio.TimeoutError:
-                self.api_status['news'] = {
-                    'available': False,
-                    'message': 'Connection timeout'
-                }
-                if self.settings.debug_mode:
-                    print(f"[NEWS] ❌ API test timeout")
             except Exception as e:
                 self.api_status['news'] = {
                     'available': False,
                     'message': f'Connection error: {str(e)[:50]}'
                 }
-                if self.settings.debug_mode:
-                    print(f"[NEWS] ❌ API test error: {e}")
         else:
             if not self.news_api_key:
                 self.api_status['news'] = {
@@ -280,24 +252,32 @@ class EnhancedSkillsManager:
                 }
     
     def can_handle_directly(self, query: str) -> Optional[str]:
-        """ENHANCED: Better skill detection with priority"""
+        """FIXED: Only handle simple instant queries - NOT current info"""
         query_lower = query.lower().strip()
         
-        # PRIORITY 1: DateTime queries (most important for instant response)
+        # CRITICAL FIX: Only handle SIMPLE datetime queries
+        # Exclude any query that might need comprehensive current information
         for pattern in self.skill_patterns['datetime']:
             if re.search(pattern, query_lower):
+                # ADDITIONAL CHECK: Exclude if it's asking for comprehensive info
+                if any(word in query_lower for word in ['day', 'date', 'today', 'what day']):
+                    # These should go to online for comprehensive current info
+                    if self.settings.debug_mode:
+                        print(f"[SKILLS] Skipping datetime - comprehensive info needed: '{query}'")
+                    continue
+                
                 if self.settings.debug_mode:
-                    print(f"[SKILLS] DateTime skill can handle: '{pattern}' matched")
+                    print(f"[SKILLS] Simple datetime skill can handle: '{pattern}' matched")
                 return 'datetime'
         
-        # PRIORITY 2: Calculator queries
+        # Calculator queries (these are always instant and don't need current info)
         for pattern in self.skill_patterns['calculator']:
             if re.search(pattern, query_lower):
                 if self.settings.debug_mode:
                     print(f"[SKILLS] Calculator skill can handle: '{pattern}' matched")
                 return 'calculator'
         
-        # PRIORITY 3: Weather queries (if API available)
+        # Weather queries (if API available) - but these should mostly go to online
         if self.api_status['weather']['available']:
             for pattern in self.skill_patterns['weather']:
                 if re.search(pattern, query_lower):
@@ -305,7 +285,7 @@ class EnhancedSkillsManager:
                         print(f"[SKILLS] Weather skill can handle: '{pattern}' matched")
                     return 'weather'
         
-        # PRIORITY 4: News queries (if API available)
+        # News queries (if API available) - but these should mostly go to online
         if self.api_status['news']['available']:
             for pattern in self.skill_patterns['news']:
                 if re.search(pattern, query_lower):
@@ -316,7 +296,7 @@ class EnhancedSkillsManager:
         return None
     
     async def execute_skill(self, query: str, skill_name: str) -> SkillResult:
-        """FIXED: More robust skill execution"""
+        """Execute skill with better validation"""
         start_time = time.time()
         
         try:
@@ -366,20 +346,16 @@ class EnhancedSkillsManager:
             )
     
     async def _execute_datetime_skill(self, query: str) -> SkillResult:
-        """ENHANCED: Better datetime responses"""
+        """FIXED: Only handle simple time queries"""
         now = datetime.now()
         query_lower = query.lower()
         
-        # More specific responses based on query
+        # ONLY handle time queries - NOT date/day queries (those should go to online)
         if any(word in query_lower for word in ['time', 'what time']):
             response = f"The current time is {now.strftime('%I:%M %p')}."
-        elif any(word in query_lower for word in ['day', 'what day']):
-            response = f"Today is {now.strftime('%A')}."
-        elif any(word in query_lower for word in ['date', 'what date']):
-            response = f"Today's date is {now.strftime('%A, %B %d, %Y')}."
         else:
-            # Default comprehensive response
-            response = f"It's currently {now.strftime('%I:%M %p')} on {now.strftime('%A, %B %d, %Y')}."
+            # Should not reach here with the fixed can_handle_directly
+            response = f"It's currently {now.strftime('%I:%M %p')}."
         
         return SkillResult(
             success=True,
@@ -389,15 +365,13 @@ class EnhancedSkillsManager:
             confidence=1.0,
             data={
                 'timestamp': now.timestamp(), 
-                'formatted_date': now.isoformat(),
-                'day_of_week': now.strftime('%A'),
-                'date': now.strftime('%Y-%m-%d'),
-                'time': now.strftime('%H:%M:%S')
+                'formatted_time': now.strftime('%H:%M:%S'),
+                'time_12h': now.strftime('%I:%M %p')
             }
         )
     
     async def _execute_calculator_skill(self, query: str) -> SkillResult:
-        """ENHANCED: More robust calculator with better error handling"""
+        """Enhanced calculator with better error handling"""
         query_lower = query.lower().strip()
         
         try:
@@ -554,7 +528,7 @@ class EnhancedSkillsManager:
             )
     
     async def _execute_weather_skill(self, query: str) -> SkillResult:
-        """ENHANCED: Better weather skill with improved error handling"""
+        """Weather skill with improved error handling"""
         if not self.api_status['weather']['available']:
             return SkillResult(
                 success=False,
@@ -652,7 +626,7 @@ class EnhancedSkillsManager:
             )
     
     async def _execute_news_skill(self, query: str) -> SkillResult:
-        """ENHANCED: Better news skill with improved error handling"""
+        """News skill with improved error handling"""
         if not self.api_status['news']['available']:
             return SkillResult(
                 success=False,
@@ -666,7 +640,7 @@ class EnhancedSkillsManager:
             params = {
                 'apiKey': self.news_api_key,
                 'pageSize': 5,
-                'country': 'us',  # Can be made configurable
+                'country': 'us',
                 'category': 'general'
             }
             
@@ -746,14 +720,13 @@ class EnhancedSkillsManager:
             )
     
     def _extract_location_from_query(self, query: str) -> Optional[str]:
-        """ENHANCED: Better location extraction from weather query"""
+        """Extract location from weather query"""
         import re
         
-        # Look for "in [location]" or "for [location]" patterns
+        # Look for location patterns
         location_patterns = [
-            r'\b(?:weather|temperature|forecast)\s+(?:in|for|at)\s+([A-Za-z][A-Za-z\s]{1,30}?)(?:\s|$|[,.?!])',
-            r'\bin\s+([A-Za-z][A-Za-z\s]{1,30}?)(?:\s+(?:today|tomorrow|now))?\b',
-            r'\bfor\s+([A-Za-z][A-Za-z\s]{1,30}?)(?:\s+(?:today|tomorrow|now))?\b'
+            r'\b(?:weather|temperature|forecast)\s+(?:in|for|at)\s+([A-Za-z][A-Za-z\s]{1,25}?)(?:\s|$|[,.?!])',
+            r'\bin\s+([A-Za-z][A-Za-z\s]{1,25}?)(?:\s+(?:today|tomorrow|now))?\b'
         ]
         
         for pattern in location_patterns:
@@ -772,18 +745,13 @@ class EnhancedSkillsManager:
             'london', 'paris', 'new york', 'tokyo', 'berlin', 'madrid', 'rome',
             'amsterdam', 'chicago', 'los angeles', 'sydney', 'melbourne',
             'toronto', 'vancouver', 'dubai', 'singapore', 'hong kong', 'miami',
-            'boston', 'seattle', 'san francisco', 'mumbai', 'delhi', 'bangkok',
-            'manchester', 'birmingham', 'glasgow', 'edinburgh', 'liverpool',
-            'california', 'florida', 'texas', 'new jersey', 'pennsylvania',
-            'washington', 'oregon', 'nevada', 'arizona', 'colorado'
+            'boston', 'seattle', 'san francisco', 'mumbai', 'delhi', 'bangkok'
         ]
         
         query_lower = query.lower()
         for city in major_cities:
-            if city in query_lower:
-                # Make sure it's not part of another word
-                if re.search(r'\b' + re.escape(city) + r'\b', query_lower):
-                    return city.title()
+            if re.search(r'\b' + re.escape(city) + r'\b', query_lower):
+                return city.title()
         
         return None
     
@@ -792,13 +760,14 @@ class EnhancedSkillsManager:
         skills = [
             {
                 'name': 'datetime',
-                'description': 'Current date and time information',
-                'examples': ['What time is it?', 'What day is today?', 'Current date'],
+                'description': 'SIMPLE time queries only (not date/day - those go to online)',
+                'examples': ['What time is it?', 'Time?', 'Current time'],
                 'speed': 'Instant (0.001s)',
                 'confidence': 'Very High',
                 'api_required': False,
                 'api_configured': True,
-                'priority': 1
+                'priority': 1,
+                'note': 'FIXED: Only handles simple time, not comprehensive current info'
             },
             {
                 'name': 'calculator',
@@ -819,7 +788,8 @@ class EnhancedSkillsManager:
                 'api_required': True,
                 'api_configured': self.api_status['weather']['available'],
                 'priority': 3,
-                'status_message': self.api_status['weather']['message']
+                'status_message': self.api_status['weather']['message'],
+                'note': 'NOTE: Most weather queries should go to online for better context'
             },
             {
                 'name': 'news',
@@ -830,7 +800,8 @@ class EnhancedSkillsManager:
                 'api_required': True,
                 'api_configured': self.api_status['news']['available'],
                 'priority': 4,
-                'status_message': self.api_status['news']['message']
+                'status_message': self.api_status['news']['message'],
+                'note': 'NOTE: Most news queries should go to online for better context'
             }
         ]
         
@@ -861,7 +832,8 @@ class EnhancedSkillsManager:
                 'success_rate': f"{success_rate:.1f}%",
                 'total_time_saved': f"{time_saved:.1f}s",
                 'status': 'Available' if skill_name in ['datetime', 'calculator'] else 
-                         ('Available' if self.api_status.get(skill_name, {}).get('available') else 'API not configured')
+                         ('Available' if self.api_status.get(skill_name, {}).get('available') else 'API not configured'),
+                'fixed_note': 'FIXED: Only handles simple instant queries' if skill_name == 'datetime' else None
             }
         
         return stats
@@ -870,13 +842,21 @@ class EnhancedSkillsManager:
         """Get recommendations for improving skills functionality"""
         recommendations = []
         
+        recommendations.append({
+            'type': 'fix_applied',
+            'skill': 'datetime',
+            'message': 'FIXED: Skills now only handle simple time queries',
+            'action': 'Current date/day queries now route to online for comprehensive info',
+            'priority': 'info'
+        })
+        
         if not self.api_status['weather']['available']:
             recommendations.append({
                 'type': 'api_setup',
                 'skill': 'weather',
                 'message': 'Configure OpenWeatherMap API key for weather queries',
                 'action': 'Get free API key at openweathermap.org/api (1000 calls/day free)',
-                'priority': 'high'
+                'priority': 'medium'
             })
         
         if not self.api_status['news']['available']:
@@ -887,30 +867,6 @@ class EnhancedSkillsManager:
                 'action': 'Get free API key at newsapi.org (100 requests/day free)',
                 'priority': 'medium'
             })
-        
-        # Performance recommendations
-        total_skill_executions = sum(stats['executions'] for stats in self.skill_stats.values())
-        if total_skill_executions > 20:
-            datetime_executions = self.skill_stats['datetime']['executions']
-            calc_executions = self.skill_stats['calculator']['executions']
-            
-            if datetime_executions > total_skill_executions * 0.4:
-                recommendations.append({
-                    'type': 'performance',
-                    'skill': 'datetime',
-                    'message': 'DateTime queries are very frequent - excellent performance detected',
-                    'action': 'Consider adding timezone support for international users',
-                    'priority': 'low'
-                })
-            
-            if calc_executions > total_skill_executions * 0.3:
-                recommendations.append({
-                    'type': 'performance',
-                    'skill': 'calculator',
-                    'message': 'Calculator usage is high - all operations optimized',
-                    'action': 'Consider adding advanced math functions (sin, cos, log)',
-                    'priority': 'low'
-                })
         
         # System recommendations
         if not AIOHTTP_AVAILABLE:
@@ -940,9 +896,10 @@ class EnhancedSkillsManager:
             
             if total_executions > 0:
                 success_rate = (successful_executions / total_executions) * 100
-                print(f"[SKILLS] 📊 Session summary: {successful_executions}/{total_executions} successful ({success_rate:.1f}%)")
+                print(f"[SKILLS] 📊 FIXED Session summary: {successful_executions}/{total_executions} successful ({success_rate:.1f}%)")
+                print(f"[SKILLS] 🔧 FIXED: Only simple instant queries handled, current info routed to online")
             
-            print("[SKILLS] 🔌 Enhanced Skills Manager closed")
+            print("[SKILLS] 🔌 FIXED Enhanced Skills Manager closed")
 
 # Maintain compatibility
 SkillsManager = EnhancedSkillsManager
