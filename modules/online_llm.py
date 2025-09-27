@@ -1,11 +1,12 @@
 """
-Pascal AI Assistant - Enhanced Online LLM with Real Current Information
-Optimized for fast current info queries with improved detection and response quality
+Pascal AI Assistant - ENHANCED Online LLM with Aggressive Current Information Detection
+Optimized for reliable current info routing and fast responses
 """
 
 import asyncio
 import json
 import time
+import re
 from typing import Optional, AsyncGenerator, Dict, Any
 from datetime import datetime, timezone
 
@@ -18,7 +19,7 @@ except ImportError:
 from config.settings import settings
 
 class OnlineLLM:
-    """Enhanced online LLM client with optimized current information integration"""
+    """Enhanced online LLM client with aggressive current information detection and routing"""
     
     def __init__(self):
         self.session = None
@@ -38,19 +39,94 @@ class OnlineLLM:
         self.total_time = 0.0
         self.response_times = []
         
-        # Current info cache with TTL
+        # Current info cache with shorter TTL for freshness
         self.current_info_cache = {}
-        self.cache_timeout = 300  # 5 minutes
+        self.cache_timeout = 180  # 3 minutes for current info
         
-        # Enhanced current info patterns
-        self.current_info_indicators = {
-            'datetime': ['time', 'date', 'day', 'today', 'now', 'current time', 'current date'],
-            'politics': ['president', 'prime minister', 'leader', 'government', 'current president'],
-            'news': ['news', 'headlines', 'breaking', 'latest news', 'recent news', 'happening'],
-            'weather': ['weather', 'temperature', 'forecast', 'climate', 'current weather'],
-            'markets': ['stock', 'market', 'price', 'trading', 'financial'],
-            'events': ['events', 'happening', 'current events', 'what\'s going on']
+        # ENHANCED current info patterns - more comprehensive
+        self.current_info_categories = {
+            'datetime': {
+                'patterns': [
+                    r'\bwhat\s+(?:time|day|date)\s+(?:is\s+)?(?:it|today|now)\b',
+                    r'\b(?:current|today\'?s?|now)\s+(?:time|date|day)\b',
+                    r'\bwhat\s+day\s+(?:is\s+)?(?:it|today)\b',
+                    r'\bwhat\s+(?:is\s+)?(?:the\s+)?(?:current\s+)?date\b'
+                ],
+                'confidence': 0.95
+            },
+            'weather': {
+                'patterns': [
+                    r'\b(?:weather|temperature|forecast|climate)\s+(?:today|tomorrow|now|currently|in)\b',
+                    r'\b(?:weather|temperature)\s+(?:in|for|at)\s+[a-zA-Z\s]{2,}\b',
+                    r'\b(?:current|today\'?s?|tomorrow\'?s?)\s+(?:weather|temperature|forecast)\b',
+                    r'\bwhat\'?s\s+the\s+weather\s+(?:like\s+)?(?:today|tomorrow|now|currently|in)?\b',
+                    r'\bis\s+it\s+(?:raining|snowing|sunny|cloudy|hot|cold)\b',
+                    r'\bhow\s+(?:hot|cold|warm)\s+is\s+it\b',
+                    r'\bweather\s+(?:forecast|conditions|update)\b'
+                ],
+                'confidence': 0.9
+            },
+            'news_events': {
+                'patterns': [
+                    r'\b(?:latest|recent|breaking|today\'?s?|current)\s+(?:news|headlines|events)\b',
+                    r'\bwhat\'?s\s+(?:happening|going\s+on|new|in\s+the\s+news)\b',
+                    r'\b(?:news|events)\s+(?:today|now|currently|recent|latest)\b',
+                    r'\bbreaking\s+news\b',
+                    r'\bcurrent\s+events\b',
+                    r'\bin\s+the\s+news\b'
+                ],
+                'confidence': 0.95
+            },
+            'sports_results': {
+                'patterns': [
+                    r'\b(?:latest|recent|current|who\s+won)\s+(?:formula\s*1|f1|race|game|match|championship)\b',
+                    r'\b(?:formula\s*1|f1)\s+(?:results|winner|standings|race|championship|latest)\b',
+                    r'\bwho\s+(?:won|is\s+winning)\s+(?:the\s+)?(?:last|latest|recent|current|today\'?s?)\b',
+                    r'\b(?:sports|game|match)\s+(?:results|scores|today|yesterday|recent|latest)\b',
+                    r'\b(?:race|championship|tournament)\s+(?:results|winner|standings|latest)\b',
+                    r'\blatest\s+(?:f1|formula|race|sports|game)\b'
+                ],
+                'confidence': 0.9
+            },
+            'politics': {
+                'patterns': [
+                    r'\b(?:current|who\s+is\s+(?:the\s+)?(?:current\s+)?)\s*(?:president|prime\s+minister|pm|leader)\b',
+                    r'\bwho\s+(?:is\s+)?(?:the\s+)?(?:current\s+)?(?:us\s+)?president\b',
+                    r'\b(?:election|political)\s+(?:results|news|updates|latest)\b',
+                    r'\b(?:government|political)\s+(?:changes|updates|news)\b'
+                ],
+                'confidence': 0.95
+            },
+            'markets': {
+                'patterns': [
+                    r'\b(?:current|today\'?s?|latest)\s+(?:stock|market|price|rates)\b',
+                    r'\bstock\s+(?:market|prices)\s+(?:today|now|currently|latest)\b',
+                    r'\b(?:market|trading)\s+(?:update|news|results)\b',
+                    r'\bcurrent\s+(?:exchange\s+rate|currency)\b'
+                ],
+                'confidence': 0.85
+            }
         }
+        
+        # Temporal indicators that strongly suggest current info needs
+        self.strong_temporal_indicators = [
+            'today', 'now', 'currently', 'right now', 'at the moment',
+            'latest', 'recent', 'breaking', 'current', 'live', 'real-time',
+            'tomorrow', 'tonight', 'this week', 'this month', 'just happened'
+        ]
+        
+        # Compiled patterns for speed
+        self._compile_current_info_patterns()
+    
+    def _compile_current_info_patterns(self):
+        """Compile regex patterns for performance"""
+        self.compiled_patterns = {}
+        
+        for category, config in self.current_info_categories.items():
+            self.compiled_patterns[category] = {
+                'patterns': [re.compile(pattern, re.IGNORECASE) for pattern in config['patterns']],
+                'confidence': config['confidence']
+            }
     
     async def initialize(self) -> bool:
         """Initialize Groq client with enhanced error handling"""
@@ -68,10 +144,10 @@ class OnlineLLM:
         
         try:
             # Create optimized session for speed
-            timeout = aiohttp.ClientTimeout(total=25, connect=5, sock_read=20)
+            timeout = aiohttp.ClientTimeout(total=20, connect=4, sock_read=15)
             connector = aiohttp.TCPConnector(
-                limit=3,
-                limit_per_host=3,
+                limit=2,
+                limit_per_host=2,
                 force_close=False,
                 enable_cleanup_closed=True,
                 use_dns_cache=True,
@@ -88,7 +164,7 @@ class OnlineLLM:
                 self.available = True
                 self.initialization_successful = True
                 if settings.debug_mode:
-                    print(f"✅ [GROQ] API initialized with enhanced current info support")
+                    print(f"✅ [GROQ] Enhanced API initialized with aggressive current info detection")
                 return True
             else:
                 return False
@@ -140,7 +216,7 @@ class OnlineLLM:
                 self.base_url,
                 headers=headers,
                 json=payload,
-                timeout=aiohttp.ClientTimeout(total=10)
+                timeout=aiohttp.ClientTimeout(total=8)
             ) as response:
                 if response.status == 200:
                     data = await response.json()
@@ -175,6 +251,66 @@ class OnlineLLM:
             if settings.debug_mode:
                 print(f"❌ [GROQ] Connection test error: {e}")
             return False
+    
+    def detect_current_info_category(self, query: str) -> Optional[Dict[str, Any]]:
+        """Enhanced current info category detection"""
+        query_lower = query.lower().strip()
+        
+        # Check each category
+        for category, config in self.compiled_patterns.items():
+            for pattern in config['patterns']:
+                if pattern.search(query_lower):
+                    if settings.debug_mode:
+                        print(f"[GROQ] 🎯 Current info detected: {category} (pattern match)")
+                    return {
+                        'category': category,
+                        'confidence': config['confidence'],
+                        'reason': f'{category}_pattern_match'
+                    }
+        
+        # Check for temporal + information combinations
+        has_strong_temporal = any(indicator in query_lower for indicator in self.strong_temporal_indicators)
+        
+        if has_strong_temporal:
+            # Look for information request words
+            info_words = ['weather', 'news', 'president', 'results', 'scores', 'market', 'price', 'temperature']
+            if any(word in query_lower for word in info_words):
+                if settings.debug_mode:
+                    print(f"[GROQ] 🎯 Current info detected: temporal+info combination")
+                return {
+                    'category': 'general_current',
+                    'confidence': 0.8,
+                    'reason': 'temporal_info_combination'
+                }
+        
+        # Weather-specific enhanced detection (any weather query is current)
+        weather_indicators = ['weather', 'temperature', 'forecast', 'rain', 'snow', 'sunny', 'cloudy', 'hot', 'cold', 'humid', 'windy']
+        if any(indicator in query_lower for indicator in weather_indicators):
+            if settings.debug_mode:
+                print(f"[GROQ] 🎯 Current info detected: weather query")
+            return {
+                'category': 'weather',
+                'confidence': 0.9,
+                'reason': 'weather_query'
+            }
+        
+        # Sports events detection
+        sports_terms = ['formula', 'f1', 'race', 'championship', 'game', 'match', 'tournament', 'league']
+        result_terms = ['result', 'score', 'winner', 'won', 'championship', 'standing', 'latest']
+        
+        has_sports = any(term in query_lower for term in sports_terms)
+        has_results = any(term in query_lower for term in result_terms)
+        
+        if has_sports and has_results:
+            if settings.debug_mode:
+                print(f"[GROQ] 🎯 Current info detected: sports results query")
+            return {
+                'category': 'sports_results',
+                'confidence': 0.85,
+                'reason': 'sports_results_combination'
+            }
+        
+        return None
     
     def _get_comprehensive_datetime_info(self) -> Dict[str, Any]:
         """Get comprehensive current date/time information"""
@@ -227,81 +363,97 @@ class OnlineLLM:
             'context': 'Trump previously served as the 45th President (2017-2021) and is now the 47th President'
         }
     
-    def _detect_current_info_category(self, query: str) -> Optional[str]:
-        """Detect which category of current info is requested"""
-        query_lower = query.lower()
-        
-        for category, indicators in self.current_info_indicators.items():
-            if any(indicator in query_lower for indicator in indicators):
-                return category
-        
-        return None
-    
     async def _gather_targeted_current_info(self, query: str) -> Dict[str, Any]:
-        """Gather targeted current information based on query analysis"""
-        query_lower = query.lower()
+        """Gather targeted current information based on enhanced query analysis"""
         current_info = {}
         
         # Always include datetime for current info queries
         current_info['datetime'] = self._get_comprehensive_datetime_info()
         
-        # Add specific information based on query content
-        category = self._detect_current_info_category(query)
+        # Detect specific category
+        category_info = self.detect_current_info_category(query)
         
-        if category == 'politics' or any(term in query_lower for term in ['president', 'politics', 'election', 'government', 'leader']):
-            current_info['politics'] = self._get_current_political_info()
-        
-        if category == 'weather' or any(term in query_lower for term in ['weather', 'temperature', 'forecast', 'rain', 'snow']):
-            location = self._extract_location_from_query(query) or "London"
-            current_info['weather'] = {
-                'note': f'For real-time weather in {location}, I would need a weather API configured.',
-                'suggestion': 'I can provide general weather information, but for current conditions please check a weather service.',
-                'location_requested': location
-            }
-        
-        if category == 'news' or any(term in query_lower for term in ['news', 'happening', 'events', 'breaking']):
-            current_info['news'] = {
-                'note': 'For the latest news headlines, I would need access to a news API.',
-                'suggestion': 'For current news, please check reliable sources like BBC, Reuters, AP, or your preferred news outlet.',
-                'date': current_info['datetime']['current_date']
-            }
-        
-        if category == 'markets' or any(term in query_lower for term in ['market', 'stock', 'economy', 'financial', 'trading']):
-            current_info['markets'] = {
-                'note': 'For current market data, I would need access to financial APIs.',
-                'suggestion': 'For live market information, please check financial news sources or trading platforms.',
-                'date': current_info['datetime']['current_date']
-            }
+        if category_info:
+            category = category_info['category']
+            
+            if category in ['datetime']:
+                # Already included above
+                pass
+                
+            elif category in ['politics']:
+                current_info['politics'] = self._get_current_political_info()
+                
+            elif category in ['weather']:
+                location = self._extract_location_from_query(query) or "London"
+                current_info['weather'] = {
+                    'note': f'For real-time weather in {location}, I would need a weather API configured.',
+                    'suggestion': 'I can provide general weather information, but for current conditions please check a weather service.',
+                    'location_requested': location,
+                    'api_info': 'Weather API integration available with OpenWeatherMap'
+                }
+                
+            elif category in ['news_events']:
+                current_info['news'] = {
+                    'note': 'For the latest news headlines, I would need access to a news API.',
+                    'suggestion': 'For current news, please check reliable sources like BBC, Reuters, AP, or your preferred news outlet.',
+                    'date': current_info['datetime']['current_date'],
+                    'api_info': 'News API integration available with NewsAPI'
+                }
+                
+            elif category in ['sports_results']:
+                current_info['sports'] = {
+                    'note': 'For current sports results and F1 information, I would need access to sports APIs.',
+                    'suggestion': 'For latest F1 results, check Formula1.com, ESPN, or BBC Sport.',
+                    'f1_note': 'For Formula 1 results, standings, and race information, check the official F1 website',
+                    'date': current_info['datetime']['current_date']
+                }
+                
+            elif category in ['markets']:
+                current_info['markets'] = {
+                    'note': 'For current market data, I would need access to financial APIs.',
+                    'suggestion': 'For live market information, please check financial news sources or trading platforms.',
+                    'date': current_info['datetime']['current_date'],
+                    'api_info': 'Financial API integration available with various providers'
+                }
         
         return current_info
     
     def _extract_location_from_query(self, query: str) -> Optional[str]:
-        """Extract location from query (enhanced)"""
+        """Enhanced location extraction from query"""
         import re
         
-        # Look for "in [location]" patterns
-        location_match = re.search(r'\bin\s+([A-Za-z][A-Za-z\s]{1,20}?)(?:\s|$|[,.?!])', query)
-        if location_match:
-            return location_match.group(1).strip().title()
+        # Look for "in [location]" or "for [location]" patterns
+        location_patterns = [
+            r'\b(?:weather|temperature|forecast)\s+(?:in|for|at)\s+([A-Za-z][A-Za-z\s]{1,25}?)(?:\s|$|[,.?!])',
+            r'\bin\s+([A-Za-z][A-Za-z\s]{1,25}?)(?:\s+(?:today|tomorrow|now))?\b',
+            r'\bfor\s+([A-Za-z][A-Za-z\s]{1,25}?)(?:\s+(?:today|tomorrow|now))?\b'
+        ]
         
-        # Common cities
-        cities = [
+        for pattern in location_patterns:
+            match = re.search(pattern, query, re.IGNORECASE)
+            if match:
+                return match.group(1).strip().title()
+        
+        # Common cities and regions
+        locations = [
             'london', 'paris', 'new york', 'tokyo', 'berlin', 'madrid', 'rome',
             'amsterdam', 'chicago', 'los angeles', 'sydney', 'melbourne',
             'toronto', 'vancouver', 'dubai', 'singapore', 'hong kong', 'miami',
-            'boston', 'seattle', 'san francisco', 'mumbai', 'delhi', 'bangkok'
+            'boston', 'seattle', 'san francisco', 'mumbai', 'delhi', 'bangkok',
+            'manchester', 'birmingham', 'glasgow', 'edinburgh', 'liverpool',
+            'california', 'florida', 'texas', 'new jersey', 'pennsylvania'
         ]
         
         query_lower = query.lower()
-        for city in cities:
-            if city in query_lower:
-                return city.title()
+        for location in locations:
+            if location in query_lower:
+                return location.title()
         
         return None
     
     def _build_enhanced_current_info_prompt(self, query: str, personality_context: str, 
                                           memory_context: str, current_info: Dict[str, Any]) -> list:
-        """Build optimized prompt with real current information"""
+        """Build optimized prompt with comprehensive current information"""
         messages = []
         
         # Get datetime info
@@ -317,12 +469,14 @@ Current day: {datetime_info.get('current_day', 'Unknown')}
 Current year: {datetime_info.get('current_year', 'Unknown')}
 Day of week: {datetime_info.get('day_of_week', 'Unknown')}
 Week number: {datetime_info.get('week_number', 'Unknown')}
+Season: {datetime_info.get('season', 'Unknown')}
 
 IMPORTANT INSTRUCTIONS:
 - Use the EXACT information provided above for any date/time questions
 - Be specific and direct when providing current information
 - If you don't have specific current data for something, acknowledge the limitation clearly
 - Always be accurate about what information you have vs. what you don't have
+- For current information queries, prioritize accuracy over speculation
 
 {personality_context[:300] if personality_context else ''}"""
 
@@ -331,7 +485,7 @@ IMPORTANT INSTRUCTIONS:
             politics_info = current_info['politics']
             system_content += f"""
 
-🇺🇸 CURRENT US POLITICAL INFORMATION (Accurate as of 2025):
+🇺🇸 CURRENT US POLITICAL INFORMATION (Accurate as of January 2025):
 Current US President: {politics_info.get('us_president', 'Unknown')}
 In office since: {politics_info.get('us_president_since', 'Unknown')}
 Vice President: {politics_info.get('us_vice_president', 'Unknown')}
@@ -343,25 +497,38 @@ Note: {politics_info.get('note', '')}"""
             weather_info = current_info['weather']
             system_content += f"""
 
-🌤️ WEATHER INFORMATION:
-{weather_info.get('note', '')}
-{weather_info.get('suggestion', '')}"""
+🌤️ WEATHER INFORMATION REQUEST:
+Location requested: {weather_info.get('location_requested', 'Unknown')}
+Note: {weather_info.get('note', '')}
+Suggestion: {weather_info.get('suggestion', '')}
+API Info: {weather_info.get('api_info', '')}"""
 
         if 'news' in current_info:
             news_info = current_info['news']
             system_content += f"""
 
-📰 NEWS INFORMATION:
-{news_info.get('note', '')}
-{news_info.get('suggestion', '')}"""
+📰 NEWS INFORMATION REQUEST:
+Note: {news_info.get('note', '')}
+Suggestion: {news_info.get('suggestion', '')}
+API Info: {news_info.get('api_info', '')}"""
+
+        if 'sports' in current_info:
+            sports_info = current_info['sports']
+            system_content += f"""
+
+🏎️ SPORTS/F1 INFORMATION REQUEST:
+Note: {sports_info.get('note', '')}
+F1 Note: {sports_info.get('f1_note', '')}
+Suggestion: {sports_info.get('suggestion', '')}"""
 
         if 'markets' in current_info:
             markets_info = current_info['markets']
             system_content += f"""
 
-📈 MARKET INFORMATION:
-{markets_info.get('note', '')}
-{markets_info.get('suggestion', '')}"""
+📈 MARKET INFORMATION REQUEST:
+Note: {markets_info.get('note', '')}
+Suggestion: {markets_info.get('suggestion', '')}
+API Info: {markets_info.get('api_info', '')}"""
 
         messages.append({"role": "system", "content": system_content})
         
@@ -376,17 +543,18 @@ Note: {politics_info.get('note', '')}"""
     
     async def generate_response(self, query: str, personality_context: str, 
                                memory_context: str) -> str:
-        """Generate response with enhanced current information"""
+        """Generate response with enhanced current information detection"""
         if not self.available:
             return "Online services are not available. Please check your Groq API key configuration."
         
-        # Detect current info category for optimized processing
-        current_info_category = self._detect_current_info_category(query)
-        is_current_info = current_info_category is not None
+        # Detect current info category
+        current_info_detection = self.detect_current_info_category(query)
+        is_current_info = current_info_detection is not None
         
-        if settings.debug_mode:
-            category_info = f" [{current_info_category.upper()}]" if current_info_category else ""
-            print(f"[GROQ] 🎯 Processing query{category_info}: {query[:50]}...")
+        if settings.debug_mode and current_info_detection:
+            category = current_info_detection['category']
+            confidence = current_info_detection['confidence']
+            print(f"[GROQ] 🎯 Current info detected: {category} (confidence: {confidence:.2f})")
         
         try:
             start_time = time.time()
@@ -410,7 +578,7 @@ Note: {politics_info.get('note', '')}"""
             payload = {
                 "model": self.model,
                 "messages": messages,
-                "max_tokens": min(settings.max_response_tokens, 300),  # Cap for speed
+                "max_tokens": min(settings.max_response_tokens * 2, 400),  # More tokens for current info
                 "temperature": 0.1 if is_current_info else 0.3,  # Lower temp for factual info
                 "stream": False
             }
@@ -419,7 +587,7 @@ Note: {politics_info.get('note', '')}"""
                 self.base_url,
                 headers=headers,
                 json=payload,
-                timeout=aiohttp.ClientTimeout(total=20)
+                timeout=aiohttp.ClientTimeout(total=18)
             ) as response:
                 if response.status == 200:
                     data = await response.json()
@@ -439,7 +607,8 @@ Note: {politics_info.get('note', '')}"""
                             self.response_times = self.response_times[-20:]
                         
                         if settings.debug_mode:
-                            print(f"[GROQ] ✅ Current info response in {response_time:.2f}s")
+                            status = "⚡" if response_time < 3 else "✅" if response_time < 5 else "⚠️"
+                            print(f"[GROQ] {status} Current info response in {response_time:.2f}s")
                         
                         return content.strip()
                     else:
@@ -472,18 +641,19 @@ Note: {politics_info.get('note', '')}"""
     
     async def generate_response_stream(self, query: str, personality_context: str, 
                                      memory_context: str) -> AsyncGenerator[str, None]:
-        """Generate streaming response with enhanced current information"""
+        """Generate streaming response with enhanced current information detection"""
         if not self.available:
             yield "Online services are not available. Please check your Groq API key."
             return
         
-        # Detect current info for optimized processing
-        current_info_category = self._detect_current_info_category(query)
-        is_current_info = current_info_category is not None
+        # Detect current info category
+        current_info_detection = self.detect_current_info_category(query)
+        is_current_info = current_info_detection is not None
         
-        if settings.debug_mode:
-            category_info = f" [{current_info_category.upper()}]" if current_info_category else ""
-            print(f"[GROQ] 🌊 Streaming{category_info}: {query[:50]}...")
+        if settings.debug_mode and current_info_detection:
+            category = current_info_detection['category']
+            confidence = current_info_detection['confidence']
+            print(f"[GROQ] 🌊 Streaming current info: {category} (confidence: {confidence:.2f})")
         
         try:
             start_time = time.time()
@@ -505,7 +675,7 @@ Note: {politics_info.get('note', '')}"""
             payload = {
                 "model": self.model,
                 "messages": messages,
-                "max_tokens": min(settings.max_response_tokens, 300),
+                "max_tokens": min(settings.max_response_tokens * 2, 400),
                 "temperature": 0.1 if is_current_info else 0.3,
                 "stream": True
             }
@@ -514,7 +684,7 @@ Note: {politics_info.get('note', '')}"""
                 self.base_url,
                 headers=headers,
                 json=payload,
-                timeout=aiohttp.ClientTimeout(total=25)
+                timeout=aiohttp.ClientTimeout(total=22)
             ) as response:
                 if response.status == 200:
                     response_received = False
@@ -550,7 +720,8 @@ Note: {politics_info.get('note', '')}"""
                             self.response_times = self.response_times[-20:]
                             
                         if settings.debug_mode:
-                            print(f"[GROQ] ✅ Streaming complete in {response_time:.2f}s")
+                            status = "⚡" if response_time < 4 else "✅" if response_time < 6 else "⚠️"
+                            print(f"[GROQ] {status} Streaming complete in {response_time:.2f}s")
                     else:
                         self.failure_count += 1
                         yield "I didn't receive a proper response from the online service."
@@ -576,9 +747,22 @@ Note: {politics_info.get('note', '')}"""
                 print(f"[GROQ] ❌ Streaming error: {e}")
             yield "I'm having trouble with online services right now."
     
-    def _detect_current_info(self, query: str) -> bool:
-        """Enhanced current info detection for compatibility"""
-        return self._detect_current_info_category(query) is not None
+    def get_current_info_stats(self) -> Dict[str, Any]:
+        """Get current information detection statistics"""
+        return {
+            'categories_supported': list(self.current_info_categories.keys()),
+            'total_patterns': sum(len(config['patterns']) for config in self.current_info_categories.values()),
+            'strong_temporal_indicators': len(self.strong_temporal_indicators),
+            'detection_features': [
+                'Enhanced pattern matching',
+                'Category-specific confidence scoring',
+                'Temporal indicator analysis',
+                'Weather query detection',
+                'Sports results detection',
+                'Political info detection',
+                'Market data detection'
+            ]
+        }
     
     def get_provider_stats(self) -> Dict[str, Any]:
         """Get comprehensive provider statistics"""
@@ -591,6 +775,7 @@ Note: {politics_info.get('note', '')}"""
             'available_providers': ['groq'] if self.available else [],
             'preferred_provider': 'groq' if self.available else None,
             'enhanced_current_info': True,
+            'current_info_stats': self.get_current_info_stats(),
             'providers': {
                 'groq': {
                     'available': self.available,
@@ -601,8 +786,8 @@ Note: {politics_info.get('note', '')}"""
                     'current_model': self.model,
                     'supports_current_info': True,
                     'enhanced_detection': True,
-                    'timeout': 20.0,
-                    'optimization_level': 'enhanced_speed'
+                    'timeout': 18.0,
+                    'optimization_level': 'enhanced_current_info_detection'
                 }
             }
         }
@@ -636,11 +821,15 @@ Note: {politics_info.get('note', '')}"""
             'supports_streaming': True,
             'supports_current_info': True,
             'enhanced_current_info_detection': True,
-            'current_info_categories': list(self.current_info_indicators.keys()),
+            'current_info_categories': list(self.current_info_categories.keys()),
             'optimization_features': [
-                'Targeted current info gathering',
-                'Category-based optimization',
-                'Enhanced prompt engineering',
+                'Enhanced current info pattern matching',
+                'Category-specific confidence scoring',
+                'Comprehensive temporal analysis',
+                'Weather-specific detection',
+                'Sports results detection',
+                'Political information detection',
+                'Market data detection',
                 'Fast connection pooling',
                 'Response quality validation'
             ]
@@ -656,5 +845,5 @@ Note: {politics_info.get('note', '')}"""
             if self.request_count > 0:
                 avg_time = self.total_time / self.request_count
                 success_rate = (self.success_count / self.request_count) * 100
-                print(f"[GROQ] 📊 Session stats: {self.request_count} requests, {avg_time:.2f}s avg, {success_rate:.1f}% success")
+                print(f"[GROQ] 📊 Enhanced session stats: {self.request_count} requests, {avg_time:.2f}s avg, {success_rate:.1f}% success")
             print("[GROQ] 🔌 Enhanced connection closed")
