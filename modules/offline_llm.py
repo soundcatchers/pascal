@@ -1,6 +1,6 @@
 """
-Pascal AI Assistant - FIXED Offline LLM Module
-Resolved the critical aiohttp scoping error and improved error handling
+Pascal AI Assistant - SPEED-OPTIMIZED Offline LLM Module
+Aggressive optimizations for sub-2 second responses on Pi 5
 """
 
 import asyncio
@@ -18,7 +18,7 @@ except ImportError:
     aiohttp = None
 
 class LightningOfflineLLM:
-    """Fixed offline LLM with resolved aiohttp scoping error"""
+    """Speed-optimized offline LLM with aggressive performance tuning for Pi 5"""
     
     def __init__(self):
         from config.settings import settings
@@ -35,7 +35,7 @@ class LightningOfflineLLM:
         # Ollama configuration
         self.host = settings.ollama_host
         self.keep_alive_duration = "30m"
-        self.keep_alive_interval = 30
+        self.keep_alive_interval = 20  # Reduced from 30s for better model retention
         
         # Performance tracking
         self.request_count = 0
@@ -46,91 +46,100 @@ class LightningOfflineLLM:
         self.consecutive_errors = 0
         self.last_successful_time = time.time()
         
-        # Response quality tracking
-        self.response_cache = {}
-        self.cache_max_size = 50
+        # Speed optimization flags
+        self.speed_mode_active = True
+        self.use_minimal_context = True
+        self.aggressive_timeouts = True
         
-        # Model preferences
+        # Model preferences - prioritize speed
         self.preferred_models = [
-            'nemotron-mini:4b-instruct-q4_K_M',
-            'nemotron-fast',
-            'qwen2.5:3b',
-            'phi3:mini',
-            'llama3.2:3b',
-            'gemma2:2b',
+            'nemotron-fast',                    # Custom optimized model
+            'nemotron-mini:4b-instruct-q4_K_M', # Standard model
+            'qwen2.5:3b',                       # Fast alternative
+            'phi3:mini',                        # Compact option
+            'gemma2:2b',                        # Ultra-compact
         ]
         
-        # Performance profiles
+        # SPEED-OPTIMIZED performance profiles
         self.profiles = {
             'speed': {
-                'num_predict': 50,
-                'temperature': 0.1,
-                'num_ctx': 256,
-                'timeout': 8,
-                'description': 'Ultra-fast (<2s)',
-                'top_p': 0.7,
-                'top_k': 15,
-                'repeat_penalty': 1.02,
+                'num_predict': 40,              # Very short responses
+                'temperature': 0.1,             # Low temperature for speed
+                'num_ctx': 128,                 # Minimal context
+                'timeout': 6,                   # Aggressive timeout
+                'description': 'Ultra-fast (<1.5s)',
+                'top_p': 0.6,                   # Reduced for speed
+                'top_k': 10,                    # Minimal for speed
+                'repeat_penalty': 1.02,         # Minimal penalty
+                'num_thread': 4,                # All Pi 5 cores
+                'num_gpu': 0,                   # CPU only
+                'target_time': 1.5
             },
             'balanced': {
-                'num_predict': 100,
-                'temperature': 0.3,
-                'num_ctx': 512,
-                'timeout': 12,
-                'description': 'Balanced (2-4s)',
-                'top_p': 0.8,
-                'top_k': 25,
-                'repeat_penalty': 1.05,
+                'num_predict': 80,              # Short responses
+                'temperature': 0.3,             # Moderate temperature
+                'num_ctx': 256,                 # Limited context
+                'timeout': 10,                  # Fast timeout
+                'description': 'Fast (1.5-3s)',
+                'top_p': 0.7,                   # Moderate
+                'top_k': 20,                    # Reasonable
+                'repeat_penalty': 1.05,         # Light penalty
+                'num_thread': 4,
+                'num_gpu': 0,
+                'target_time': 2.5
             },
             'quality': {
-                'num_predict': 200,
-                'temperature': 0.7,
-                'num_ctx': 1024,
-                'timeout': 20,
-                'description': 'Quality (4-8s)',
-                'top_p': 0.9,
-                'top_k': 40,
-                'repeat_penalty': 1.1,
+                'num_predict': 150,             # Longer responses
+                'temperature': 0.7,             # Higher temperature
+                'num_ctx': 512,                 # More context
+                'timeout': 15,                  # Longer timeout
+                'description': 'Quality (3-6s)',
+                'top_p': 0.8,                   # More variety
+                'top_k': 30,                    # More options
+                'repeat_penalty': 1.1,          # Normal penalty
+                'num_thread': 4,
+                'num_gpu': 0,
+                'target_time': 4.0
             }
         }
-        self.current_profile = 'speed'
+        self.current_profile = 'speed'  # Default to fastest
     
     async def initialize(self) -> bool:
-        """Fixed initialization with proper error handling"""
+        """Speed-optimized initialization"""
         if not AIOHTTP_AVAILABLE:
-            self.last_error = "aiohttp not available - install with: pip install aiohttp==3.8.6"
+            self.last_error = "aiohttp not available - install with: pip install aiohttp==3.9.5"
             if self.settings.debug_mode:
                 print(f"[OLLAMA] ❌ {self.last_error}")
             return False
         
         try:
-            # Create session with fixed connector settings
-            await self._create_session()
+            # Create optimized session
+            await self._create_speed_optimized_session()
             
-            # Test connection
-            if not await self._test_connection():
+            # Quick connection test with minimal timeout
+            if not await self._test_connection_fast():
                 self.last_error = "Cannot connect to Ollama service"
                 if self.settings.debug_mode:
                     print(f"[OLLAMA] ❌ Connection failed")
                 return False
             
-            # Load best model
-            if not await self._load_best_model():
+            # Load fastest available model
+            if not await self._load_fastest_model():
                 self.last_error = "No working models found"
                 if self.settings.debug_mode:
                     print(f"[OLLAMA] ❌ Model loading failed")
                 return False
             
-            # Start keep-alive
-            await self._start_keep_alive()
+            # Start aggressive keep-alive
+            await self._start_aggressive_keep_alive()
             
             self.available = True
             self.consecutive_errors = 0
             self.last_successful_time = time.time()
             
             if self.settings.debug_mode:
-                print(f"[OLLAMA] ✅ Fixed LLM ready: {self.current_model}")
-                print(f"[OLLAMA] 🚀 Profile: {self.current_profile}")
+                print(f"[OLLAMA] ✅ Speed-optimized LLM ready: {self.current_model}")
+                print(f"[OLLAMA] ⚡ Profile: {self.current_profile} ({self.profiles[self.current_profile]['description']})")
             
             return True
             
@@ -140,27 +149,27 @@ class LightningOfflineLLM:
                 print(f"[OLLAMA] ❌ Init failed: {e}")
             return False
     
-    async def _create_session(self):
-        """Create aiohttp session with proper configuration for Pi 5"""
+    async def _create_speed_optimized_session(self):
+        """Create session optimized for Pi 5 speed"""
         if not AIOHTTP_AVAILABLE:
             raise RuntimeError("aiohttp not available")
         
-        # Create timeout with reasonable values for Pi 5
+        # Ultra-aggressive timeouts for speed
         timeout = aiohttp.ClientTimeout(
-            total=20,
-            connect=5,
-            sock_read=15
+            total=12,        # Shorter total timeout
+            connect=3,       # Fast connection
+            sock_read=8      # Fast read timeout
         )
         
-        # Create connector with Pi 5 optimized settings
-        # Removed tcp_nodelay to avoid compatibility issues
+        # Speed-optimized connector for Pi 5
         connector_kwargs = {
-            'limit': 2,
-            'limit_per_host': 2,
+            'limit': 1,                    # Single connection for Pi 5
+            'limit_per_host': 1,           # One connection per host
             'enable_cleanup_closed': True,
             'use_dns_cache': True,
-            'keepalive_timeout': 300,
-            'force_close': False
+            'keepalive_timeout': 600,      # Long keepalive
+            'force_close': False,
+            'ttl_dns_cache': 300          # DNS caching
         }
         
         self.connector = aiohttp.TCPConnector(**connector_kwargs)
@@ -170,21 +179,22 @@ class LightningOfflineLLM:
             connector=self.connector,
             headers={
                 'Connection': 'keep-alive',
-                'Content-Type': 'application/json'
+                'Content-Type': 'application/json',
+                'Accept': 'application/json'
             }
         )
     
-    async def _test_connection(self) -> bool:
-        """Test connection to Ollama service"""
+    async def _test_connection_fast(self) -> bool:
+        """Ultra-fast connection test"""
         try:
             async with self.session.get(
                 f"{self.host}/api/version",
-                timeout=aiohttp.ClientTimeout(total=5)
+                timeout=aiohttp.ClientTimeout(total=3)
             ) as response:
                 if response.status == 200:
                     data = await response.json()
                     if self.settings.debug_mode:
-                        print(f"[OLLAMA] ✅ Connected - Ollama v{data.get('version', 'unknown')}")
+                        print(f"[OLLAMA] ⚡ Connected - Ollama v{data.get('version', 'unknown')}")
                     return True
                 return False
         except Exception as e:
@@ -192,12 +202,12 @@ class LightningOfflineLLM:
                 print(f"[OLLAMA] ❌ Connection test failed: {e}")
             return False
     
-    async def _get_available_models(self) -> List[Dict[str, Any]]:
-        """Get available models from Ollama"""
+    async def _get_available_models_fast(self) -> List[Dict[str, Any]]:
+        """Fast model listing"""
         try:
             async with self.session.get(
                 f"{self.host}/api/tags",
-                timeout=aiohttp.ClientTimeout(total=8)
+                timeout=aiohttp.ClientTimeout(total=5)
             ) as response:
                 if response.status == 200:
                     data = await response.json()
@@ -212,49 +222,52 @@ class LightningOfflineLLM:
                 print(f"[OLLAMA] ❌ Failed to list models: {e}")
             return []
     
-    async def _load_best_model(self) -> bool:
-        """Find and load the best working model"""
-        available_models = await self._get_available_models()
+    async def _load_fastest_model(self) -> bool:
+        """Load the fastest available model"""
+        available_models = await self._get_available_models_fast()
         
         if not available_models:
             return False
         
         model_names = [model.get('name', '') for model in available_models]
         
-        # Try preferred models in order
+        # Try preferred models in speed order
         for preferred in self.preferred_models:
             for model_name in model_names:
                 if preferred == model_name or preferred in model_name:
-                    if await self._test_model(model_name):
+                    if await self._test_model_speed(model_name):
                         self.current_model = model_name
                         self.model_loaded = True
                         if self.settings.debug_mode:
-                            print(f"[OLLAMA] ✅ Loaded working model: {model_name}")
+                            print(f"[OLLAMA] ⚡ Loaded speed-optimized model: {model_name}")
                         return True
         
-        # Try any available model
+        # Try any available model if preferred ones fail
         for model in available_models:
             model_name = model.get('name', '')
-            if model_name and await self._test_model(model_name):
+            if model_name and await self._test_model_speed(model_name):
                 self.current_model = model_name
                 self.model_loaded = True
                 if self.settings.debug_mode:
-                    print(f"[OLLAMA] ✅ Loaded fallback model: {model_name}")
+                    print(f"[OLLAMA] ⚡ Loaded fallback model: {model_name}")
                 return True
         
         return False
     
-    async def _test_model(self, model_name: str) -> bool:
-        """Quick test of a model"""
+    async def _test_model_speed(self, model_name: str) -> bool:
+        """Ultra-fast model test with minimal payload"""
         try:
+            # Minimal test payload for speed
             payload = {
                 "model": model_name,
                 "prompt": "Hi",
                 "options": {
-                    "num_predict": 5,
-                    "temperature": 0.1,
-                    "num_ctx": 128,
-                    "num_thread": 4
+                    "num_predict": 3,        # Minimal response
+                    "temperature": 0.1,      # Fast generation
+                    "num_ctx": 64,           # Minimal context
+                    "num_thread": 4,         # All Pi 5 cores
+                    "top_p": 0.5,            # Fast sampling
+                    "top_k": 5               # Minimal choices
                 },
                 "stream": False,
                 "keep_alive": self.keep_alive_duration
@@ -263,7 +276,7 @@ class LightningOfflineLLM:
             async with self.session.post(
                 f"{self.host}/api/generate",
                 json=payload,
-                timeout=aiohttp.ClientTimeout(total=10)
+                timeout=aiohttp.ClientTimeout(total=6)
             ) as response:
                 if response.status == 200:
                     data = await response.json()
@@ -271,7 +284,7 @@ class LightningOfflineLLM:
                     
                     if response_text and len(response_text) > 0:
                         if self.settings.debug_mode:
-                            print(f"[OLLAMA] ✅ Model test passed: {model_name}")
+                            print(f"[OLLAMA] ⚡ Model test passed: {model_name}")
                         return True
                 
                 return False
@@ -281,19 +294,20 @@ class LightningOfflineLLM:
                 print(f"[OLLAMA] ❌ Model test failed for {model_name}: {e}")
             return False
     
-    async def _start_keep_alive(self):
-        """Start background keep-alive task"""
+    async def _start_aggressive_keep_alive(self):
+        """Start aggressive keep-alive to maintain model in memory"""
         if self.keep_alive_task:
             self.keep_alive_task.cancel()
         
-        self.keep_alive_task = asyncio.create_task(self._keep_alive_loop())
+        self.keep_alive_task = asyncio.create_task(self._aggressive_keep_alive_loop())
     
-    async def _keep_alive_loop(self):
-        """Background task to keep model loaded"""
+    async def _aggressive_keep_alive_loop(self):
+        """Aggressive keep-alive loop for speed"""
         while self.model_loaded and self.current_model:
             try:
                 await asyncio.sleep(self.keep_alive_interval)
                 
+                # Ultra-minimal keep-alive payload
                 payload = {
                     "model": self.current_model,
                     "prompt": "",
@@ -305,36 +319,44 @@ class LightningOfflineLLM:
                 async with self.session.post(
                     f"{self.host}/api/generate",
                     json=payload,
-                    timeout=aiohttp.ClientTimeout(total=5)
+                    timeout=aiohttp.ClientTimeout(total=3)
                 ) as response:
+                    # Don't care about response, just keeping alive
                     pass
                     
             except asyncio.CancelledError:
                 break
             except Exception:
+                # Ignore keep-alive errors
                 pass
     
     def set_performance_profile(self, profile: str):
-        """Set performance profile"""
+        """Set performance profile with speed focus"""
         if profile in self.profiles:
             self.current_profile = profile
             if self.settings.debug_mode:
-                print(f"[OLLAMA] ⚡ Profile: {profile} - {self.profiles[profile]['description']}")
+                target_time = self.profiles[profile]['target_time']
+                print(f"[OLLAMA] ⚡ Profile: {profile} - Target: <{target_time}s")
     
     async def generate_response(self, query: str, personality_context: str, memory_context: str) -> str:
-        """Generate response with fixed error handling"""
+        """Speed-optimized response generation"""
         if not self.available or not self.model_loaded:
             return "Offline model unavailable. Please check Ollama service."
         
         start_time = time.time()
-        max_retries = 2
+        max_retries = 1  # Reduced retries for speed
         
         for attempt in range(max_retries):
             try:
-                # Build simple prompt for speed
-                prompt = f"User: {query}\nAssistant: "
+                # Build minimal prompt for maximum speed
+                if self.use_minimal_context or len(query.split()) <= 10:
+                    # Ultra-minimal prompt for speed
+                    prompt = query
+                else:
+                    # Standard prompt
+                    prompt = f"User: {query}\nAssistant: "
                 
-                # Get profile settings
+                # Get aggressive profile settings
                 profile = self.profiles[self.current_profile]
                 options = {
                     "num_predict": profile['num_predict'],
@@ -343,8 +365,8 @@ class LightningOfflineLLM:
                     "top_p": profile['top_p'],
                     "top_k": profile['top_k'],
                     "repeat_penalty": profile['repeat_penalty'],
-                    "num_thread": 4,
-                    "num_gpu": 0
+                    "num_thread": profile['num_thread'],
+                    "num_gpu": profile['num_gpu']
                 }
                 
                 payload = {
@@ -372,7 +394,9 @@ class LightningOfflineLLM:
                             self._update_performance_stats(elapsed, True)
                             
                             if self.settings.debug_mode:
-                                print(f"[OLLAMA] ✅ Response in {elapsed:.2f}s")
+                                target = profile['target_time']
+                                status = "⚡" if elapsed < target else "⚠️" if elapsed < target * 1.5 else "❌"
+                                print(f"[OLLAMA] {status} Response in {elapsed:.2f}s (target: <{target}s)")
                             
                             self.consecutive_errors = 0
                             return response_text
@@ -397,10 +421,10 @@ class LightningOfflineLLM:
         self._update_performance_stats(elapsed, False)
         self.consecutive_errors += 1
         
-        return "I'm having trouble responding right now. Please try again."
+        return "I'm having trouble responding quickly. Please try again."
     
     async def generate_response_stream(self, query: str, personality_context: str, memory_context: str) -> AsyncGenerator[str, None]:
-        """Generate streaming response"""
+        """Speed-optimized streaming response"""
         if not self.available or not self.model_loaded:
             yield "Offline model unavailable. Please check Ollama service."
             return
@@ -408,7 +432,12 @@ class LightningOfflineLLM:
         start_time = time.time()
         
         try:
-            prompt = f"User: {query}\nAssistant: "
+            # Minimal prompt for streaming speed
+            if self.use_minimal_context or len(query.split()) <= 10:
+                prompt = query
+            else:
+                prompt = f"User: {query}\nAssistant: "
+            
             profile = self.profiles[self.current_profile]
             
             options = {
@@ -418,8 +447,8 @@ class LightningOfflineLLM:
                 "top_p": profile['top_p'],
                 "top_k": profile['top_k'],
                 "repeat_penalty": profile['repeat_penalty'],
-                "num_thread": 4,
-                "num_gpu": 0
+                "num_thread": profile['num_thread'],
+                "num_gpu": profile['num_gpu']
             }
             
             payload = {
@@ -430,7 +459,7 @@ class LightningOfflineLLM:
                 "keep_alive": self.keep_alive_duration
             }
             
-            timeout_val = profile['timeout'] + 5
+            timeout_val = profile['timeout'] + 3  # Slight buffer for streaming
             
             async with self.session.post(
                 f"{self.host}/api/generate",
@@ -455,7 +484,9 @@ class LightningOfflineLLM:
                                     
                                     if first_chunk and self.settings.debug_mode:
                                         first_chunk_time = time.time() - start_time
-                                        print(f"[OLLAMA] ⚡ First chunk in {first_chunk_time:.2f}s")
+                                        target = profile['target_time'] / 3  # Expect first chunk in 1/3 of target time
+                                        status = "⚡" if first_chunk_time < target else "⚠️"
+                                        print(f"[OLLAMA] {status} First chunk in {first_chunk_time:.2f}s")
                                         first_chunk = False
                                 
                                 if data.get('done', False):
@@ -464,7 +495,9 @@ class LightningOfflineLLM:
                                     self.consecutive_errors = 0
                                     
                                     if self.settings.debug_mode:
-                                        print(f"[OLLAMA] ✅ Streaming complete in {elapsed:.2f}s")
+                                        target = profile['target_time']
+                                        status = "⚡" if elapsed < target else "⚠️" if elapsed < target * 1.5 else "❌"
+                                        print(f"[OLLAMA] {status} Streaming complete in {elapsed:.2f}s")
                                     break
                                     
                             except json.JSONDecodeError:
@@ -479,7 +512,7 @@ class LightningOfflineLLM:
         except asyncio.TimeoutError:
             elapsed = time.time() - start_time
             self._update_performance_stats(elapsed, False)
-            yield f"Timed out after {elapsed:.1f}s."
+            yield f"Response timed out after {elapsed:.1f}s."
             
         except Exception as e:
             elapsed = time.time() - start_time
@@ -487,40 +520,33 @@ class LightningOfflineLLM:
             yield f"Error: {str(e)[:50]}"
     
     def _validate_response(self, response: str, query: str) -> bool:
-        """Validate response quality"""
-        if not response or len(response.strip()) < 2:
+        """Fast response validation"""
+        if not response or len(response.strip()) < 1:
             return False
         
-        # Check for common error patterns
-        error_patterns = [
-            'model error',
-            'connection error',
-            'timeout',
-            'failed to',
-            'unable to'
-        ]
-        
+        # Quick error pattern check
+        error_patterns = ['model error', 'connection error', 'timeout', 'failed to']
         response_lower = response.lower()
         if any(pattern in response_lower for pattern in error_patterns):
             return False
         
-        # Check for repetitive patterns (sign of poor generation)
-        words = response.split()
-        if len(words) > 5:
-            # Check for excessive repetition
-            word_counts = {}
-            for word in words:
-                word_counts[word] = word_counts.get(word, 0) + 1
-            
-            # If any word appears more than 30% of the time, it's likely repetitive
-            max_count = max(word_counts.values())
-            if max_count > len(words) * 0.3:
-                return False
+        # Quick repetition check (simplified for speed)
+        if len(response) > 50:
+            words = response.split()
+            if len(words) > 10:
+                # Check if any word appears more than 40% of the time
+                word_counts = {}
+                for word in words:
+                    word_counts[word] = word_counts.get(word, 0) + 1
+                
+                max_count = max(word_counts.values())
+                if max_count > len(words) * 0.4:
+                    return False
         
         return True
     
     def _update_performance_stats(self, response_time: float, success: bool):
-        """Update performance statistics"""
+        """Update performance statistics with speed focus"""
         self.request_count += 1
         self.total_time += response_time
         
@@ -530,11 +556,16 @@ class LightningOfflineLLM:
             self.last_successful_time = time.time()
         
         self.response_times.append(response_time)
-        if len(self.response_times) > 20:
-            self.response_times = self.response_times[-20:]
+        if len(self.response_times) > 10:  # Keep only recent times
+            self.response_times = self.response_times[-10:]
+        
+        # Log speed issues
+        if success and response_time > self.profiles[self.current_profile]['target_time'] * 2:
+            if self.settings.debug_mode:
+                print(f"[OLLAMA] ⚠️ Slow response: {response_time:.2f}s (target: {self.profiles[self.current_profile]['target_time']}s)")
     
     def get_status(self) -> Dict[str, Any]:
-        """Get comprehensive status"""
+        """Get comprehensive status with speed metrics"""
         avg_time = self.total_time / max(self.request_count, 1)
         success_rate = ((self.request_count - self.error_count) / max(self.request_count, 1)) * 100
         
@@ -542,28 +573,217 @@ class LightningOfflineLLM:
         if self.response_times:
             recent_avg = sum(self.response_times[-5:]) / len(self.response_times[-5:])
         
+        # Speed performance analysis
+        target_time = self.profiles[self.current_profile]['target_time']
+        fast_responses = sum(1 for t in self.response_times if t < target_time)
+        speed_grade = "A+" if recent_avg < target_time else "A" if recent_avg < target_time * 1.5 else "B" if recent_avg < target_time * 2 else "C"
+        
         return {
             'available': self.available,
             'model_loaded': self.model_loaded,
             'current_model': self.current_model,
             'performance_profile': self.current_profile,
             'profile_description': self.profiles[self.current_profile]['description'],
-            'optimization_level': 'fixed_compatibility',
+            'target_time': f"{target_time}s",
+            'optimization_level': 'speed_optimized_pi5',
+            'speed_features': [
+                'Aggressive timeouts',
+                'Minimal context windows',
+                'Ultra-fast model parameters',
+                'Optimized connection pooling',
+                'Pi 5 CPU optimization',
+                'Aggressive keep-alive'
+            ],
             'stats': {
                 'request_count': self.request_count,
                 'error_count': self.error_count,
                 'consecutive_errors': self.consecutive_errors,
                 'avg_response_time': f"{avg_time:.2f}s",
                 'recent_avg_time': f"{recent_avg:.2f}s",
+                'target_response_time': f"{target_time:.1f}s",
                 'success_rate': f"{success_rate:.1f}%",
-                'target_time': f"<{self.profiles[self.current_profile]['timeout']}s"
+                'fast_responses': f"{fast_responses}/{len(self.response_times)}",
+                'speed_grade': speed_grade
+            },
+            'speed_optimizations': {
+                'minimal_context': self.use_minimal_context,
+                'aggressive_timeouts': self.aggressive_timeouts,
+                'speed_mode_active': self.speed_mode_active,
+                'keep_alive_interval': f"{self.keep_alive_interval}s"
             },
             'last_error': self.last_error,
             'preferred_models': self.preferred_models
         }
     
+    def get_speed_recommendations(self) -> List[str]:
+        """Get speed optimization recommendations"""
+        recommendations = []
+        
+        if self.response_times:
+            avg_time = sum(self.response_times) / len(self.response_times)
+            target_time = self.profiles[self.current_profile]['target_time']
+            
+            if avg_time > target_time * 2:
+                recommendations.append(f"Average response time ({avg_time:.2f}s) is much slower than target ({target_time}s)")
+                recommendations.append("Consider switching to 'speed' profile or check system resources")
+            
+            slow_responses = sum(1 for t in self.response_times if t > target_time * 1.5)
+            if slow_responses > len(self.response_times) * 0.5:
+                recommendations.append("Many responses are slower than target - check Pi 5 temperature and cooling")
+        
+        if self.consecutive_errors > 3:
+            recommendations.append("Multiple consecutive errors - check Ollama service health")
+        
+        if self.current_profile != 'speed':
+            recommendations.append("Switch to 'speed' profile for fastest responses")
+        
+        if not self.current_model or 'nemotron-fast' not in self.current_model:
+            recommendations.append("Use optimized 'nemotron-fast' model for best performance")
+        
+        # System recommendations
+        recommendations.append("Ensure Pi 5 has adequate cooling for sustained performance")
+        recommendations.append("Use fast NVMe storage for optimal model loading")
+        
+        return recommendations[:5]  # Top 5 recommendations
+    
+    def enable_turbo_mode(self):
+        """Enable ultra-aggressive speed optimizations"""
+        if self.settings.debug_mode:
+            print("[OLLAMA] 🚀 Enabling TURBO mode for maximum speed")
+        
+        # Ultra-aggressive settings
+        self.profiles['speed'].update({
+            'num_predict': 30,              # Very short responses
+            'temperature': 0.05,            # Minimal randomness
+            'num_ctx': 64,                  # Minimal context
+            'timeout': 4,                   # Very aggressive timeout
+            'top_p': 0.5,                   # Minimal diversity
+            'top_k': 5,                     # Minimal options
+            'target_time': 1.0              # 1 second target
+        })
+        
+        self.use_minimal_context = True
+        self.aggressive_timeouts = True
+        self.keep_alive_interval = 15  # More frequent keep-alive
+        
+        if self.current_profile == 'speed':
+            if self.settings.debug_mode:
+                print("[OLLAMA] ⚡ TURBO mode active - targeting <1s responses")
+    
+    def disable_turbo_mode(self):
+        """Restore normal speed optimizations"""
+        if self.settings.debug_mode:
+            print("[OLLAMA] 🔄 Restoring normal speed mode")
+        
+        # Restore normal speed settings
+        self.profiles['speed'].update({
+            'num_predict': 40,
+            'temperature': 0.1,
+            'num_ctx': 128,
+            'timeout': 6,
+            'top_p': 0.6,
+            'top_k': 10,
+            'target_time': 1.5
+        })
+        
+        self.keep_alive_interval = 20
+    
+    async def benchmark_speed(self, test_queries: List[str] = None) -> Dict[str, Any]:
+        """Run speed benchmark"""
+        if not test_queries:
+            test_queries = [
+                "Hello",
+                "Hi there",
+                "How are you?",
+                "What's 2+2?",
+                "Say hello"
+            ]
+        
+        if not self.available:
+            return {"error": "LLM not available"}
+        
+        results = []
+        total_time = 0
+        
+        print(f"[OLLAMA] 🧪 Running speed benchmark with {len(test_queries)} queries...")
+        
+        for i, query in enumerate(test_queries, 1):
+            start_time = time.time()
+            
+            try:
+                response = await self.generate_response(query, "", "")
+                elapsed = time.time() - start_time
+                
+                results.append({
+                    'query': query,
+                    'time': elapsed,
+                    'success': True,
+                    'response_length': len(response)
+                })
+                total_time += elapsed
+                
+                target = self.profiles[self.current_profile]['target_time']
+                status = "⚡" if elapsed < target else "⚠️" if elapsed < target * 1.5 else "❌"
+                print(f"  {i}/{len(test_queries)}: {status} {elapsed:.2f}s - {query}")
+                
+            except Exception as e:
+                elapsed = time.time() - start_time
+                results.append({
+                    'query': query,
+                    'time': elapsed,
+                    'success': False,
+                    'error': str(e)
+                })
+                total_time += elapsed
+                print(f"  {i}/{len(test_queries)}: ❌ {elapsed:.2f}s - Error: {str(e)[:30]}")
+        
+        # Calculate benchmark results
+        successful_results = [r for r in results if r['success']]
+        if successful_results:
+            avg_time = sum(r['time'] for r in successful_results) / len(successful_results)
+            min_time = min(r['time'] for r in successful_results)
+            max_time = max(r['time'] for r in successful_results)
+            success_rate = len(successful_results) / len(results) * 100
+            
+            target = self.profiles[self.current_profile]['target_time']
+            fast_responses = sum(1 for r in successful_results if r['time'] < target)
+            
+            # Performance grade
+            if avg_time < target and success_rate >= 90:
+                grade = "A+ (Excellent)"
+            elif avg_time < target * 1.5 and success_rate >= 80:
+                grade = "A (Very Good)"
+            elif avg_time < target * 2 and success_rate >= 70:
+                grade = "B (Good)"
+            else:
+                grade = "C (Needs Optimization)"
+            
+            benchmark_result = {
+                'avg_time': avg_time,
+                'min_time': min_time,
+                'max_time': max_time,
+                'success_rate': success_rate,
+                'fast_responses': fast_responses,
+                'total_queries': len(test_queries),
+                'target_time': target,
+                'grade': grade,
+                'profile': self.current_profile,
+                'model': self.current_model,
+                'results': results
+            }
+            
+            print(f"[OLLAMA] 📊 Benchmark Results:")
+            print(f"  Average time: {avg_time:.2f}s (target: <{target}s)")
+            print(f"  Success rate: {success_rate:.1f}%")
+            print(f"  Fast responses: {fast_responses}/{len(successful_results)}")
+            print(f"  Performance grade: {grade}")
+            
+            return benchmark_result
+        else:
+            return {"error": "No successful responses"}
+    
     async def close(self):
-        """Clean close with proper resource cleanup"""
+        """Clean close with performance summary"""
         if self.keep_alive_task:
             self.keep_alive_task.cancel()
             try:
@@ -587,8 +807,18 @@ class LightningOfflineLLM:
             if self.request_count > 0:
                 avg_time = self.total_time / self.request_count
                 success_rate = ((self.request_count - self.error_count) / self.request_count) * 100
-                print(f"[OLLAMA] 📊 Session stats: {self.request_count} requests, {avg_time:.2f}s avg, {success_rate:.1f}% success")
-            print("[OLLAMA] 🔌 Fixed connection closed")
+                target = self.profiles[self.current_profile]['target_time']
+                
+                print(f"[OLLAMA] 📊 Speed-optimized session stats:")
+                print(f"  Requests: {self.request_count}")
+                print(f"  Average time: {avg_time:.2f}s (target: <{target}s)")
+                print(f"  Success rate: {success_rate:.1f}%")
+                
+                if self.response_times:
+                    fast_responses = sum(1 for t in self.response_times if t < target)
+                    print(f"  Fast responses: {fast_responses}/{len(self.response_times)}")
+            
+            print("[OLLAMA] 🔌 Speed-optimized connection closed")
 
 # Maintain compatibility
 OptimizedOfflineLLM = LightningOfflineLLM
