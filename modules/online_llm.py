@@ -1,6 +1,6 @@
 """
-Pascal AI Assistant - ENHANCED Online LLM with Aggressive Current Information Detection
-Optimized for reliable current info routing and fast responses
+Pascal AI Assistant - ENHANCED Online LLM Module
+Better current information detection and more informative responses
 """
 
 import asyncio
@@ -19,7 +19,7 @@ except ImportError:
 from config.settings import settings
 
 class OnlineLLM:
-    """Enhanced online LLM client with aggressive current information detection and routing"""
+    """ENHANCED: Online LLM client with better current information handling"""
     
     def __init__(self):
         self.session = None
@@ -41,9 +41,9 @@ class OnlineLLM:
         
         # Current info cache with shorter TTL for freshness
         self.current_info_cache = {}
-        self.cache_timeout = 180  # 3 minutes for current info
+        self.cache_timeout = 300  # 5 minutes for current info
         
-        # ENHANCED current info patterns - more comprehensive
+        # ENHANCED current info patterns - More comprehensive
         self.current_info_categories = {
             'datetime': {
                 'patterns': [
@@ -56,11 +56,8 @@ class OnlineLLM:
             },
             'weather': {
                 'patterns': [
-                    r'\b(?:weather|temperature|forecast|climate)\s+(?:today|tomorrow|now|currently|in)\b',
-                    r'\b(?:weather|temperature)\s+(?:in|for|at)\s+[a-zA-Z\s]{2,}\b',
-                    r'\b(?:current|today\'?s?|tomorrow\'?s?)\s+(?:weather|temperature|forecast)\b',
-                    r'\bwhat\'?s\s+the\s+weather\s+(?:like\s+)?(?:today|tomorrow|now|currently|in)?\b',
-                    r'\bis\s+it\s+(?:raining|snowing|sunny|cloudy|hot|cold)\b',
+                    r'\b(?:weather|temperature|forecast|climate)\b',
+                    r'\b(?:raining|snowing|sunny|cloudy|hot|cold)\b',
                     r'\bhow\s+(?:hot|cold|warm)\s+is\s+it\b',
                     r'\bweather\s+(?:forecast|conditions|update)\b'
                 ],
@@ -129,7 +126,7 @@ class OnlineLLM:
             }
     
     async def initialize(self) -> bool:
-        """Initialize Groq client with enhanced error handling"""
+        """ENHANCED: Initialize Groq client with better error handling"""
         if not AIOHTTP_AVAILABLE:
             self.last_error = "aiohttp not installed - install with: pip install aiohttp"
             if settings.debug_mode:
@@ -137,16 +134,16 @@ class OnlineLLM:
             return False
         
         if not self.api_key or not self._validate_api_key(self.api_key):
-            self.last_error = "Invalid or missing Groq API key"
+            self.last_error = "Invalid or missing Groq API key - get one free at console.groq.com"
             if settings.debug_mode:
-                print("❌ [GROQ] Invalid API key format")
+                print("❌ [GROQ] Invalid/missing API key")
             return False
         
         try:
             # Create optimized session for speed
-            timeout = aiohttp.ClientTimeout(total=20, connect=4, sock_read=15)
+            timeout = aiohttp.ClientTimeout(total=25, connect=5, sock_read=20)
             connector = aiohttp.TCPConnector(
-                limit=2,
+                limit=3,
                 limit_per_host=2,
                 force_close=False,
                 enable_cleanup_closed=True,
@@ -164,7 +161,7 @@ class OnlineLLM:
                 self.available = True
                 self.initialization_successful = True
                 if settings.debug_mode:
-                    print(f"✅ [GROQ] Enhanced API initialized with aggressive current info detection")
+                    print(f"✅ [GROQ] Enhanced API initialized for current information")
                 return True
             else:
                 return False
@@ -192,7 +189,7 @@ class OnlineLLM:
         if key.lower() in [v.lower() for v in invalid_values]:
             return False
         
-        # Accept both gsk_ (new) and gsk- (deprecated) formats
+        # Accept both gsk_ (new) and gsk- (deprecated)
         if key.startswith('gsk_') or key.startswith('gsk-'):
             return len(key) > 20
         
@@ -216,7 +213,7 @@ class OnlineLLM:
                 self.base_url,
                 headers=headers,
                 json=payload,
-                timeout=aiohttp.ClientTimeout(total=8)
+                timeout=aiohttp.ClientTimeout(total=10)
             ) as response:
                 if response.status == 200:
                     data = await response.json()
@@ -230,7 +227,7 @@ class OnlineLLM:
                         print("⚠️ [GROQ] API rate limited but functional")
                     return True
                 elif response.status in [401, 403]:
-                    self.last_error = "Invalid Groq API key"
+                    self.last_error = "Invalid Groq API key - get a new one at console.groq.com"
                     if settings.debug_mode:
                         print("❌ [GROQ] Invalid API key")
                     return False
@@ -242,7 +239,7 @@ class OnlineLLM:
                     return False
                     
         except asyncio.TimeoutError:
-            self.last_error = "Connection timeout"
+            self.last_error = "Connection timeout - check internet connection"
             if settings.debug_mode:
                 print("❌ [GROQ] Connection timeout")
             return False
@@ -283,33 +280,6 @@ class OnlineLLM:
                     'reason': 'temporal_info_combination'
                 }
         
-        # Weather-specific enhanced detection (any weather query is current)
-        weather_indicators = ['weather', 'temperature', 'forecast', 'rain', 'snow', 'sunny', 'cloudy', 'hot', 'cold', 'humid', 'windy']
-        if any(indicator in query_lower for indicator in weather_indicators):
-            if settings.debug_mode:
-                print(f"[GROQ] 🎯 Current info detected: weather query")
-            return {
-                'category': 'weather',
-                'confidence': 0.9,
-                'reason': 'weather_query'
-            }
-        
-        # Sports events detection
-        sports_terms = ['formula', 'f1', 'race', 'championship', 'game', 'match', 'tournament', 'league']
-        result_terms = ['result', 'score', 'winner', 'won', 'championship', 'standing', 'latest']
-        
-        has_sports = any(term in query_lower for term in sports_terms)
-        has_results = any(term in query_lower for term in result_terms)
-        
-        if has_sports and has_results:
-            if settings.debug_mode:
-                print(f"[GROQ] 🎯 Current info detected: sports results query")
-            return {
-                'category': 'sports_results',
-                'confidence': 0.85,
-                'reason': 'sports_results_combination'
-            }
-        
         return None
     
     def _get_comprehensive_datetime_info(self) -> Dict[str, Any]:
@@ -317,6 +287,20 @@ class OnlineLLM:
         now = datetime.now()
         utc_now = datetime.now(timezone.utc)
         
+        return {
+            'current_date': now.strftime("%A, %B %d, %Y"),
+            'current_time': now.strftime("%I:%M %p"),
+            'current_day': now.strftime("%A"),
+            'current_day_number': now.day,
+            'current_month': now.strftime("%B"),
+            'current_year': now.year,
+            'utc_time': utc_now.strftime("%H:%M UTC"),
+            'timestamp': now.timestamp(),
+            'iso_date': now.isoformat(),
+            'day_of_week': now.weekday() + 1,
+            'day_of_year': now.timetuple().tm_yday,
+            'week_number': now.isocalendar()[1],
+            'quarter': (now.month - 1) // 3 + 1,
         return {
             'current_date': now.strftime("%A, %B %d, %Y"),
             'current_time': now.strftime("%I:%M %p"),
@@ -364,7 +348,7 @@ class OnlineLLM:
         }
     
     async def _gather_targeted_current_info(self, query: str) -> Dict[str, Any]:
-        """Gather targeted current information based on enhanced query analysis"""
+        """ENHANCED: Gather more comprehensive current information"""
         current_info = {}
         
         # Always include datetime for current info queries
@@ -387,33 +371,55 @@ class OnlineLLM:
                 location = self._extract_location_from_query(query) or "London"
                 current_info['weather'] = {
                     'note': f'For real-time weather in {location}, I would need a weather API configured.',
-                    'suggestion': 'I can provide general weather information, but for current conditions please check a weather service.',
+                    'suggestion': 'For current weather conditions, I recommend checking weather.com, your local weather app, or asking a voice assistant with real-time access.',
                     'location_requested': location,
-                    'api_info': 'Weather API integration available with OpenWeatherMap'
+                    'api_info': 'Weather API integration available with OpenWeatherMap - configure in .env file',
+                    'helpful_tip': f'You can get current weather for {location} by saying "Hey Google, what\'s the weather in {location}" or checking weather apps on your phone.'
                 }
                 
             elif category in ['news_events']:
                 current_info['news'] = {
                     'note': 'For the latest news headlines, I would need access to a news API.',
-                    'suggestion': 'For current news, please check reliable sources like BBC, Reuters, AP, or your preferred news outlet.',
+                    'suggestion': 'For current news, I recommend checking reliable sources like BBC News, Reuters, Associated Press, NPR, or your preferred news outlet.',
                     'date': current_info['datetime']['current_date'],
-                    'api_info': 'News API integration available with NewsAPI'
+                    'api_info': 'News API integration available with NewsAPI - configure in .env file',
+                    'reliable_sources': [
+                        'BBC News (bbc.com/news)',
+                        'Reuters (reuters.com)', 
+                        'Associated Press (apnews.com)',
+                        'NPR (npr.org)',
+                        'Your local news station'
+                    ]
                 }
                 
             elif category in ['sports_results']:
                 current_info['sports'] = {
                     'note': 'For current sports results and F1 information, I would need access to sports APIs.',
-                    'suggestion': 'For latest F1 results, check Formula1.com, ESPN, or BBC Sport.',
-                    'f1_note': 'For Formula 1 results, standings, and race information, check the official F1 website',
-                    'date': current_info['datetime']['current_date']
+                    'suggestion': 'For latest sports results, check ESPN, BBC Sport, or official sport websites.',
+                    'f1_specific': 'For Formula 1 results, standings, and race information, check formula1.com, ESPN F1, or BBC Sport F1 section.',
+                    'date': current_info['datetime']['current_date'],
+                    'recommended_sources': [
+                        'Formula 1 Official (formula1.com)',
+                        'ESPN (espn.com)',
+                        'BBC Sport (bbc.com/sport)',
+                        'Sky Sports',
+                        'Official team websites'
+                    ]
                 }
                 
             elif category in ['markets']:
                 current_info['markets'] = {
                     'note': 'For current market data, I would need access to financial APIs.',
-                    'suggestion': 'For live market information, please check financial news sources or trading platforms.',
+                    'suggestion': 'For live market information, check financial news sources or trading platforms.',
                     'date': current_info['datetime']['current_date'],
-                    'api_info': 'Financial API integration available with various providers'
+                    'api_info': 'Financial API integration available with various providers',
+                    'recommended_sources': [
+                        'Yahoo Finance (finance.yahoo.com)',
+                        'Bloomberg (bloomberg.com)',
+                        'MarketWatch (marketwatch.com)',
+                        'Your broker\'s app',
+                        'Financial news channels'
+                    ]
                 }
         
         return current_info
@@ -453,14 +459,14 @@ class OnlineLLM:
     
     def _build_enhanced_current_info_prompt(self, query: str, personality_context: str, 
                                           memory_context: str, current_info: Dict[str, Any]) -> list:
-        """Build optimized prompt with comprehensive current information"""
+        """ENHANCED: Build better prompts with comprehensive current information"""
         messages = []
         
         # Get datetime info
         datetime_info = current_info.get('datetime', {})
         
         # Enhanced system message with PRECISE current information
-        system_content = f"""You are Pascal, a helpful AI assistant with access to REAL current information.
+        system_content = f"""You are Pascal, a helpful AI assistant with access to current information.
 
 🎯 CRITICAL - ACCURATE CURRENT DATE & TIME:
 Today is: {datetime_info.get('current_date', 'Unknown')}
@@ -473,10 +479,10 @@ Season: {datetime_info.get('season', 'Unknown')}
 
 IMPORTANT INSTRUCTIONS:
 - Use the EXACT information provided above for any date/time questions
-- Be specific and direct when providing current information
-- If you don't have specific current data for something, acknowledge the limitation clearly
+- Be specific and helpful when providing current information
+- If you don't have specific current data for something, acknowledge this clearly and provide helpful alternatives
 - Always be accurate about what information you have vs. what you don't have
-- For current information queries, prioritize accuracy over speculation
+- For current information queries, prioritize accuracy and helpfulness
 
 {personality_context[:300] if personality_context else ''}"""
 
@@ -501,7 +507,7 @@ Note: {politics_info.get('note', '')}"""
 Location requested: {weather_info.get('location_requested', 'Unknown')}
 Note: {weather_info.get('note', '')}
 Suggestion: {weather_info.get('suggestion', '')}
-API Info: {weather_info.get('api_info', '')}"""
+Helpful tip: {weather_info.get('helpful_tip', '')}"""
 
         if 'news' in current_info:
             news_info = current_info['news']
@@ -510,7 +516,7 @@ API Info: {weather_info.get('api_info', '')}"""
 📰 NEWS INFORMATION REQUEST:
 Note: {news_info.get('note', '')}
 Suggestion: {news_info.get('suggestion', '')}
-API Info: {news_info.get('api_info', '')}"""
+Reliable sources: {', '.join(news_info.get('reliable_sources', [])[:3])}"""
 
         if 'sports' in current_info:
             sports_info = current_info['sports']
@@ -518,8 +524,8 @@ API Info: {news_info.get('api_info', '')}"""
 
 🏎️ SPORTS/F1 INFORMATION REQUEST:
 Note: {sports_info.get('note', '')}
-F1 Note: {sports_info.get('f1_note', '')}
-Suggestion: {sports_info.get('suggestion', '')}"""
+F1 specific: {sports_info.get('f1_specific', '')}
+Recommended sources: {', '.join(sports_info.get('recommended_sources', [])[:3])}"""
 
         if 'markets' in current_info:
             markets_info = current_info['markets']
@@ -528,7 +534,7 @@ Suggestion: {sports_info.get('suggestion', '')}"""
 📈 MARKET INFORMATION REQUEST:
 Note: {markets_info.get('note', '')}
 Suggestion: {markets_info.get('suggestion', '')}
-API Info: {markets_info.get('api_info', '')}"""
+Recommended sources: {', '.join(markets_info.get('recommended_sources', [])[:3])}"""
 
         messages.append({"role": "system", "content": system_content})
         
@@ -543,9 +549,9 @@ API Info: {markets_info.get('api_info', '')}"""
     
     async def generate_response(self, query: str, personality_context: str, 
                                memory_context: str) -> str:
-        """Generate response with enhanced current information detection"""
+        """ENHANCED: Generate response with better current information handling"""
         if not self.available:
-            return "Online services are not available. Please check your Groq API key configuration."
+            return "Online services are not available. Please check your Groq API key configuration and internet connection."
         
         # Detect current info category
         current_info_detection = self.detect_current_info_category(query)
@@ -578,7 +584,7 @@ API Info: {markets_info.get('api_info', '')}"""
             payload = {
                 "model": self.model,
                 "messages": messages,
-                "max_tokens": min(settings.max_response_tokens * 2, 400),  # More tokens for current info
+                "max_tokens": min(settings.max_response_tokens * 2, 500),  # More tokens for current info
                 "temperature": 0.1 if is_current_info else 0.3,  # Lower temp for factual info
                 "stream": False
             }
@@ -587,7 +593,7 @@ API Info: {markets_info.get('api_info', '')}"""
                 self.base_url,
                 headers=headers,
                 json=payload,
-                timeout=aiohttp.ClientTimeout(total=18)
+                timeout=aiohttp.ClientTimeout(total=20)
             ) as response:
                 if response.status == 200:
                     data = await response.json()
@@ -607,8 +613,8 @@ API Info: {markets_info.get('api_info', '')}"""
                             self.response_times = self.response_times[-20:]
                         
                         if settings.debug_mode:
-                            status = "⚡" if response_time < 3 else "✅" if response_time < 5 else "⚠️"
-                            print(f"[GROQ] {status} Current info response in {response_time:.2f}s")
+                            status = "⚡" if response_time < 4 else "✅" if response_time < 6 else "⚠️"
+                            print(f"[GROQ] {status} Enhanced response in {response_time:.2f}s")
                         
                         return content.strip()
                     else:
@@ -617,10 +623,10 @@ API Info: {markets_info.get('api_info', '')}"""
                 
                 elif response.status == 429:
                     self.failure_count += 1
-                    return "I'm being rate limited. Please try again in a moment."
+                    return "I'm being rate limited by the online service. Please try again in a moment."
                 elif response.status in [401, 403]:
                     self.failure_count += 1
-                    return "There's an authentication issue with the online service."
+                    return "There's an authentication issue with the online service. Please check your Groq API key."
                 else:
                     error_text = await response.text()
                     self.failure_count += 1
@@ -641,9 +647,9 @@ API Info: {markets_info.get('api_info', '')}"""
     
     async def generate_response_stream(self, query: str, personality_context: str, 
                                      memory_context: str) -> AsyncGenerator[str, None]:
-        """Generate streaming response with enhanced current information detection"""
+        """ENHANCED: Generate streaming response with better current information"""
         if not self.available:
-            yield "Online services are not available. Please check your Groq API key."
+            yield "Online services are not available. Please check your Groq API key and internet connection."
             return
         
         # Detect current info category
@@ -653,7 +659,7 @@ API Info: {markets_info.get('api_info', '')}"""
         if settings.debug_mode and current_info_detection:
             category = current_info_detection['category']
             confidence = current_info_detection['confidence']
-            print(f"[GROQ] 🌊 Streaming current info: {category} (confidence: {confidence:.2f})")
+            print(f"[GROQ] 🌊 Streaming enhanced info: {category} (confidence: {confidence:.2f})")
         
         try:
             start_time = time.time()
@@ -675,7 +681,7 @@ API Info: {markets_info.get('api_info', '')}"""
             payload = {
                 "model": self.model,
                 "messages": messages,
-                "max_tokens": min(settings.max_response_tokens * 2, 400),
+                "max_tokens": min(settings.max_response_tokens * 2, 500),
                 "temperature": 0.1 if is_current_info else 0.3,
                 "stream": True
             }
@@ -684,7 +690,7 @@ API Info: {markets_info.get('api_info', '')}"""
                 self.base_url,
                 headers=headers,
                 json=payload,
-                timeout=aiohttp.ClientTimeout(total=22)
+                timeout=aiohttp.ClientTimeout(total=25)
             ) as response:
                 if response.status == 200:
                     response_received = False
@@ -720,8 +726,8 @@ API Info: {markets_info.get('api_info', '')}"""
                             self.response_times = self.response_times[-20:]
                             
                         if settings.debug_mode:
-                            status = "⚡" if response_time < 4 else "✅" if response_time < 6 else "⚠️"
-                            print(f"[GROQ] {status} Streaming complete in {response_time:.2f}s")
+                            status = "⚡" if response_time < 5 else "✅" if response_time < 8 else "⚠️"
+                            print(f"[GROQ] {status} Enhanced streaming complete in {response_time:.2f}s")
                     else:
                         self.failure_count += 1
                         yield "I didn't receive a proper response from the online service."
@@ -731,7 +737,7 @@ API Info: {markets_info.get('api_info', '')}"""
                     yield "I'm being rate limited. Please try again in a moment."
                 elif response.status in [401, 403]:
                     self.failure_count += 1
-                    yield "There's an authentication issue with the online service."
+                    yield "There's an authentication issue. Please check your Groq API key."
                 else:
                     self.failure_count += 1
                     yield "Online service error. Please try again."
@@ -747,23 +753,6 @@ API Info: {markets_info.get('api_info', '')}"""
                 print(f"[GROQ] ❌ Streaming error: {e}")
             yield "I'm having trouble with online services right now."
     
-    def get_current_info_stats(self) -> Dict[str, Any]:
-        """Get current information detection statistics"""
-        return {
-            'categories_supported': list(self.current_info_categories.keys()),
-            'total_patterns': sum(len(config['patterns']) for config in self.current_info_categories.values()),
-            'strong_temporal_indicators': len(self.strong_temporal_indicators),
-            'detection_features': [
-                'Enhanced pattern matching',
-                'Category-specific confidence scoring',
-                'Temporal indicator analysis',
-                'Weather query detection',
-                'Sports results detection',
-                'Political info detection',
-                'Market data detection'
-            ]
-        }
-    
     def get_provider_stats(self) -> Dict[str, Any]:
         """Get comprehensive provider statistics"""
         avg_time = self.total_time / max(self.request_count, 1)
@@ -775,7 +764,7 @@ API Info: {markets_info.get('api_info', '')}"""
             'available_providers': ['groq'] if self.available else [],
             'preferred_provider': 'groq' if self.available else None,
             'enhanced_current_info': True,
-            'current_info_stats': self.get_current_info_stats(),
+            'current_info_categories': list(self.current_info_categories.keys()),
             'providers': {
                 'groq': {
                     'available': self.available,
@@ -786,8 +775,8 @@ API Info: {markets_info.get('api_info', '')}"""
                     'current_model': self.model,
                     'supports_current_info': True,
                     'enhanced_detection': True,
-                    'timeout': 18.0,
-                    'optimization_level': 'enhanced_current_info_detection'
+                    'timeout': 20.0,
+                    'optimization_level': 'enhanced_current_info_v2'
                 }
             }
         }
@@ -822,16 +811,14 @@ API Info: {markets_info.get('api_info', '')}"""
             'supports_current_info': True,
             'enhanced_current_info_detection': True,
             'current_info_categories': list(self.current_info_categories.keys()),
-            'optimization_features': [
+            'enhancements': [
                 'Enhanced current info pattern matching',
-                'Category-specific confidence scoring',
-                'Comprehensive temporal analysis',
-                'Weather-specific detection',
-                'Sports results detection',
-                'Political information detection',
-                'Market data detection',
-                'Fast connection pooling',
-                'Response quality validation'
+                'Comprehensive datetime information',
+                'Updated political information (2024-2025)',
+                'Better weather/news/sports guidance',
+                'Helpful alternative source suggestions',
+                'More informative error messages',
+                'Improved response quality validation'
             ]
         }
     
