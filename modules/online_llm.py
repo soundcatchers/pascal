@@ -1,6 +1,6 @@
 """
-Pascal AI Assistant - ENHANCED Online LLM Module
-Better current information detection and more informative responses
+Pascal AI Assistant - FIXED Online LLM Module
+Resolves JSON parsing errors and improves Groq API reliability
 """
 
 import asyncio
@@ -19,7 +19,7 @@ except ImportError:
 from config.settings import settings
 
 class OnlineLLM:
-    """ENHANCED: Online LLM client with better current information handling"""
+    """FIXED: Online LLM client with robust JSON parsing and error handling"""
     
     def __init__(self):
         self.session = None
@@ -126,7 +126,7 @@ class OnlineLLM:
             }
     
     async def initialize(self) -> bool:
-        """ENHANCED: Initialize Groq client with better error handling"""
+        """FIXED: Initialize Groq client with better error handling"""
         if not AIOHTTP_AVAILABLE:
             self.last_error = "aiohttp not installed - install with: pip install aiohttp"
             if settings.debug_mode:
@@ -196,7 +196,7 @@ class OnlineLLM:
         return False
     
     async def _test_connection_fast(self) -> bool:
-        """Quick connection test with minimal payload"""
+        """FIXED: Quick connection test with robust JSON parsing"""
         try:
             headers = {
                 'Authorization': f'Bearer {self.api_key}'
@@ -216,11 +216,25 @@ class OnlineLLM:
                 timeout=aiohttp.ClientTimeout(total=10)
             ) as response:
                 if response.status == 200:
-                    data = await response.json()
-                    if 'choices' in data and data['choices']:
+                    try:
+                        # FIXED: Robust JSON parsing
+                        response_text = await response.text()
+                        data = self._safe_json_parse(response_text)
+                        
+                        if data and 'choices' in data and data['choices']:
+                            if settings.debug_mode:
+                                print("✅ [GROQ] Connection test successful")
+                            return True
+                        else:
+                            if settings.debug_mode:
+                                print("❌ [GROQ] Invalid response structure")
+                            return False
+                            
+                    except Exception as e:
                         if settings.debug_mode:
-                            print("✅ [GROQ] Connection test successful")
-                        return True
+                            print(f"❌ [GROQ] JSON parsing failed: {e}")
+                        return False
+                        
                 elif response.status == 429:
                     # Rate limited but API key works
                     if settings.debug_mode:
@@ -249,6 +263,54 @@ class OnlineLLM:
                 print(f"❌ [GROQ] Connection test error: {e}")
             return False
     
+    def _safe_json_parse(self, text: str) -> Optional[Dict[str, Any]]:
+        """FIXED: Safe JSON parsing with error handling"""
+        if not text or not text.strip():
+            return None
+        
+        text = text.strip()
+        
+        try:
+            # Try direct JSON parsing first
+            return json.loads(text)
+        except json.JSONDecodeError as e:
+            if settings.debug_mode:
+                print(f"[GROQ] JSON parse error: {e}")
+                print(f"[GROQ] Problematic text: {text[:200]}...")
+            
+            # Try to fix common JSON issues
+            try:
+                # Remove any leading/trailing non-JSON content
+                start_idx = text.find('{')
+                end_idx = text.rfind('}')
+                
+                if start_idx >= 0 and end_idx >= 0 and end_idx > start_idx:
+                    cleaned_text = text[start_idx:end_idx + 1]
+                    return json.loads(cleaned_text)
+                    
+            except json.JSONDecodeError:
+                pass
+            
+            return None
+    
+    def _safe_streaming_json_parse(self, line: str) -> Optional[Dict[str, Any]]:
+        """FIXED: Safe JSON parsing for streaming responses"""
+        if not line or not line.strip():
+            return None
+        
+        line = line.strip()
+        
+        # Handle streaming format: "data: {...}"
+        if line.startswith('data: '):
+            line = line[6:].strip()
+        
+        # Skip [DONE] markers
+        if line == '[DONE]':
+            return {'done': True}
+        
+        # Try to parse JSON
+        return self._safe_json_parse(line)
+    
     def detect_current_info_category(self, query: str) -> Optional[Dict[str, Any]]:
         """Enhanced current info category detection"""
         query_lower = query.lower().strip()
@@ -258,7 +320,221 @@ class OnlineLLM:
             for pattern in config['patterns']:
                 if pattern.search(query_lower):
                     if settings.debug_mode:
-                        print(f"[GROQ] 🎯 Current info detected: {category} (pattern match)")
+                        print(f"[GROQ] ❌ API error {response.status}: {error_text[:100]}")
+                    return "Online service error. Please try again."
+        
+        except asyncio.TimeoutError:
+            self.failure_count += 1
+            if settings.debug_mode:
+                print("[GROQ] ❌ Request timed out")
+            return "The request timed out. Please try again."
+        except Exception as e:
+            self.failure_count += 1
+            if settings.debug_mode:
+                print(f"[GROQ] ❌ Error: {e}")
+            return "I'm having trouble connecting to online services right now."
+    
+    async def generate_response_stream(self, query: str, personality_context: str, 
+                                     memory_context: str) -> AsyncGenerator[str, None]:
+        """FIXED: Generate streaming response with robust JSON parsing"""
+        if not self.available:
+            yield "Online services are not available. Please check your Groq API key and internet connection."
+            return
+        
+        # Detect current info category
+        current_info_detection = self.detect_current_info_category(query)
+        is_current_info = current_info_detection is not None
+        
+        if settings.debug_mode and current_info_detection:
+            category = current_info_detection['category']
+            confidence = current_info_detection['confidence']
+            print(f"[GROQ] 🌊 Streaming enhanced info: {category} (confidence: {confidence:.2f})")
+        
+        try:
+            start_time = time.time()
+            
+            # Gather current information
+            current_info = await self._gather_targeted_current_info(query)
+            if settings.debug_mode and current_info:
+                print(f"[GROQ] 📊 Current info for streaming: {list(current_info.keys())}")
+            
+            # Build enhanced prompt
+            messages = self._build_enhanced_current_info_prompt(
+                query, personality_context, memory_context, current_info
+            )
+            
+            headers = {
+                'Authorization': f'Bearer {self.api_key}'
+            }
+            
+            payload = {
+                "model": self.model,
+                "messages": messages,
+                "max_tokens": min(settings.max_response_tokens * 2, 500),
+                "temperature": 0.1 if is_current_info else 0.3,
+                "stream": True
+            }
+            
+            async with self.session.post(
+                self.base_url,
+                headers=headers,
+                json=payload,
+                timeout=aiohttp.ClientTimeout(total=25)
+            ) as response:
+                if response.status == 200:
+                    response_received = False
+                    
+                    try:
+                        async for line in response.content:
+                            if line:
+                                line_str = line.decode('utf-8').strip()
+                                if line_str:
+                                    # FIXED: Robust streaming JSON parsing
+                                    data = self._safe_streaming_json_parse(line_str)
+                                    
+                                    if data:
+                                        if data.get('done'):
+                                            break
+                                        
+                                        if 'choices' in data and data['choices']:
+                                            delta = data['choices'][0].get('delta', {})
+                                            if 'content' in delta and delta['content']:
+                                                text_chunk = delta['content']
+                                                if text_chunk:
+                                                    yield text_chunk
+                                                    response_received = True
+                    
+                    except Exception as stream_error:
+                        if settings.debug_mode:
+                            print(f"[GROQ] Streaming error: {stream_error}")
+                        if not response_received:
+                            yield "Error processing streaming response. Please try again."
+                    
+                    if response_received:
+                        # Update stats
+                        self.request_count += 1
+                        self.success_count += 1
+                        response_time = time.time() - start_time
+                        self.total_time += response_time
+                        self.response_times.append(response_time)
+                        
+                        if len(self.response_times) > 20:
+                            self.response_times = self.response_times[-20:]
+                            
+                        if settings.debug_mode:
+                            status = "⚡" if response_time < 5 else "✅" if response_time < 8 else "⚠️"
+                            print(f"[GROQ] {status} Enhanced streaming complete in {response_time:.2f}s")
+                    else:
+                        self.failure_count += 1
+                        yield "I didn't receive a proper response from the online service."
+                        
+                elif response.status == 429:
+                    self.failure_count += 1
+                    yield "I'm being rate limited. Please try again in a moment."
+                elif response.status in [401, 403]:
+                    self.failure_count += 1
+                    yield "There's an authentication issue. Please check your Groq API key."
+                else:
+                    self.failure_count += 1
+                    yield "Online service error. Please try again."
+                    
+        except asyncio.TimeoutError:
+            self.failure_count += 1
+            if settings.debug_mode:
+                print("[GROQ] ❌ Streaming timed out")
+            yield "The request timed out. Please try again."
+        except Exception as e:
+            self.failure_count += 1
+            if settings.debug_mode:
+                print(f"[GROQ] ❌ Streaming error: {e}")
+            yield "I'm having trouble with online services right now."
+    
+    def get_provider_stats(self) -> Dict[str, Any]:
+        """Get comprehensive provider statistics"""
+        avg_time = self.total_time / max(self.request_count, 1)
+        
+        return {
+            'aiohttp_available': AIOHTTP_AVAILABLE,
+            'initialization_successful': self.initialization_successful,
+            'last_error': self.last_error,
+            'available_providers': ['groq'] if self.available else [],
+            'preferred_provider': 'groq' if self.available else None,
+            'enhanced_current_info': True,
+            'current_info_categories': list(self.current_info_categories.keys()),
+            'json_parsing': 'robust_error_handling',
+            'providers': {
+                'groq': {
+                    'available': self.available,
+                    'success_count': self.success_count,
+                    'failure_count': self.failure_count,
+                    'avg_response_time': avg_time,
+                    'api_key_configured': bool(self.api_key),
+                    'current_model': self.model,
+                    'supports_current_info': True,
+                    'enhanced_detection': True,
+                    'timeout': 20.0,
+                    'optimization_level': 'enhanced_current_info_v2_fixed_json'
+                }
+            }
+        }
+    
+    def is_available(self) -> bool:
+        """Check if provider is available"""
+        return self.initialization_successful and self.available
+    
+    def get_performance_stats(self) -> Dict[str, Any]:
+        """Get detailed performance statistics"""
+        avg_time = self.total_time / max(self.request_count, 1)
+        success_rate = (self.success_count / max(self.request_count, 1)) * 100
+        
+        recent_avg = 0
+        if self.response_times:
+            recent_avg = sum(self.response_times[-5:]) / len(self.response_times[-5:])
+        
+        return {
+            'provider': 'groq',
+            'model': self.model,
+            'available': self.available,
+            'initialization_successful': self.initialization_successful,
+            'total_requests': self.request_count,
+            'successful_requests': self.success_count,
+            'failed_requests': self.failure_count,
+            'success_rate_percent': success_rate,
+            'avg_response_time': avg_time,
+            'recent_avg_time': recent_avg,
+            'api_key_configured': bool(self.api_key),
+            'last_error': self.last_error,
+            'supports_streaming': True,
+            'supports_current_info': True,
+            'enhanced_current_info_detection': True,
+            'current_info_categories': list(self.current_info_categories.keys()),
+            'json_parsing_fixed': True,
+            'enhancements': [
+                'FIXED: Robust JSON parsing with error handling',
+                'FIXED: Safe streaming response processing',
+                'Enhanced current info pattern matching',
+                'Comprehensive datetime information',
+                'Updated political information (2024-2025)',
+                'Better weather/news/sports guidance',
+                'Helpful alternative source suggestions',
+                'More informative error messages',
+                'Improved response quality validation',
+                'Fixed streaming JSON parsing errors'
+            ]
+        }
+    
+    async def close(self):
+        """Close the aiohttp session"""
+        if self.session:
+            await self.session.close()
+            self.session = None
+        self.available = False
+        if settings.debug_mode:
+            if self.request_count > 0:
+                avg_time = self.total_time / self.request_count
+                success_rate = (self.success_count / self.request_count) * 100
+                print(f"[GROQ] 📊 Enhanced session stats: {self.request_count} requests, {avg_time:.2f}s avg, {success_rate:.1f}% success")
+            print("[GROQ] 🔌 Enhanced connection closed (JSON parsing fixed)")] 🎯 Current info detected: {category} (pattern match)")
                     return {
                         'category': category,
                         'confidence': config['confidence'],
@@ -287,20 +563,6 @@ class OnlineLLM:
         now = datetime.now()
         utc_now = datetime.now(timezone.utc)
         
-        return {
-            'current_date': now.strftime("%A, %B %d, %Y"),
-            'current_time': now.strftime("%I:%M %p"),
-            'current_day': now.strftime("%A"),
-            'current_day_number': now.day,
-            'current_month': now.strftime("%B"),
-            'current_year': now.year,
-            'utc_time': utc_now.strftime("%H:%M UTC"),
-            'timestamp': now.timestamp(),
-            'iso_date': now.isoformat(),
-            'day_of_week': now.weekday() + 1,
-            'day_of_year': now.timetuple().tm_yday,
-            'week_number': now.isocalendar()[1],
-            'quarter': (now.month - 1) // 3 + 1,
         return {
             'current_date': now.strftime("%A, %B %d, %Y"),
             'current_time': now.strftime("%I:%M %p"),
@@ -549,7 +811,7 @@ Recommended sources: {', '.join(markets_info.get('recommended_sources', [])[:3])
     
     async def generate_response(self, query: str, personality_context: str, 
                                memory_context: str) -> str:
-        """ENHANCED: Generate response with better current information handling"""
+        """FIXED: Generate response with robust JSON parsing"""
         if not self.available:
             return "Online services are not available. Please check your Groq API key configuration and internet connection."
         
@@ -596,30 +858,39 @@ Recommended sources: {', '.join(markets_info.get('recommended_sources', [])[:3])
                 timeout=aiohttp.ClientTimeout(total=20)
             ) as response:
                 if response.status == 200:
-                    data = await response.json()
-                    
-                    if 'choices' in data and data['choices']:
-                        content = data['choices'][0]['message']['content']
+                    try:
+                        # FIXED: Robust JSON parsing
+                        response_text = await response.text()
+                        data = self._safe_json_parse(response_text)
                         
-                        # Update performance stats
-                        self.request_count += 1
-                        self.success_count += 1
-                        response_time = time.time() - start_time
-                        self.total_time += response_time
-                        self.response_times.append(response_time)
-                        
-                        # Keep only last 20 measurements
-                        if len(self.response_times) > 20:
-                            self.response_times = self.response_times[-20:]
-                        
+                        if data and 'choices' in data and data['choices']:
+                            content = data['choices'][0]['message']['content']
+                            
+                            # Update performance stats
+                            self.request_count += 1
+                            self.success_count += 1
+                            response_time = time.time() - start_time
+                            self.total_time += response_time
+                            self.response_times.append(response_time)
+                            
+                            # Keep only last 20 measurements
+                            if len(self.response_times) > 20:
+                                self.response_times = self.response_times[-20:]
+                            
+                            if settings.debug_mode:
+                                status = "⚡" if response_time < 4 else "✅" if response_time < 6 else "⚠️"
+                                print(f"[GROQ] {status} Enhanced response in {response_time:.2f}s")
+                            
+                            return content.strip()
+                        else:
+                            self.failure_count += 1
+                            return "I received an incomplete response from the online service."
+                            
+                    except Exception as json_error:
                         if settings.debug_mode:
-                            status = "⚡" if response_time < 4 else "✅" if response_time < 6 else "⚠️"
-                            print(f"[GROQ] {status} Enhanced response in {response_time:.2f}s")
-                        
-                        return content.strip()
-                    else:
+                            print(f"[GROQ] JSON parsing error: {json_error}")
                         self.failure_count += 1
-                        return "I received an incomplete response from the online service."
+                        return "I had trouble parsing the response from the online service. Please try again."
                 
                 elif response.status == 429:
                     self.failure_count += 1
@@ -631,206 +902,4 @@ Recommended sources: {', '.join(markets_info.get('recommended_sources', [])[:3])
                     error_text = await response.text()
                     self.failure_count += 1
                     if settings.debug_mode:
-                        print(f"[GROQ] ❌ API error {response.status}: {error_text[:100]}")
-                    return "Online service error. Please try again."
-        
-        except asyncio.TimeoutError:
-            self.failure_count += 1
-            if settings.debug_mode:
-                print("[GROQ] ❌ Request timed out")
-            return "The request timed out. Please try again."
-        except Exception as e:
-            self.failure_count += 1
-            if settings.debug_mode:
-                print(f"[GROQ] ❌ Error: {e}")
-            return "I'm having trouble connecting to online services right now."
-    
-    async def generate_response_stream(self, query: str, personality_context: str, 
-                                     memory_context: str) -> AsyncGenerator[str, None]:
-        """ENHANCED: Generate streaming response with better current information"""
-        if not self.available:
-            yield "Online services are not available. Please check your Groq API key and internet connection."
-            return
-        
-        # Detect current info category
-        current_info_detection = self.detect_current_info_category(query)
-        is_current_info = current_info_detection is not None
-        
-        if settings.debug_mode and current_info_detection:
-            category = current_info_detection['category']
-            confidence = current_info_detection['confidence']
-            print(f"[GROQ] 🌊 Streaming enhanced info: {category} (confidence: {confidence:.2f})")
-        
-        try:
-            start_time = time.time()
-            
-            # Gather current information
-            current_info = await self._gather_targeted_current_info(query)
-            if settings.debug_mode and current_info:
-                print(f"[GROQ] 📊 Current info for streaming: {list(current_info.keys())}")
-            
-            # Build enhanced prompt
-            messages = self._build_enhanced_current_info_prompt(
-                query, personality_context, memory_context, current_info
-            )
-            
-            headers = {
-                'Authorization': f'Bearer {self.api_key}'
-            }
-            
-            payload = {
-                "model": self.model,
-                "messages": messages,
-                "max_tokens": min(settings.max_response_tokens * 2, 500),
-                "temperature": 0.1 if is_current_info else 0.3,
-                "stream": True
-            }
-            
-            async with self.session.post(
-                self.base_url,
-                headers=headers,
-                json=payload,
-                timeout=aiohttp.ClientTimeout(total=25)
-            ) as response:
-                if response.status == 200:
-                    response_received = False
-                    
-                    async for line in response.content:
-                        if line:
-                            line_str = line.decode('utf-8').strip()
-                            if line_str.startswith('data: '):
-                                line_str = line_str[6:]
-                                if line_str == '[DONE]':
-                                    break
-                                try:
-                                    data = json.loads(line_str)
-                                    if 'choices' in data and data['choices']:
-                                        delta = data['choices'][0].get('delta', {})
-                                        if 'content' in delta and delta['content']:
-                                            text_chunk = delta['content']
-                                            if text_chunk:
-                                                yield text_chunk
-                                                response_received = True
-                                except json.JSONDecodeError:
-                                    continue
-                    
-                    if response_received:
-                        # Update stats
-                        self.request_count += 1
-                        self.success_count += 1
-                        response_time = time.time() - start_time
-                        self.total_time += response_time
-                        self.response_times.append(response_time)
-                        
-                        if len(self.response_times) > 20:
-                            self.response_times = self.response_times[-20:]
-                            
-                        if settings.debug_mode:
-                            status = "⚡" if response_time < 5 else "✅" if response_time < 8 else "⚠️"
-                            print(f"[GROQ] {status} Enhanced streaming complete in {response_time:.2f}s")
-                    else:
-                        self.failure_count += 1
-                        yield "I didn't receive a proper response from the online service."
-                        
-                elif response.status == 429:
-                    self.failure_count += 1
-                    yield "I'm being rate limited. Please try again in a moment."
-                elif response.status in [401, 403]:
-                    self.failure_count += 1
-                    yield "There's an authentication issue. Please check your Groq API key."
-                else:
-                    self.failure_count += 1
-                    yield "Online service error. Please try again."
-                    
-        except asyncio.TimeoutError:
-            self.failure_count += 1
-            if settings.debug_mode:
-                print("[GROQ] ❌ Streaming timed out")
-            yield "The request timed out. Please try again."
-        except Exception as e:
-            self.failure_count += 1
-            if settings.debug_mode:
-                print(f"[GROQ] ❌ Streaming error: {e}")
-            yield "I'm having trouble with online services right now."
-    
-    def get_provider_stats(self) -> Dict[str, Any]:
-        """Get comprehensive provider statistics"""
-        avg_time = self.total_time / max(self.request_count, 1)
-        
-        return {
-            'aiohttp_available': AIOHTTP_AVAILABLE,
-            'initialization_successful': self.initialization_successful,
-            'last_error': self.last_error,
-            'available_providers': ['groq'] if self.available else [],
-            'preferred_provider': 'groq' if self.available else None,
-            'enhanced_current_info': True,
-            'current_info_categories': list(self.current_info_categories.keys()),
-            'providers': {
-                'groq': {
-                    'available': self.available,
-                    'success_count': self.success_count,
-                    'failure_count': self.failure_count,
-                    'avg_response_time': avg_time,
-                    'api_key_configured': bool(self.api_key),
-                    'current_model': self.model,
-                    'supports_current_info': True,
-                    'enhanced_detection': True,
-                    'timeout': 20.0,
-                    'optimization_level': 'enhanced_current_info_v2'
-                }
-            }
-        }
-    
-    def is_available(self) -> bool:
-        """Check if provider is available"""
-        return self.initialization_successful and self.available
-    
-    def get_performance_stats(self) -> Dict[str, Any]:
-        """Get detailed performance statistics"""
-        avg_time = self.total_time / max(self.request_count, 1)
-        success_rate = (self.success_count / max(self.request_count, 1)) * 100
-        
-        recent_avg = 0
-        if self.response_times:
-            recent_avg = sum(self.response_times[-5:]) / len(self.response_times[-5:])
-        
-        return {
-            'provider': 'groq',
-            'model': self.model,
-            'available': self.available,
-            'initialization_successful': self.initialization_successful,
-            'total_requests': self.request_count,
-            'successful_requests': self.success_count,
-            'failed_requests': self.failure_count,
-            'success_rate_percent': success_rate,
-            'avg_response_time': avg_time,
-            'recent_avg_time': recent_avg,
-            'api_key_configured': bool(self.api_key),
-            'last_error': self.last_error,
-            'supports_streaming': True,
-            'supports_current_info': True,
-            'enhanced_current_info_detection': True,
-            'current_info_categories': list(self.current_info_categories.keys()),
-            'enhancements': [
-                'Enhanced current info pattern matching',
-                'Comprehensive datetime information',
-                'Updated political information (2024-2025)',
-                'Better weather/news/sports guidance',
-                'Helpful alternative source suggestions',
-                'More informative error messages',
-                'Improved response quality validation'
-            ]
-        }
-    
-    async def close(self):
-        """Close the aiohttp session"""
-        if self.session:
-            await self.session.close()
-            self.session = None
-        self.available = False
-        if settings.debug_mode:
-            if self.request_count > 0:
-                avg_time = self.total_time / self.request_count
-                success_rate = (self.success_count / self.request_count) * 100
-                print(f"[GROQ] 📊 Enhanced session stats: {self.request_count} requests, {avg_time:.2f}s avg, {success_rate:.1f}% success")
-            print("[GROQ] 🔌 Enhanced connection closed")
+                        print(f"[GROQ
