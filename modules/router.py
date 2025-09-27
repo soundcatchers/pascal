@@ -677,4 +677,178 @@ class LightningRouter:
     # Legacy compatibility methods
     def _needs_current_information(self, query: str) -> bool:
         """Legacy alias for current info detection"""
-        return self._detect_current
+        return self._detect_current_info_enhanced(query)
+    
+    def _detect_current_info(self, query: str) -> bool:
+        """Legacy alias for current info detection"""
+        return self._detect_current_info_enhanced(query)
+    
+    def _decide_route(self, query: str) -> RouteDecision:
+        """Legacy alias for route decision"""
+        return self._decide_route_enhanced(query)
+    
+    def get_router_stats(self) -> Dict[str, Any]:
+        """Get comprehensive router statistics"""
+        total_requests = self.stats['total_requests']
+        
+        if total_requests > 0:
+            offline_percentage = (self.stats['offline_requests'] / total_requests) * 100
+            online_percentage = (self.stats['online_requests'] / total_requests) * 100
+            skill_percentage = (self.stats['skill_requests'] / total_requests) * 100
+            fallback_percentage = (self.stats['fallback_requests'] / total_requests) * 100
+            routing_accuracy = (self.stats['correct_routes'] / total_requests) * 100
+            current_info_accuracy = (self.stats['current_info_routed_online'] / max(self.stats['current_info_detected'], 1)) * 100
+        else:
+            offline_percentage = online_percentage = skill_percentage = fallback_percentage = routing_accuracy = current_info_accuracy = 0
+        
+        # Calculate average times
+        offline_avg = (self.stats['offline_total_time'] / max(self.stats['offline_requests'], 1))
+        online_avg = (self.stats['online_total_time'] / max(self.stats['online_requests'], 1))
+        skill_avg = (self.stats['skill_total_time'] / max(self.stats['skill_requests'], 1))
+        
+        return {
+            'mode': self.mode.value,
+            'system_status': {
+                'offline_llm': self.offline_available,
+                'online_llm': self.online_available,
+                'skills_manager': self.skills_available,
+            },
+            'routing_strategy': 'enhanced_current_info_detection_v2',
+            'current_info_stats': {
+                'detected': self.stats['current_info_detected'],
+                'routed_online': self.stats['current_info_routed_online'],
+                'accuracy': f"{current_info_accuracy:.1f}%"
+            },
+            'last_decision': {
+                'route_type': self.last_decision.route_type,
+                'reason': self.last_decision.reason,
+                'confidence': self.last_decision.confidence,
+                'is_current_info': self.last_decision.is_current_info,
+                'skill_name': self.last_decision.skill_name,
+                'expected_time': self.last_decision.expected_time
+            } if self.last_decision else None,
+            'performance_stats': {
+                'total_requests': total_requests,
+                'routing_decisions': self.stats['routing_decisions'],
+                'routing_accuracy': f"{routing_accuracy:.1f}%",
+                'offline_requests': self.stats['offline_requests'],
+                'online_requests': self.stats['online_requests'],
+                'skill_requests': self.stats['skill_requests'],
+                'fallback_requests': self.stats['fallback_requests'],
+                'offline_percentage': f"{offline_percentage:.1f}%",
+                'online_percentage': f"{online_percentage:.1f}%",
+                'skill_percentage': f"{skill_percentage:.1f}%",
+                'fallback_percentage': f"{fallback_percentage:.1f}%",
+                'offline_avg_time': f"{offline_avg:.2f}s",
+                'online_avg_time': f"{online_avg:.2f}s",
+                'skill_avg_time': f"{skill_avg:.3f}s"
+            },
+            'enhancements': [
+                'Enhanced current info detection patterns',
+                'Weather queries always treated as current',
+                'Better sports/F1 detection',
+                'Improved temporal analysis',
+                'Skills prioritized for datetime',
+                'Better fallback responses',
+                'More helpful error messages'
+            ],
+            'recommendations': self._get_enhanced_recommendations()
+        }
+    
+    def _get_enhanced_recommendations(self) -> List[str]:
+        """Get enhanced performance recommendations"""
+        recommendations = []
+        
+        if not self.offline_available:
+            recommendations.append("Install/start Ollama: sudo systemctl start ollama && ollama pull nemotron-mini:4b-instruct-q4_K_M")
+        if not self.online_available:
+            recommendations.append("Configure Groq API key for current information: Get free key at console.groq.com")
+        if not self.skills_available:
+            recommendations.append("Skills manager could provide instant datetime/calculator responses")
+        
+        # Current info routing recommendations
+        if self.stats['current_info_detected'] > 0:
+            online_ratio = self.stats['current_info_routed_online'] / self.stats['current_info_detected']
+            if online_ratio < 0.8 and self.online_available:
+                recommendations.append("Some current info queries routed offline - enhanced detection active")
+        
+        if self.stats['fallback_requests'] > 0:
+            recommendations.append("Some requests required fallback - run python quick_fix.py to diagnose")
+        
+        # Performance recommendations
+        if self.stats['total_requests'] > 10:
+            offline_ratio = self.stats['offline_requests'] / self.stats['total_requests']
+            if offline_ratio < 0.3 and self.offline_available:
+                recommendations.append("Consider using offline more for faster general queries")
+        
+        return recommendations[:5]  # Top 5 recommendations
+    
+    def get_system_health(self) -> Dict[str, Any]:
+        """Get comprehensive system health report"""
+        health_score = 0
+        components = {}
+        
+        # Offline LLM (35% of health)
+        if self.offline_available:
+            health_score += 35
+            components['offline_llm'] = 'Available and optimized'
+        else:
+            components['offline_llm'] = 'Unavailable (affects performance)'
+        
+        # Online LLM (35% of health - important for current info)
+        if self.online_available:
+            health_score += 35
+            components['online_llm'] = 'Available with enhanced current info detection'
+        else:
+            components['online_llm'] = 'Unavailable (no current information access)'
+        
+        # Skills Manager (20% of health)
+        if self.skills_available:
+            health_score += 20
+            components['skills_manager'] = 'Available for instant responses'
+        else:
+            components['skills_manager'] = 'Unavailable (no instant datetime/calculator)'
+        
+        # Routing system (10% of health)
+        health_score += 10  # Always available
+        components['routing_system'] = 'Active with enhanced detection'
+        
+        # Determine health status
+        if health_score >= 90:
+            status = 'Excellent'
+        elif health_score >= 70:
+            status = 'Good'
+        elif health_score >= 50:
+            status = 'Fair'
+        else:
+            status = 'Poor'
+        
+        return {
+            'overall_health_score': health_score,
+            'system_status': status,
+            'components': components,
+            'fallback_available': True,
+            'current_info_capability': 'Enhanced' if self.online_available else 'Limited to datetime only',
+            'recommendations': self._get_enhanced_recommendations()
+        }
+    
+    async def close(self):
+        """Clean shutdown of all router components"""
+        if self.offline_llm:
+            try:
+                await self.offline_llm.close()
+            except Exception:
+                pass
+        if self.online_llm:
+            try:
+                await self.online_llm.close()
+            except Exception:
+                pass
+        if self.skills_manager:
+            try:
+                await self.skills_manager.close()
+            except Exception:
+                pass
+
+# Maintain compatibility
+EnhancedRouter = LightningRouter
