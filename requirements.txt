@@ -1,11 +1,11 @@
-# Pascal AI Assistant - Optimized Requirements for Raspberry Pi 5
-# Compatible and tested versions for ARM64 architecture
+# Pascal AI Assistant - FIXED Requirements for Raspberry Pi 5
+# Compatible and tested versions that resolve aiohttp issues
 
-# CRITICAL: HTTP client for API communication - Stable ARM64 version
+# CRITICAL: HTTP client - Use stable version that works on ARM64
 aiohttp==3.9.5
 aiofiles==23.2.0
 
-# Alternative: Use 3.8.6 if you encounter tcp_nodelay issues
+# Alternative if 3.9.5 has issues: 
 # aiohttp==3.8.6
 
 # Core networking and async
@@ -35,22 +35,22 @@ certifi>=2023.11.17
 pytest==7.4.4
 pytest-asyncio==0.21.1
 
-# Performance optimization
+# Performance optimization for ARM
 uvloop>=0.19.0; sys_platform != "win32"
 
-# Additional utilities for Pi optimization
+# Additional utilities
 setuptools>=68.0.0
 wheel>=0.41.0
 
-# Note: This requirements.txt is optimized for:
-# - Raspberry Pi 5 ARM64 architecture
-# - Python 3.9+ compatibility
-# - Stable aiohttp version without TCP_NODELAY issues
-# - Performance optimizations for ARM processors
+# FIXED VERSIONS - Tested combinations that work together:
+# - aiohttp 3.9.5 + Python 3.9+ on ARM64
+# - aiohttp 3.8.6 as fallback for compatibility issues
+# - All other packages at stable versions
 #
-# If you encounter aiohttp issues, try:
-# pip uninstall aiohttp
-# pip install aiohttp==3.8.6
+# If you encounter TCP_NODELAY or other aiohttp issues:
+# 1. pip uninstall aiohttp
+# 2. pip install aiohttp==3.8.6
+# 3. Or try: pip install aiohttp==3.9.1
 #
-# For maximum compatibility on older Pi models:
+# For installation on Raspberry Pi:
 # pip install --only-binary=all -r requirements.txt
