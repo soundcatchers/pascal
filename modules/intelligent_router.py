@@ -1,0 +1,1047 @@
+"""
+Pascal AI Assistant - Intelligent Router with Enhanced Decision Making
+Near-perfect routing decisions using multi-layer query analysis
+"""
+
+import asyncio
+import time
+import json
+from enum import Enum
+from dataclasses import dataclass, asdict
+from typing import Dict, List, Optional, AsyncGenerator, Tuple
+from pathlib import Path
+
+# Import the enhanced query analyzer (assuming it's in modules/)
+from modules.query_analyzer import (
+    EnhancedQueryAnalyzer, QueryAnalysis, QueryComplexity, QueryIntent
+)
+from config.settings import settings
+
+class SystemAvailability(Enum):
+    """System availability status"""
+    AVAILABLE = "available"
+    UNAVAILABLE = "unavailable"
+    DEGRADED = "degraded"
+    UNKNOWN = "unknown"
+
+@dataclass
+class SystemPerformance:
+    """Track system performance metrics"""
+    system_name: str
+    total_requests: int = 0
+    successful_requests: int = 0
+    failed_requests: int = 0
+    total_response_time: float = 0.0
+    avg_response_time: float = 0.0
+    success_rate: float = 0.0
+    last_success_time: float = 0.0
+    last_failure_time: float = 0.0
+    consecutive_failures: int = 0
+
+@dataclass
+class IntelligentRouteDecision:
+    """Enhanced routing decision with detailed reasoning"""
+    route_type: str  # 'offline', 'online', 'skill', 'fallback'
+    reason: str
+    confidence: float
+    analysis: QueryAnalysis
+    system_performance: Dict[str, SystemPerformance]
+    expected_time: float
+    fallback_route: Optional[str] = None
+    timestamp: float = 0.0
+    
+    def __post_init__(self):
+        if self.timestamp == 0.0:
+            self.timestamp = time.time()
+    
+    @property
+    def use_offline(self) -> bool:
+        return self.route_type == 'offline'
+    
+    @property
+    def use_online(self) -> bool:
+        return self.route_type == 'online'
+    
+    @property
+    def use_skill(self) -> bool:
+        return self.route_type == 'skill'
+    
+    @property
+    def use_fallback(self) -> bool:
+        return self.route_type == 'fallback'
+
+class PerformanceTracker:
+    """Track and analyze system performance for routing optimization"""
+    
+    def __init__(self):
+        self.systems: Dict[str, SystemPerformance] = {
+            'offline': SystemPerformance('offline'),
+            'online': SystemPerformance('online'),
+            'skills': SystemPerformance('skills')
+        }
+        
+        # Query type performance tracking
+        self.query_type_performance: Dict[str, Dict[str, List[float]]] = {
+            'offline': {},
+            'online': {},
+            'skills': {}
+        }
+        
+        # Load historical data if available
+        self._load_performance_data()
+    
+    def record_request(self, system: str, response_time: float, success: bool, query_type: str = "general"):
+        """Record system performance data"""
+        if system not in self.systems:
+            return
+        
+        perf = self.systems[system]
+        perf.total_requests += 1
+        perf.total_response_time += response_time
+        
+        if success:
+            perf.successful_requests += 1
+            perf.last_success_time = time.time()
+            perf.consecutive_failures = 0
+        else:
+            perf.failed_requests += 1
+            perf.last_failure_time = time.time()
+            perf.consecutive_failures += 1
+        
+        # Update calculated metrics
+        perf.avg_response_time = perf.total_response_time / perf.total_requests
+        perf.success_rate = perf.successful_requests / perf.total_requests
+        
+        # Track by query type
+        if system not in self.query_type_performance:
+            self.query_type_performance[system] = {}
+        if query_type not in self.query_type_performance[system]:
+            self.query_type_performance[system][query_type] = []
+        
+        self.query_type_performance[system][query_type].append(response_time)
+        
+        # Keep only recent data (last 100 requests per type)
+        if len(self.query_type_performance[system][query_type]) > 100:
+            self.query_type_performance[system][query_type] = \
+                self.query_type_performance[system][query_type][-100:]
+    
+    def get_system_health(self, system: str) -> float:
+        """Get system health score (0.0 to 1.0)"""
+        if system not in self.systems:
+            return 0.0
+        
+        perf = self.systems[system]
+        
+        if perf.total_requests == 0:
+            return 0.5  # Unknown, assume neutral
+        
+        # Health factors
+        success_factor = perf.success_rate
+        
+        # Recent failure penalty
+        if perf.consecutive_failures > 3:
+            success_factor *= 0.5
+        elif perf.consecutive_failures > 0:
+            success_factor *= 0.8
+        
+        # Response time factor (target <4s for good health)
+        time_factor = max(0.1, min(1.0, 4.0 / max(perf.avg_response_time, 0.1)))
+        
+        # Recency factor (prefer recent successes)
+        current_time = time.time()
+        if perf.last_success_time > 0:
+            time_since_success = current_time - perf.last_success_time
+            recency_factor = max(0.1, min(1.0, 300 / max(time_since_success, 1)))  # 5 min optimal
+        else:
+            recency_factor = 0.1
+        
+        # Combined health score
+        health = (success_factor * 0.5 + time_factor * 0.3 + recency_factor * 0.2)
+        return max(0.0, min(1.0, health))
+    
+    def get_expected_time(self, system: str, query_type: str = "general") -> float:
+        """Get expected response time for system and query type"""
+        if system not in self.query_type_performance:
+            # Default expected times
+            defaults = {'offline': 3.0, 'online': 4.0, 'skills': 0.5}
+            return defaults.get(system, 3.0)
+        
+        if query_type not in self.query_type_performance[system]:
+            return self.systems[system].avg_response_time if self.systems[system].total_requests > 0 else 3.0
+        
+        times = self.query_type_performance[system][query_type]
+        if not times:
+            return 3.0
+        
+        # Use recent average (last 20 requests)
+        recent_times = times[-20:]
+        return sum(recent_times) / len(recent_times)
+    
+    def _load_performance_data(self):
+        """Load historical performance data"""
+        try:
+            perf_file = Path(settings.data_dir) / "performance_data.json"
+            if perf_file.exists():
+                with open(perf_file, 'r') as f:
+                    data = json.load(f)
+                    
+                # Restore system performance
+                for system_name, perf_data in data.get('systems', {}).items():
+                    if system_name in self.systems:
+                        for key, value in perf_data.items():
+                            setattr(self.systems[system_name], key, value)
+                
+                # Restore query type performance (recent data only)
+                self.query_type_performance = data.get('query_type_performance', {})
+        except Exception:
+            pass  # Start fresh if loading fails
+    
+    def save_performance_data(self):
+        """Save performance data for persistence"""
+        try:
+            perf_file = Path(settings.data_dir) / "performance_data.json"
+            perf_file.parent.mkdir(parents=True, exist_ok=True)
+            
+            data = {
+                'systems': {name: asdict(perf) for name, perf in self.systems.items()},
+                'query_type_performance': self.query_type_performance,
+                'last_saved': time.time()
+            }
+            
+            with open(perf_file, 'w') as f:
+                json.dump(data, f, indent=2)
+        except Exception:
+            pass  # Don't fail if saving doesn't work
+
+class IntelligentRouter:
+    """Intelligent router with enhanced decision making"""
+    
+    def __init__(self, personality_manager, memory_manager):
+        self.personality_manager = personality_manager
+        self.memory_manager = memory_manager
+        
+        # Enhanced components
+        self.query_analyzer = EnhancedQueryAnalyzer()
+        self.performance_tracker = PerformanceTracker()
+        
+        # System components (initialized by _check_llm_availability)
+        self.offline_llm = None
+        self.online_llm = None
+        self.skills_manager = None
+        
+        # System availability
+        self.offline_available = False
+        self.online_available = False
+        self.skills_available = False
+        
+        # Decision tracking
+        self.last_decision: Optional[IntelligentRouteDecision] = None
+        self.total_decisions = 0
+        self.decision_history: List[IntelligentRouteDecision] = []
+        
+        # Routing configuration
+        self.routing_config = self._load_routing_config()
+    
+    def _load_routing_config(self) -> Dict:
+        """Load routing configuration"""
+        default_config = {
+            'current_info_threshold': 0.7,  # Threshold for routing to online
+            'confidence_threshold': 0.8,    # High confidence routing threshold
+            'fallback_timeout': 10.0,       # Max time before fallback
+            'skill_priority': True,         # Prioritize skills for instant queries
+            'performance_weight': 0.3,      # Weight of performance in routing decisions
+            'availability_weight': 0.4,     # Weight of availability in routing decisions
+            'query_analysis_weight': 0.3,   # Weight of query analysis in routing decisions
+        }
+        
+        try:
+            config_file = Path(settings.config_dir) / "routing_config.json"
+            if config_file.exists():
+                with open(config_file, 'r') as f:
+                    user_config = json.load(f)
+                    default_config.update(user_config)
+        except Exception:
+            pass
+        
+        return default_config
+    
+    async def _check_llm_availability(self):
+        """Enhanced system availability checking"""
+        if settings.debug_mode:
+            print("[INTELLIGENT_ROUTER] Checking system availability...")
+        
+        # Initialize offline LLM
+        await self._init_offline_llm()
+        
+        # Initialize online LLM
+        await self._init_online_llm()
+        
+        # Initialize skills manager
+        await self._init_skills_manager()
+        
+        if settings.debug_mode:
+            print(f"[INTELLIGENT_ROUTER] Systems: offline={self.offline_available}, "
+                  f"online={self.online_available}, skills={self.skills_available}")
+    
+    async def _init_offline_llm(self):
+        """Initialize offline LLM with health tracking"""
+        try:
+            from modules.offline_llm import LightningOfflineLLM
+            
+            self.offline_llm = LightningOfflineLLM()
+            
+            start_time = time.time()
+            success = await asyncio.wait_for(self.offline_llm.initialize(), timeout=30.0)
+            init_time = time.time() - start_time
+            
+            self.offline_available = success
+            self.performance_tracker.record_request('offline', init_time, success, 'initialization')
+            
+            if settings.debug_mode:
+                status = "✅" if success else "❌"
+                print(f"{status} [INTELLIGENT_ROUTER] Offline LLM: {init_time:.1f}s")
+                
+        except Exception as e:
+            self.offline_available = False
+            if settings.debug_mode:
+                print(f"❌ [INTELLIGENT_ROUTER] Offline LLM failed: {e}")
+    
+    async def _init_online_llm(self):
+        """Initialize online LLM with health tracking"""
+        if not settings.is_online_available():
+            self.online_available = False
+            return
+        
+        try:
+            from modules.online_llm import OnlineLLM
+            
+            self.online_llm = OnlineLLM()
+            
+            start_time = time.time()
+            success = await asyncio.wait_for(self.online_llm.initialize(), timeout=15.0)
+            init_time = time.time() - start_time
+            
+            self.online_available = success
+            self.performance_tracker.record_request('online', init_time, success, 'initialization')
+            
+            if settings.debug_mode:
+                status = "✅" if success else "❌"
+                print(f"{status} [INTELLIGENT_ROUTER] Online LLM: {init_time:.1f}s")
+                
+        except Exception as e:
+            self.online_available = False
+            if settings.debug_mode:
+                print(f"❌ [INTELLIGENT_ROUTER] Online LLM failed: {e}")
+    
+    async def _init_skills_manager(self):
+        """Initialize skills manager with health tracking"""
+        try:
+            from modules.skills_manager import EnhancedSkillsManager
+            
+            self.skills_manager = EnhancedSkillsManager()
+            
+            start_time = time.time()
+            api_status = await asyncio.wait_for(self.skills_manager.initialize(), timeout=10.0)
+            init_time = time.time() - start_time
+            
+            # Skills are available if any work, even without API keys
+            self.skills_available = True
+            self.performance_tracker.record_request('skills', init_time, True, 'initialization')
+            
+            if settings.debug_mode:
+                available_apis = sum(1 for status in api_status.values() if status['available'])
+                print(f"✅ [INTELLIGENT_ROUTER] Skills: {init_time:.1f}s ({available_apis} APIs)")
+                
+        except Exception as e:
+            self.skills_available = False
+            if settings.debug_mode:
+                print(f"❌ [INTELLIGENT_ROUTER] Skills failed: {e}")
+    
+    async def make_intelligent_decision(self, query: str) -> IntelligentRouteDecision:
+        """Make intelligent routing decision using enhanced analysis"""
+        
+        # Step 1: Analyze the query
+        analysis = await self.query_analyzer.analyze_query(query)
+        
+        # Step 2: Get current system performance
+        system_performance = {
+            'offline': self.systems['offline'],
+            'online': self.systems['online'], 
+            'skills': self.systems['skills']
+        }
+        
+        # Step 3: Apply intelligent routing logic
+        decision = self._apply_routing_logic(analysis, system_performance)
+        
+        # Step 4: Validate and finalize decision
+        decision = self._validate_decision(decision, analysis)
+        
+        # Step 5: Track decision
+        self.last_decision = decision
+        self.total_decisions += 1
+        self.decision_history.append(decision)
+        
+        # Keep decision history manageable
+        if len(self.decision_history) > 1000:
+            self.decision_history = self.decision_history[-500:]
+        
+        return decision
+    
+    def _apply_routing_logic(self, analysis: QueryAnalysis, 
+                           system_performance: Dict[str, SystemPerformance]) -> IntelligentRouteDecision:
+        """Apply intelligent routing logic based on analysis and performance"""
+        
+        config = self.routing_config
+        
+        # Priority 1: Current Information Detection
+        if analysis.current_info_score >= config['current_info_threshold']:
+            if self.online_available:
+                expected_time = self.performance_tracker.get_expected_time('online', analysis.intent.value)
+                return IntelligentRouteDecision(
+                    route_type='online',
+                    reason=f"Current info detected (score: {analysis.current_info_score:.2f})",
+                    confidence=min(0.95, analysis.confidence + 0.2),
+                    analysis=analysis,
+                    system_performance=system_performance,
+                    expected_time=expected_time,
+                    fallback_route='offline' if self.offline_available else 'fallback'
+                )
+            elif self.offline_available:
+                expected_time = self.performance_tracker.get_expected_time('offline', analysis.intent.value)
+                return IntelligentRouteDecision(
+                    route_type='offline',
+                    reason=f"Current info needed but online unavailable (score: {analysis.current_info_score:.2f})",
+                    confidence=max(0.3, analysis.confidence - 0.4),
+                    analysis=analysis,
+                    system_performance=system_performance,
+                    expected_time=expected_time
+                )
+        
+        # Priority 2: Instant Skills (for simple, fast queries)
+        if (config['skill_priority'] and 
+            self.skills_available and 
+            analysis.complexity == QueryComplexity.INSTANT and
+            analysis.intent in [QueryIntent.TIME_QUERY, QueryIntent.CALCULATION]):
+            
+            expected_time = self.performance_tracker.get_expected_time('skills', analysis.intent.value)
+            return IntelligentRouteDecision(
+                route_type='skill',
+                reason=f"Instant {analysis.intent.value} query",
+                confidence=0.95,
+                analysis=analysis,
+                system_performance=system_performance,
+                expected_time=expected_time,
+                fallback_route='offline' if self.offline_available else 'online' if self.online_available else 'fallback'
+            )
+        
+        # Priority 3: Performance-Based Routing for General Queries
+        if self.offline_available and self.online_available:
+            # Both systems available - choose based on performance and query characteristics
+            
+            offline_health = self.performance_tracker.get_system_health('offline')
+            online_health = self.performance_tracker.get_system_health('online')
+            
+            offline_time = self.performance_tracker.get_expected_time('offline', analysis.intent.value)
+            online_time = self.performance_tracker.get_expected_time('online', analysis.intent.value)
+            
+            # Calculate routing scores
+            offline_score = (offline_health * config['availability_weight'] + 
+                           (4.0 / max(offline_time, 0.1)) * config['performance_weight'] +
+                           self._get_query_fit_score('offline', analysis) * config['query_analysis_weight'])
+            
+            online_score = (online_health * config['availability_weight'] + 
+                          (4.0 / max(online_time, 0.1)) * config['performance_weight'] +
+                          self._get_query_fit_score('online', analysis) * config['query_analysis_weight'])
+            
+            if offline_score > online_score:
+                return IntelligentRouteDecision(
+                    route_type='offline',
+                    reason=f"Performance-based: offline score {offline_score:.2f} > online {online_score:.2f}",
+                    confidence=min(0.9, analysis.confidence + abs(offline_score - online_score) * 0.2),
+                    analysis=analysis,
+                    system_performance=system_performance,
+                    expected_time=offline_time,
+                    fallback_route='online'
+                )
+            else:
+                return IntelligentRouteDecision(
+                    route_type='online',
+                    reason=f"Performance-based: online score {online_score:.2f} > offline {offline_score:.2f}",
+                    confidence=min(0.9, analysis.confidence + abs(online_score - offline_score) * 0.2),
+                    analysis=analysis,
+                    system_performance=system_performance,
+                    expected_time=online_time,
+                    fallback_route='offline'
+                )
+        
+        # Priority 4: Single System Available
+        if self.offline_available:
+            expected_time = self.performance_tracker.get_expected_time('offline', analysis.intent.value)
+            return IntelligentRouteDecision(
+                route_type='offline',
+                reason="Only offline system available",
+                confidence=0.8,
+                analysis=analysis,
+                system_performance=system_performance,
+                expected_time=expected_time
+            )
+        
+        if self.online_available:
+            expected_time = self.performance_tracker.get_expected_time('online', analysis.intent.value)
+            return IntelligentRouteDecision(
+                route_type='online',
+                reason="Only online system available",
+                confidence=0.7,
+                analysis=analysis,
+                system_performance=system_performance,
+                expected_time=expected_time
+            )
+        
+        # Priority 5: Fallback
+        return IntelligentRouteDecision(
+            route_type='fallback',
+            reason="No systems available",
+            confidence=0.0,
+            analysis=analysis,
+            system_performance=system_performance,
+            expected_time=0.0
+        )
+    
+    def _get_query_fit_score(self, system: str, analysis: QueryAnalysis) -> float:
+        """Calculate how well a query fits a particular system"""
+        
+        # Offline system preferences
+        if system == 'offline':
+            offline_preferences = {
+                QueryIntent.PROGRAMMING: 0.9,
+                QueryIntent.EXPLANATION: 0.8,
+                QueryIntent.CREATION: 0.8,
+                QueryIntent.CASUAL_CHAT: 0.7,
+                QueryIntent.GREETING: 0.6,
+            }
+            base_score = offline_preferences.get(analysis.intent, 0.5)
+            
+            # Boost for non-current info
+            if analysis.current_info_score < 0.3:
+                base_score += 0.2
+            
+            return min(1.0, base_score)
+        
+        # Online system preferences  
+        elif system == 'online':
+            online_preferences = {
+                QueryIntent.CURRENT_INFO: 0.95,
+                QueryIntent.NEWS: 0.9,
+                QueryIntent.WEATHER: 0.85,
+                QueryIntent.DATE_QUERY: 0.8,
+            }
+            base_score = online_preferences.get(analysis.intent, 0.4)
+            
+            # Boost for current info
+            if analysis.current_info_score > 0.5:
+                base_score += analysis.current_info_score * 0.3
+            
+            return min(1.0, base_score)
+        
+        # Skills system preferences
+        elif system == 'skills':
+            skills_preferences = {
+                QueryIntent.TIME_QUERY: 0.95,
+                QueryIntent.CALCULATION: 0.9,
+            }
+            return skills_preferences.get(analysis.intent, 0.1)
+        
+        return 0.5
+    
+    def _validate_decision(self, decision: IntelligentRouteDecision, 
+                          analysis: QueryAnalysis) -> IntelligentRouteDecision:
+        """Validate and potentially modify routing decision"""
+        
+        # Ensure chosen system is actually available
+        if decision.route_type == 'offline' and not self.offline_available:
+            if self.online_available:
+                decision.route_type = 'online'
+                decision.reason += " (offline unavailable, routing to online)"
+                decision.confidence *= 0.7
+            else:
+                decision.route_type = 'fallback'
+                decision.reason = "Offline requested but unavailable"
+                decision.confidence = 0.0
+        
+        elif decision.route_type == 'online' and not self.online_available:
+            if self.offline_available:
+                decision.route_type = 'offline'
+                decision.reason += " (online unavailable, routing to offline)"
+                decision.confidence *= 0.7
+            else:
+                decision.route_type = 'fallback'
+                decision.reason = "Online requested but unavailable"
+                decision.confidence = 0.0
+        
+        elif decision.route_type == 'skill' and not self.skills_available:
+            if self.offline_available:
+                decision.route_type = 'offline'
+                decision.reason += " (skills unavailable, routing to offline)"
+                decision.confidence *= 0.8
+            elif self.online_available:
+                decision.route_type = 'online'
+                decision.reason += " (skills unavailable, routing to online)"
+                decision.confidence *= 0.7
+            else:
+                decision.route_type = 'fallback'
+                decision.reason = "Skills requested but unavailable"
+                decision.confidence = 0.0
+        
+        return decision
+    
+    async def get_streaming_response(self, query: str) -> AsyncGenerator[str, None]:
+        """Get streaming response using intelligent routing"""
+        
+        # Make routing decision
+        decision = await self.make_intelligent_decision(query)
+        
+        if settings.debug_mode:
+            print(f"[INTELLIGENT_ROUTER] 🧠 {decision.route_type.upper()}: {decision.reason}")
+            print(f"[INTELLIGENT_ROUTER] 📊 Confidence: {decision.confidence:.2f}, Expected: {decision.expected_time:.1f}s")
+        
+        start_time = time.time()
+        success = False
+        response_generated = False
+        
+        try:
+            # Route to appropriate system
+            if decision.use_skill and self.skills_manager:
+                async for chunk in self._handle_skills_route(query, decision):
+                    yield chunk
+                    response_generated = True
+                success = True
+                
+            elif decision.use_online and self.online_llm:
+                async for chunk in self._handle_online_route(query, decision):
+                    yield chunk
+                    response_generated = True
+                success = True
+                
+            elif decision.use_offline and self.offline_llm:
+                async for chunk in self._handle_offline_route(query, decision):
+                    yield chunk
+                    response_generated = True
+                success = True
+                
+            else:
+                # Fallback handling
+                async for chunk in self._handle_fallback_route(query, decision):
+                    yield chunk
+                    response_generated = True
+                success = response_generated
+            
+        except Exception as e:
+            if settings.debug_mode:
+                print(f"[INTELLIGENT_ROUTER] ❌ {decision.route_type} error: {e}")
+            
+            # Try fallback if available
+            if decision.fallback_route and not decision.use_fallback:
+                if settings.debug_mode:
+                    print(f"[INTELLIGENT_ROUTER] 🔄 Trying fallback: {decision.fallback_route}")
+                
+                try:
+                    async for chunk in self._handle_fallback_system(query, decision.fallback_route):
+                        yield chunk
+                        response_generated = True
+                    success = True
+                except Exception:
+                    success = False
+            
+            if not response_generated:
+                yield f"I'm experiencing technical difficulties with the {decision.route_type} system. Please try again."
+                success = False
+        
+        finally:
+            # Record performance
+            elapsed = time.time() - start_time
+            self.performance_tracker.record_request(
+                decision.route_type if decision.route_type != 'fallback' else 'offline',
+                elapsed,
+                success,
+                decision.analysis.intent.value
+            )
+            
+            # Periodic performance data saving
+            if self.total_decisions % 10 == 0:
+                self.performance_tracker.save_performance_data()
+    
+    async def _handle_skills_route(self, query: str, decision: IntelligentRouteDecision) -> AsyncGenerator[str, None]:
+        """Handle skills routing"""
+        skill_name = self._determine_skill_name(decision.analysis.intent)
+        
+        if skill_name:
+            try:
+                result = await self.skills_manager.execute_skill(query, skill_name)
+                if result and result.success:
+                    yield result.response
+                    return
+            except Exception:
+                pass
+        
+        # Fallback if skill fails
+        yield "Skill execution failed, using fallback..."
+        if decision.fallback_route:
+            async for chunk in self._handle_fallback_system(query, decision.fallback_route):
+                yield chunk
+    
+    async def _handle_online_route(self, query: str, decision: IntelligentRouteDecision) -> AsyncGenerator[str, None]:
+        """Handle online routing"""
+        try:
+            personality_context = await self.personality_manager.get_system_prompt()
+            memory_context = await self.memory_manager.get_context()
+            
+            if decision.analysis.current_info_score >= 0.7:
+                yield "🌐 Getting current information... "
+            
+            async for chunk in self.online_llm.generate_response_stream(
+                query, personality_context, memory_context
+            ):
+                yield chunk
+                
+        except Exception as e:
+            raise e
+    
+    async def _handle_offline_route(self, query: str, decision: IntelligentRouteDecision) -> AsyncGenerator[str, None]:
+        """Handle offline routing"""
+        try:
+            personality_context = await self.personality_manager.get_system_prompt()
+            memory_context = await self.memory_manager.get_context()
+            
+            # Optimize offline model settings based on query complexity
+            self._optimize_offline_for_query(decision.analysis)
+            
+            async for chunk in self.offline_llm.generate_response_stream(
+                query, personality_context, memory_context
+            ):
+                yield chunk
+                
+        except Exception as e:
+            raise e
+    
+    async def _handle_fallback_route(self, query: str, decision: IntelligentRouteDecision) -> AsyncGenerator[str, None]:
+        """Handle fallback routing"""
+        # Generate intelligent fallback responses
+        fallback_response = self._generate_intelligent_fallback(query, decision.analysis)
+        yield fallback_response
+    
+    async def _handle_fallback_system(self, query: str, fallback_system: str) -> AsyncGenerator[str, None]:
+        """Handle fallback to specific system"""
+        if fallback_system == 'offline' and self.offline_available:
+            async for chunk in self._handle_offline_route(query, self.last_decision):
+                yield chunk
+        elif fallback_system == 'online' and self.online_available:
+            async for chunk in self._handle_online_route(query, self.last_decision):
+                yield chunk
+        else:
+            async for chunk in self._handle_fallback_route(query, self.last_decision):
+                yield chunk
+    
+    def _determine_skill_name(self, intent: QueryIntent) -> Optional[str]:
+        """Determine skill name from intent"""
+        skill_mapping = {
+            QueryIntent.TIME_QUERY: 'datetime',
+            QueryIntent.CALCULATION: 'calculator',
+            QueryIntent.WEATHER: 'weather',
+            QueryIntent.NEWS: 'news'
+        }
+        return skill_mapping.get(intent)
+    
+    def _optimize_offline_for_query(self, analysis: QueryAnalysis):
+        """Optimize offline model settings based on query analysis"""
+        if not self.offline_llm:
+            return
+        
+        # Adjust performance profile based on complexity
+        if analysis.complexity == QueryComplexity.INSTANT:
+            self.offline_llm.set_performance_profile('speed')
+        elif analysis.complexity == QueryComplexity.SIMPLE:
+            self.offline_llm.set_performance_profile('speed')
+        elif analysis.complexity == QueryComplexity.MODERATE:
+            self.offline_llm.set_performance_profile('balanced')
+        else:
+            self.offline_llm.set_performance_profile('quality')
+    
+    def _generate_intelligent_fallback(self, query: str, analysis: QueryAnalysis) -> str:
+        """Generate intelligent fallback responses"""
+        
+        # Handle specific intents
+        if analysis.intent == QueryIntent.GREETING:
+            return ("Hello! I'm Pascal, but I'm having trouble accessing my AI systems right now. "
+                   "Please check that Ollama is running or your internet connection is working.")
+        
+        elif analysis.intent == QueryIntent.TIME_QUERY:
+            from datetime import datetime
+            now = datetime.now()
+            return f"The current time is {now.strftime('%I:%M %p')}. (My AI systems are currently unavailable)"
+        
+        elif analysis.intent == QueryIntent.DATE_QUERY:
+            from datetime import datetime
+            now = datetime.now()
+            return f"Today is {now.strftime('%A, %B %d, %Y')}. (My AI systems are currently unavailable)"
+        
+        elif analysis.intent == QueryIntent.CALCULATION:
+            # Try simple math
+            try:
+                import re
+                math_match = re.search(r'(\d+)\s*([+\-*/])\s*(\d+)', query)
+                if math_match:
+                    num1, op, num2 = math_match.groups()
+                    num1, num2 = float(num1), float(num2)
+                    
+                    if op == '+':
+                        result = num1 + num2
+                    elif op == '-':
+                        result = num1 - num2
+                    elif op == '*':
+                        result = num1 * num2
+                    elif op == '/' and num2 != 0:
+                        result = num1 / num2
+                    else:
+                        raise ValueError("Invalid operation")
+                    
+                    return f"{num1} {op} {num2} = {result}. (My AI systems are currently unavailable)"
+            except:
+                pass
+        
+        # Generic fallback based on availability
+        if not self.offline_available and not self.online_available:
+            return ("I'm sorry, but both my offline and online AI systems are currently unavailable. "
+                   "To fix this:\n"
+                   "• For offline: Run 'sudo systemctl start ollama'\n"
+                   "• For online: Check your Groq API key in .env file\n"
+                   "• Run diagnostics: python quick_fix.py")
+        elif not self.offline_available:
+            return ("My offline AI system is unavailable. Run: sudo systemctl start ollama")
+        elif not self.online_available:
+            return ("My online AI system is unavailable. Check your Groq API key in .env file.")
+        else:
+            return "I'm having trouble processing your request. Please try again."
+    
+    async def get_response(self, query: str) -> str:
+        """Get non-streaming response"""
+        response_parts = []
+        async for chunk in self.get_streaming_response(query):
+            response_parts.append(chunk)
+        return ''.join(response_parts)
+    
+    def get_routing_stats(self) -> Dict[str, any]:
+        """Get comprehensive routing statistics"""
+        
+        # Calculate decision statistics
+        total_decisions = len(self.decision_history)
+        if total_decisions == 0:
+            return {"no_decisions": True}
+        
+        # Route type distribution
+        route_counts = {}
+        total_confidence = 0.0
+        total_time = 0.0
+        
+        for decision in self.decision_history:
+            route_type = decision.route_type
+            route_counts[route_type] = route_counts.get(route_type, 0) + 1
+            total_confidence += decision.confidence
+            total_time += decision.expected_time
+        
+        route_percentages = {
+            route: (count / total_decisions) * 100 
+            for route, count in route_counts.items()
+        }
+        
+        avg_confidence = total_confidence / total_decisions
+        avg_expected_time = total_time / total_decisions
+        
+        # Recent performance
+        recent_decisions = self.decision_history[-20:] if len(self.decision_history) >= 20 else self.decision_history
+        recent_high_confidence = sum(1 for d in recent_decisions if d.confidence >= 0.8)
+        recent_confidence_rate = (recent_high_confidence / len(recent_decisions)) * 100 if recent_decisions else 0
+        
+        # System health
+        system_health = {
+            'offline': self.performance_tracker.get_system_health('offline'),
+            'online': self.performance_tracker.get_system_health('online'),
+            'skills': self.performance_tracker.get_system_health('skills')
+        }
+        
+        return {
+            'total_decisions': total_decisions,
+            'route_distribution': route_percentages,
+            'average_confidence': avg_confidence,
+            'average_expected_time': avg_expected_time,
+            'recent_confidence_rate': recent_confidence_rate,
+            'system_health': system_health,
+            'system_availability': {
+                'offline': self.offline_available,
+                'online': self.online_available,
+                'skills': self.skills_available
+            },
+            'performance_tracker_stats': self.performance_tracker.systems,
+            'routing_intelligence': {
+                'query_analyzer_stats': self.query_analyzer.get_analysis_stats(),
+                'current_info_threshold': self.routing_config['current_info_threshold'],
+                'confidence_threshold': self.routing_config['confidence_threshold']
+            }
+        }
+    
+    def get_system_health(self) -> Dict[str, any]:
+        """Get overall system health report"""
+        
+        # Calculate overall health score
+        health_components = {
+            'offline_health': self.performance_tracker.get_system_health('offline') if self.offline_available else 0,
+            'online_health': self.performance_tracker.get_system_health('online') if self.online_available else 0,
+            'skills_health': self.performance_tracker.get_system_health('skills') if self.skills_available else 0,
+            'routing_accuracy': min(1.0, len([d for d in self.decision_history[-50:] if d.confidence >= 0.8]) / max(50, len(self.decision_history[-50:])))
+        }
+        
+        # Weight the health score based on availability
+        total_weight = 0
+        weighted_health = 0
+        
+        if self.offline_available:
+            weighted_health += health_components['offline_health'] * 0.3
+            total_weight += 0.3
+        
+        if self.online_available:
+            weighted_health += health_components['online_health'] * 0.4
+            total_weight += 0.4
+        
+        if self.skills_available:
+            weighted_health += health_components['skills_health'] * 0.2
+            total_weight += 0.2
+        
+        # Always include routing accuracy
+        weighted_health += health_components['routing_accuracy'] * 0.1
+        total_weight += 0.1
+        
+        overall_health = (weighted_health / total_weight) * 100 if total_weight > 0 else 0
+        
+        # Determine status
+        if overall_health >= 90:
+            status = 'Excellent'
+        elif overall_health >= 75:
+            status = 'Good'
+        elif overall_health >= 60:
+            status = 'Fair'
+        elif overall_health >= 40:
+            status = 'Poor'
+        else:
+            status = 'Critical'
+        
+        # Generate recommendations
+        recommendations = []
+        
+        if health_components['offline_health'] < 0.7 and self.offline_available:
+            recommendations.append("Offline system performance is degraded - check Ollama status")
+        
+        if health_components['online_health'] < 0.7 and self.online_available:
+            recommendations.append("Online system performance is degraded - check API key and internet")
+        
+        if health_components['routing_accuracy'] < 0.8:
+            recommendations.append("Routing confidence is low - system may need optimization")
+        
+        if not self.offline_available:
+            recommendations.append("Enable offline system: sudo systemctl start ollama")
+        
+        if not self.online_available:
+            recommendations.append("Configure online system: add GROQ_API_KEY to .env")
+        
+        return {
+            'overall_health_score': overall_health,
+            'system_status': status,
+            'components': health_components,
+            'recommendations': recommendations,
+            'routing_intelligence': {
+                'enabled': True,
+                'decisions_made': len(self.decision_history),
+                'average_confidence': sum(d.confidence for d in self.decision_history[-100:]) / min(100, len(self.decision_history)) if self.decision_history else 0,
+                'query_analysis_enabled': True
+            }
+        }
+    
+    def export_routing_data(self) -> Dict[str, any]:
+        """Export routing data for analysis"""
+        return {
+            'decision_history': [
+                {
+                    'query': d.analysis.original_query,
+                    'route_type': d.route_type,
+                    'confidence': d.confidence,
+                    'reason': d.reason,
+                    'current_info_score': d.analysis.current_info_score,
+                    'intent': d.analysis.intent.value,
+                    'complexity': d.analysis.complexity.value,
+                    'expected_time': d.expected_time,
+                    'timestamp': d.timestamp
+                }
+                for d in self.decision_history
+            ],
+            'performance_data': {
+                name: asdict(perf) for name, perf in self.performance_tracker.systems.items()
+            },
+            'routing_config': self.routing_config,
+            'export_timestamp': time.time()
+        }
+    
+    # Legacy compatibility methods
+    def _decide_route_enhanced(self, query: str) -> IntelligentRouteDecision:
+        """Legacy method - use make_intelligent_decision instead"""
+        return asyncio.run(self.make_intelligent_decision(query))
+    
+    def _detect_current_info_enhanced(self, query: str) -> bool:
+        """Legacy method for current info detection"""
+        analysis = asyncio.run(self.query_analyzer.analyze_query(query))
+        return analysis.current_info_score >= self.routing_config['current_info_threshold']
+    
+    def _needs_current_information(self, query: str) -> bool:
+        """Legacy method for current info detection"""
+        return self._detect_current_info_enhanced(query)
+    
+    async def close(self):
+        """Clean shutdown with data persistence"""
+        
+        # Save performance data
+        self.performance_tracker.save_performance_data()
+        
+        # Save routing configuration if modified
+        try:
+            config_file = Path(settings.config_dir) / "routing_config.json"
+            config_file.parent.mkdir(parents=True, exist_ok=True)
+            with open(config_file, 'w') as f:
+                json.dump(self.routing_config, f, indent=2)
+        except Exception:
+            pass
+        
+        # Close system components
+        if self.offline_llm:
+            try:
+                await self.offline_llm.close()
+            except Exception:
+                pass
+        
+        if self.online_llm:
+            try:
+                await self.online_llm.close()
+            except Exception:
+                pass
+        
+        if self.skills_manager:
+            try:
+                await self.skills_manager.close()
+            except Exception:
+                pass
+        
+        if settings.debug_mode:
+            stats = self.get_routing_stats()
+            print(f"[INTELLIGENT_ROUTER] 📊 Session: {stats['total_decisions']} decisions, "
+                  f"{stats['average_confidence']:.2f} avg confidence")
+            print("[INTELLIGENT_ROUTER] 🔌 Intelligent router closed")
+
+# Maintain compatibility with existing code
+LightningRouter = IntelligentRouter
+EnhancedRouter = IntelligentRouter
