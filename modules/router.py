@@ -1,6 +1,6 @@
 """
-Pascal AI Assistant - FIXED Router Module with Enhanced Current Info Detection
-Properly routes current information queries to online while keeping simple queries local
+Pascal AI Assistant - FIXED Router Module
+Improved system availability checking and current info routing
 """
 
 import asyncio
@@ -48,7 +48,7 @@ class RouteDecision:
         return self.route_type == 'skill'
 
 class LightningRouter:
-    """FIXED router with proper current info detection and routing priority"""
+    """FIXED router with improved system initialization"""
     
     def __init__(self, personality_manager, memory_manager):
         self.personality_manager = personality_manager
@@ -82,13 +82,12 @@ class LightningRouter:
             'current_info_routed_online': 0
         }
         
-        # FIXED: Enhanced current info detection patterns
-        self._compile_enhanced_patterns()
+        # Compile patterns
+        self._compile_patterns()
     
-    def _compile_enhanced_patterns(self):
-        """FIXED: Compile enhanced regex patterns for better current info detection"""
+    def _compile_patterns(self):
+        """Compile regex patterns for performance"""
         
-        # CRITICAL FIX: Distinguish between simple datetime and current info
         # Simple datetime patterns (should go to skills for instant response)
         self.simple_datetime_patterns = [
             re.compile(r'^what time is it\??$', re.IGNORECASE),
@@ -96,56 +95,33 @@ class LightningRouter:
             re.compile(r'^current time\??$', re.IGNORECASE),
         ]
         
-        # Current info datetime patterns (should go online for comprehensive info)
+        # Current info datetime patterns (should go online)
         self.current_info_datetime_patterns = [
             re.compile(r'\bwhat day is (?:it |today)\b', re.IGNORECASE),
             re.compile(r'\bwhat (?:is )?(?:the )?(?:current )?date\b', re.IGNORECASE),
             re.compile(r'\btoday\'?s? date\b', re.IGNORECASE),
             re.compile(r'\bwhat\'?s (?:the )?date today\b', re.IGNORECASE),
-            re.compile(r'\btell me (?:the )?(?:current )?date\b', re.IGNORECASE),
         ]
         
-        # ENHANCED: Comprehensive current info patterns
+        # Comprehensive current info patterns
         self.current_info_patterns = [
-            # Political current info - VERY SPECIFIC
-            re.compile(r'\b(?:current|who\s+is\s+(?:the\s+)?(?:current\s+)?)\s*(?:president|prime\s+minister|pm|leader)\b', re.IGNORECASE),
-            re.compile(r'\bwho\s+(?:is\s+)?(?:the\s+)?(?:current\s+)?(?:us\s+)?president\b', re.IGNORECASE),
+            # Political info
+            re.compile(r'\b(?:current|who\s+is\s+(?:the\s+)?(?:current\s+)?)\s*(?:president|prime\s+minister|leader)\b', re.IGNORECASE),
             
-            # News and events - ENHANCED with more patterns
+            # News and events
             re.compile(r'\b(?:latest|recent|breaking|today\'?s?|current)\s+(?:news|headlines|events)\b', re.IGNORECASE),
             re.compile(r'\bwhat\'?s\s+(?:happening|going\s+on)(?:\s+(?:today|now|currently))?\b', re.IGNORECASE),
-            re.compile(r'\b(?:news|events)\s+(?:today|now|currently|recent|latest)\b', re.IGNORECASE),
-            re.compile(r'\bin\s+the\s+news\b', re.IGNORECASE),
-            re.compile(r'\bbreaking\s+news\b', re.IGNORECASE),
-            re.compile(r'\bcurrent\s+events\b', re.IGNORECASE),
             
-            # Weather patterns - ALL weather is current info
+            # Weather
             re.compile(r'\bweather\b', re.IGNORECASE),
             re.compile(r'\btemperature\b', re.IGNORECASE),
             re.compile(r'\bforecast\b', re.IGNORECASE),
-            re.compile(r'\b(?:raining|snowing|sunny|cloudy|hot|cold)\b', re.IGNORECASE),
-            re.compile(r'\bhow\s+(?:hot|cold|warm)\s+is\s+it\b', re.IGNORECASE),
             
-            # Sports and current events - ENHANCED
-            re.compile(r'\b(?:latest|recent|current|who\s+won)\s+(?:formula\s*1|f1|race|game|match|championship)\b', re.IGNORECASE),
-            re.compile(r'\b(?:formula\s*1|f1)\s+(?:results|winner|standings|race|championship)\b', re.IGNORECASE),
-            re.compile(r'\bwho\s+(?:won|is\s+winning)\s+(?:the\s+)?(?:last|latest|recent|current)\b', re.IGNORECASE),
-            re.compile(r'\b(?:sports|game|match)\s+(?:results|scores|today|yesterday|recent)\b', re.IGNORECASE),
-            
-            # Market and financial current info
-            re.compile(r'\b(?:current|today\'?s?|latest)\s+(?:stock|market|price|rates)\b', re.IGNORECASE),
-            re.compile(r'\bstock\s+(?:market|prices)\s+(?:today|now|currently)\b', re.IGNORECASE),
+            # Sports results
+            re.compile(r'\b(?:latest|recent|current|who\s+won)\s+(?:formula\s*1|f1|race|game|match)\b', re.IGNORECASE),
         ]
         
-        # Temporal indicators that strongly suggest current info needs
-        self.strong_temporal_indicators = [
-            'today', 'now', 'currently', 'right now', 'at the moment', 'these days',
-            'recently', 'lately', 'this week', 'this month', 'this year',
-            'tomorrow', 'tonight', 'current', 'latest', 'breaking', 'live',
-            'real-time', 'up to date', 'fresh', 'new', 'just happened'
-        ]
-        
-        # FIXED: Skills patterns - only for simple, instant responses
+        # Skills patterns - only for simple instant responses
         self.instant_skill_patterns = {
             'datetime': [
                 re.compile(r'^what time is it\??$', re.IGNORECASE),
@@ -155,28 +131,16 @@ class LightningRouter:
             'calculator': [
                 re.compile(r'\b\d+\s*[\+\-\*\/\%]\s*\d+\b'),
                 re.compile(r'\bwhat\s+is\s+\d+\s*[\+\-\*\/]\s*\d+\b', re.IGNORECASE),
-                re.compile(r'\bcalculate\s+\d+', re.IGNORECASE),
-                re.compile(r'\b\d+\s*percent\s+of\s+\d+\b', re.IGNORECASE),
             ]
         }
-        
-        # Offline preferred patterns (non-current info)
-        self.offline_patterns = [
-            re.compile(r'\b(?:hello|hi|hey|good\s+(?:morning|afternoon|evening))\b', re.IGNORECASE),
-            re.compile(r'\bhow\s+are\s+you\b', re.IGNORECASE),
-            re.compile(r'\bexplain\s+(?!.*(?:current|latest|today|now|recent))', re.IGNORECASE),
-            re.compile(r'\bwrite\s+(?:a|some|code|function|program)', re.IGNORECASE),
-            re.compile(r'\bwhat\s+is\s+(?!.*(?:current|today|now|latest))', re.IGNORECASE),
-            re.compile(r'\bhow\s+(?:do|to)\s+(?!.*(?:current|today|now|latest))', re.IGNORECASE),
-        ]
     
     async def _check_llm_availability(self):
-        """FIXED: Check and initialize all available systems"""
+        """FIXED: Better system availability checking"""
         try:
             if settings.debug_mode:
                 print("[ROUTER] Checking system availability...")
             
-            # Initialize offline LLM
+            # Initialize offline LLM with better error handling
             await self._init_offline_llm()
             
             # Initialize online LLM
@@ -185,8 +149,11 @@ class LightningRouter:
             # Initialize skills manager
             await self._init_skills_manager()
             
-            # Set optimal routing mode
+            # Set routing mode
             self._set_routing_mode()
+            
+            if settings.debug_mode:
+                print(f"[ROUTER] Systems available: offline={self.offline_available}, online={self.online_available}, skills={self.skills_available}")
             
         except Exception as e:
             if settings.debug_mode:
@@ -194,19 +161,34 @@ class LightningRouter:
             self.mode = RouteMode.FALLBACK
     
     async def _init_offline_llm(self):
-        """Initialize offline LLM"""
+        """Initialize offline LLM with better error handling"""
         try:
             from modules.offline_llm import LightningOfflineLLM
+            
+            if settings.debug_mode:
+                print("[ROUTER] Initializing offline LLM...")
+            
             self.offline_llm = LightningOfflineLLM()
             self.offline_llm.set_performance_profile('balanced')
-            self.offline_available = await self.offline_llm.initialize()
+            
+            # Use shorter timeout for initialization check
+            try:
+                self.offline_available = await asyncio.wait_for(
+                    self.offline_llm.initialize(), 
+                    timeout=30.0  # 30 second timeout
+                )
+            except asyncio.TimeoutError:
+                if settings.debug_mode:
+                    print("[ROUTER] ⚠️ Offline LLM initialization timed out")
+                self.offline_available = False
             
             if self.offline_available:
                 if settings.debug_mode:
-                    print("✅ [ROUTER] Offline LLM ready (Nemotron/Qwen)")
+                    print("✅ [ROUTER] Offline LLM ready")
             else:
                 if settings.debug_mode:
-                    print("❌ [ROUTER] Offline LLM not available")
+                    error = getattr(self.offline_llm, 'last_error', 'Unknown error')
+                    print(f"❌ [ROUTER] Offline LLM not available: {error}")
                         
         except Exception as e:
             if settings.debug_mode:
@@ -219,12 +201,25 @@ class LightningRouter:
         if settings.is_online_available():
             try:
                 from modules.online_llm import OnlineLLM
+                
+                if settings.debug_mode:
+                    print("[ROUTER] Initializing online LLM...")
+                
                 self.online_llm = OnlineLLM()
-                self.online_available = await self.online_llm.initialize()
+                
+                try:
+                    self.online_available = await asyncio.wait_for(
+                        self.online_llm.initialize(), 
+                        timeout=15.0  # 15 second timeout for online
+                    )
+                except asyncio.TimeoutError:
+                    if settings.debug_mode:
+                        print("[ROUTER] ⚠️ Online LLM initialization timed out")
+                    self.online_available = False
                 
                 if self.online_available:
                     if settings.debug_mode:
-                        print("✅ [ROUTER] Online LLM ready (Groq)")
+                        print("✅ [ROUTER] Online LLM ready")
                 else:
                     if settings.debug_mode:
                         print("❌ [ROUTER] Online LLM not available")
@@ -243,13 +238,27 @@ class LightningRouter:
         """Initialize skills manager"""
         try:
             from modules.skills_manager import EnhancedSkillsManager
-            self.skills_manager = EnhancedSkillsManager()
-            api_status = await self.skills_manager.initialize()
-            self.skills_available = True
             
             if settings.debug_mode:
-                available_apis = sum(1 for status in api_status.values() if status['available'])
-                print(f"✅ [ROUTER] Skills manager ready ({available_apis} APIs configured)")
+                print("[ROUTER] Initializing skills manager...")
+            
+            self.skills_manager = EnhancedSkillsManager()
+            
+            try:
+                api_status = await asyncio.wait_for(
+                    self.skills_manager.initialize(), 
+                    timeout=10.0  # 10 second timeout for skills
+                )
+                self.skills_available = True
+                
+                if settings.debug_mode:
+                    available_apis = sum(1 for status in api_status.values() if status['available'])
+                    print(f"✅ [ROUTER] Skills manager ready ({available_apis} APIs configured)")
+                    
+            except asyncio.TimeoutError:
+                if settings.debug_mode:
+                    print("[ROUTER] ⚠️ Skills manager initialization timed out")
+                self.skills_available = False
                 
         except Exception as e:
             if settings.debug_mode:
@@ -285,10 +294,9 @@ class LightningRouter:
                 print("⚠️ [ROUTER] ENHANCED MODE: Fallback only")
     
     def _detect_simple_datetime_query(self, query: str) -> bool:
-        """FIXED: Detect simple datetime queries that should go to skills"""
+        """Detect simple datetime queries that should go to skills"""
         query_clean = query.strip()
         
-        # Check for exact simple patterns
         for pattern in self.simple_datetime_patterns:
             if pattern.match(query_clean):
                 if settings.debug_mode:
@@ -298,10 +306,10 @@ class LightningRouter:
         return False
     
     def _detect_current_info_enhanced(self, query: str) -> bool:
-        """FIXED: Enhanced current info detection with proper priority"""
+        """Enhanced current info detection"""
         query_lower = query.strip().lower()
         
-        # CRITICAL FIX: Check for current info datetime patterns first
+        # Check for current info datetime patterns first
         for pattern in self.current_info_datetime_patterns:
             if pattern.search(query_lower):
                 if settings.debug_mode:
@@ -318,14 +326,10 @@ class LightningRouter:
                 return True
         
         # Enhanced temporal + info combination detection
-        query_words = set(query_lower.split())
-        has_temporal = any(indicator in query_lower for indicator in self.strong_temporal_indicators)
+        temporal_indicators = ['today', 'now', 'currently', 'latest', 'recent', 'breaking', 'current']
+        info_indicators = ['news', 'weather', 'temperature', 'president', 'events', 'happening']
         
-        # Information request indicators
-        info_indicators = ['news', 'weather', 'temperature', 'forecast', 'president', 'leader',
-                          'events', 'happening', 'results', 'scores', 'standings', 'winner',
-                          'market', 'stocks', 'prices', 'rates', 'election', 'politics']
-        
+        has_temporal = any(indicator in query_lower for indicator in temporal_indicators)
         has_info_request = any(indicator in query_lower for indicator in info_indicators)
         
         if has_temporal and has_info_request:
@@ -334,29 +338,15 @@ class LightningRouter:
             self.stats['current_info_detected'] += 1
             return True
         
-        # Question words + strong temporal context
-        question_words = ['what', 'who', 'where', 'when', 'how']
-        strong_temporal = ['today', 'now', 'current', 'latest', 'recent', 'breaking']
-        
-        starts_with_question = any(query_lower.startswith(qw) for qw in question_words)
-        has_strong_temporal = any(temporal in query_lower for temporal in strong_temporal)
-        
-        if starts_with_question and has_strong_temporal:
-            if settings.debug_mode:
-                print(f"[ROUTER] 🎯 Current info detected: Question + strong temporal")
-            self.stats['current_info_detected'] += 1
-            return True
-        
         return False
     
     def _detect_instant_skill(self, query: str) -> Optional[str]:
-        """FIXED: Detect instant skill queries (only simple ones)"""
+        """Detect instant skill queries"""
         if not self.skills_available or not self.skills_manager:
             return None
         
         query_lower = query.lower().strip()
         
-        # ONLY simple, instant skills - NOT comprehensive queries
         for skill_name, patterns in self.instant_skill_patterns.items():
             for pattern in patterns:
                 if pattern.search(query_lower):
@@ -368,36 +358,30 @@ class LightningRouter:
     
     def _should_prefer_offline(self, query: str) -> bool:
         """Check if query should prefer offline processing"""
-        # Don't prefer offline for current info queries
         if self._detect_current_info_enhanced(query):
             return False
         
-        # Check offline-preferred patterns
-        for pattern in self.offline_patterns:
-            if pattern.search(query):
-                return True
+        # General patterns that work well offline
+        offline_patterns = [
+            r'\b(?:hello|hi|hey|good\s+(?:morning|afternoon|evening))\b',
+            r'\bhow\s+are\s+you\b',
+            r'\bexplain\s+(?!.*(?:current|latest|today|now|recent))',
+            r'\bwrite\s+(?:a|some|code|function|program)',
+            r'\bwhat\s+is\s+(?!.*(?:current|today|now|latest))',
+        ]
         
-        # Programming and technical queries (non-current)
-        tech_indicators = ['code', 'function', 'program', 'algorithm', 'python', 'javascript', 'programming']
         query_lower = query.lower()
-        if any(indicator in query_lower for indicator in tech_indicators):
-            # Only if not asking for current/latest versions
-            if not any(temporal in query_lower for temporal in ['current', 'latest', 'new', 'recent']):
-                return True
-        
-        # Educational/explanatory queries (non-current)
-        if query_lower.startswith(('explain', 'what is', 'how does', 'tell me about')):
-            # Only if not asking for current information
-            if not any(temporal in query_lower for temporal in ['current', 'latest', 'today', 'now', 'recent']):
+        for pattern in offline_patterns:
+            if re.search(pattern, query_lower):
                 return True
         
         return False
     
     def _decide_route_enhanced(self, query: str) -> RouteDecision:
-        """FIXED: Enhanced routing decision with proper priority"""
+        """Enhanced routing decision"""
         self.stats['routing_decisions'] += 1
         
-        # CRITICAL FIX: Priority 1 - Current information detection (must come first!)
+        # Priority 1: Current information detection
         is_current_info = self._detect_current_info_enhanced(query)
         if is_current_info:
             self.stats['current_info_routed_online'] += 1
@@ -418,7 +402,7 @@ class LightningRouter:
                     expected_time=3.0
                 )
         
-        # Priority 2: Simple instant skills (only for non-current-info queries)
+        # Priority 2: Simple instant skills
         instant_skill = self._detect_instant_skill(query)
         if instant_skill and not is_current_info:
             return RouteDecision(
@@ -438,23 +422,8 @@ class LightningRouter:
                 expected_time=3.0
             )
         
-        # Priority 4: Default routing based on availability
-        if self.mode == RouteMode.OFFLINE_ONLY or (not self.online_available and self.offline_available):
-            return RouteDecision(
-                route_type='offline',
-                reason="Default to offline",
-                confidence=0.7,
-                expected_time=3.0
-            )
-        elif self.mode == RouteMode.ONLINE_ONLY or (not self.offline_available and self.online_available):
-            return RouteDecision(
-                route_type='online',
-                reason="Online only available",
-                confidence=0.7,
-                expected_time=4.0
-            )
-        elif self.offline_available:
-            # Prefer offline for non-current info
+        # Priority 4: Default routing
+        if self.offline_available:
             return RouteDecision(
                 route_type='offline',
                 reason="Default to offline for general queries",
@@ -469,7 +438,7 @@ class LightningRouter:
                 expected_time=4.0
             )
         
-        # Fallback when no systems available
+        # Fallback
         return RouteDecision(
             route_type='fallback',
             reason="No systems available",
@@ -478,7 +447,7 @@ class LightningRouter:
         )
     
     async def get_streaming_response(self, query: str) -> AsyncGenerator[str, None]:
-        """FIXED: Get streaming response with proper current info routing"""
+        """Get streaming response with proper routing"""
         decision = self._decide_route_enhanced(query)
         self.last_decision = decision
         
@@ -494,7 +463,7 @@ class LightningRouter:
         self.stats['total_requests'] += 1
         
         try:
-            # SKILLS ROUTE (only for non-current-info instant responses)
+            # SKILLS ROUTE
             if decision.use_skill and self.skills_manager and not decision.is_current_info:
                 try:
                     result = await self.skills_manager.execute_skill(query, decision.skill_name)
@@ -502,20 +471,16 @@ class LightningRouter:
                         yield result.response
                         self._update_stats('skill', time.time() - start_time, True)
                         return
-                    else:
-                        if settings.debug_mode:
-                            print(f"[ROUTER] ⚠️ Skill failed, falling back")
                 except Exception as e:
                     if settings.debug_mode:
                         print(f"[ROUTER] ❌ Skill error: {e}")
             
-            # ONLINE ROUTE (prioritized for current info)
+            # ONLINE ROUTE
             if decision.use_online and self.online_llm and self.online_available:
                 try:
                     personality_context = await self.personality_manager.get_system_prompt()
                     memory_context = await self.memory_manager.get_context()
                     
-                    # Add current info prefix for current info queries
                     if decision.is_current_info:
                         yield "🌐 Getting current information... "
                     
@@ -530,9 +495,8 @@ class LightningRouter:
                     if settings.debug_mode:
                         print(f"[ROUTER] ❌ Online error: {e}")
                     
-                    # If online fails for current info, fall back with warning
                     if decision.is_current_info and self.offline_available:
-                        yield "⚠️ Online service unavailable. Using offline model (information may not be current)...\n\n"
+                        yield "⚠️ Online service unavailable. Using offline model...\n\n"
             
             # OFFLINE ROUTE
             if decision.use_offline and self.offline_llm and self.offline_available:
@@ -540,9 +504,8 @@ class LightningRouter:
                     personality_context = await self.personality_manager.get_system_prompt()
                     memory_context = await self.memory_manager.get_context()
                     
-                    # Add current info warning for offline routing
                     if decision.is_current_info:
-                        yield "ℹ️ Note: I don't have access to real-time information. For current data, please check online sources.\n\n"
+                        yield "ℹ️ Note: Using offline model - information may not be current.\n\n"
                     
                     async for chunk in self.offline_llm.generate_response_stream(
                         query, personality_context, memory_context
@@ -555,8 +518,8 @@ class LightningRouter:
                     if settings.debug_mode:
                         print(f"[ROUTER] ❌ Offline error: {e}")
             
-            # FALLBACK RESPONSES
-            fallback_response = self._generate_enhanced_fallback_response(query, decision)
+            # FALLBACK
+            fallback_response = self._generate_fallback_response(query, decision)
             yield fallback_response
             self._update_stats('fallback', time.time() - start_time, False)
             
@@ -566,41 +529,30 @@ class LightningRouter:
             yield "I'm experiencing technical difficulties. Please try again."
             self._update_stats('fallback', time.time() - start_time, False)
     
-    def _generate_enhanced_fallback_response(self, query: str, decision: RouteDecision) -> str:
-        """Generate enhanced fallback responses"""
+    def _generate_fallback_response(self, query: str, decision: RouteDecision) -> str:
+        """Generate fallback responses"""
         query_lower = query.lower().strip()
         
-        # Handle common queries with better responses
+        # Handle greetings
         if any(greeting in query_lower for greeting in ['hello', 'hi', 'hey']):
             return "Hello! I'm Pascal, but I'm having trouble accessing my AI systems right now. Please check that Ollama is running or your internet connection is working."
         
-        # Current info fallbacks - More helpful
+        # Handle current info requests
         if decision.is_current_info or self._detect_current_info_enhanced(query):
             if any(word in query_lower for word in ['time', 'what time']):
                 from datetime import datetime
                 now = datetime.now()
-                return f"The current time is {now.strftime('%I:%M %p')}. (My AI systems are currently unavailable for more complex queries)"
+                return f"The current time is {now.strftime('%I:%M %p')}. (My AI systems are currently unavailable)"
             
             if any(word in query_lower for word in ['date', 'day', 'today']):
                 from datetime import datetime
                 now = datetime.now()
-                return f"Today is {now.strftime('%A, %B %d, %Y')}. (My AI systems are currently unavailable for more complex queries)"
-            
-            if 'weather' in query_lower:
-                return ("I can't access current weather information right now as my systems are unavailable. "
-                       "Please check weather.com, your local weather app, or ask a voice assistant.")
-            
-            if any(term in query_lower for term in ['news', 'events', 'happening']):
-                return ("I can't access current news right now as my systems are unavailable. "
-                       "Please check BBC News, Reuters, AP News, or your preferred news source.")
-            
-            if any(term in query_lower for term in ['president', 'politics', 'election']):
-                return ("I can't access current political information right now. As of my last update, Donald Trump is the current US President (inaugurated January 20, 2025), but please check current news sources for the latest information.")
+                return f"Today is {now.strftime('%A, %B %d, %Y')}. (My AI systems are currently unavailable)"
             
             return ("I can't access current information right now as my AI systems are unavailable. "
                    "Please check reliable online sources for the latest information.")
         
-        # Math calculations - Still try to help
+        # Math calculations
         import re
         math_match = re.search(r'(\d+)\s*[\+\-\*\/]\s*(\d+)', query_lower)
         if math_match:
@@ -617,27 +569,23 @@ class LightningRouter:
                     result = num1 / num2
                 else:
                     result = "undefined"
-                return f"{num1} {op} {num2} = {result}. (My AI systems are currently unavailable for more complex queries)"
+                return f"{num1} {op} {num2} = {result}. (My AI systems are currently unavailable)"
             except:
                 pass
         
-        # Generic fallback based on system availability
+        # Generic fallback
         if not self.offline_available and not self.online_available:
             return ("I'm sorry, but both my offline and online AI systems are currently unavailable. "
                    "To fix this:\n"
-                   "• For offline: Run 'sudo systemctl start ollama' and ensure you have models downloaded\n"
-                   "• For online: Check your internet connection and Groq API key in .env file\n"
+                   "• For offline: Run 'sudo systemctl start ollama'\n"
+                   "• For online: Check your Groq API key in .env file\n"
                    "• Run diagnostics: python quick_fix.py")
         elif not self.offline_available:
-            return ("My offline AI system is currently unavailable. "
-                   "To fix this, run: sudo systemctl start ollama\n"
-                   "Or run diagnostics: python quick_fix.py")
+            return ("My offline AI system is unavailable. Run: sudo systemctl start ollama")
         elif not self.online_available:
-            return ("My online AI system is currently unavailable. "
-                   "To fix this, check your internet connection and add your Groq API key to the .env file.\n"
-                   "Get a free key at: https://console.groq.com/")
+            return ("My online AI system is unavailable. Check your Groq API key in .env file.")
         else:
-            return "I'm having trouble processing your request right now. Please try again in a moment, or run: python quick_fix.py"
+            return "I'm having trouble processing your request. Please try again."
     
     async def get_response(self, query: str) -> str:
         """Get non-streaming response"""
@@ -705,7 +653,6 @@ class LightningRouter:
                 'online_llm': self.online_available,
                 'skills_manager': self.skills_available,
             },
-            'routing_strategy': 'FIXED_current_info_detection_v3',
             'current_info_stats': {
                 'detected': self.stats['current_info_detected'],
                 'routed_online': self.stats['current_info_routed_online'],
@@ -717,16 +664,11 @@ class LightningRouter:
                 'confidence': self.last_decision.confidence,
                 'is_current_info': self.last_decision.is_current_info,
                 'skill_name': self.last_decision.skill_name,
-                'expected_time': self.last_decision.expected_time
             } if self.last_decision else None,
             'performance_stats': {
                 'total_requests': total_requests,
                 'routing_decisions': self.stats['routing_decisions'],
                 'routing_accuracy': f"{routing_accuracy:.1f}%",
-                'offline_requests': self.stats['offline_requests'],
-                'online_requests': self.stats['online_requests'],
-                'skill_requests': self.stats['skill_requests'],
-                'fallback_requests': self.stats['fallback_requests'],
                 'offline_percentage': f"{offline_percentage:.1f}%",
                 'online_percentage': f"{online_percentage:.1f}%",
                 'skill_percentage': f"{skill_percentage:.1f}%",
@@ -735,73 +677,40 @@ class LightningRouter:
                 'online_avg_time': f"{online_avg:.2f}s",
                 'skill_avg_time': f"{skill_avg:.3f}s"
             },
-            'fixes_applied': [
-                'FIXED: Current info detection now has priority over skills',
-                'FIXED: Distinguished simple datetime vs current info datetime',
-                'FIXED: Enhanced temporal + context pattern matching',
-                'FIXED: Proper routing priority: current info → online',
-                'FIXED: Skills only handle simple instant queries',
-                'FIXED: Better fallback responses for current info',
-                'FIXED: Comprehensive current info pattern matching'
-            ],
-            'recommendations': self._get_enhanced_recommendations()
+            'improvements': [
+                'FIXED: Better system initialization with timeouts',
+                'FIXED: Improved error handling during startup',
+                'FIXED: Current info detection prioritized',
+                'FIXED: Fallback responses for system unavailability'
+            ]
         }
     
-    def _get_enhanced_recommendations(self) -> List[str]:
-        """Get enhanced performance recommendations"""
-        recommendations = []
-        
-        if not self.offline_available:
-            recommendations.append("Install/start Ollama: sudo systemctl start ollama && ollama pull nemotron-mini:4b-instruct-q4_K_M")
-        if not self.online_available:
-            recommendations.append("Configure Groq API key for current information: Get free key at console.groq.com")
-        if not self.skills_available:
-            recommendations.append("Skills manager could provide instant datetime/calculator responses")
-        
-        # Current info routing recommendations
-        if self.stats['current_info_detected'] > 0:
-            online_ratio = self.stats['current_info_routed_online'] / self.stats['current_info_detected']
-            if online_ratio < 0.8 and self.online_available:
-                recommendations.append("Some current info queries routed offline - check API key")
-            elif online_ratio >= 0.8:
-                recommendations.append("Current info routing working correctly!")
-        
-        if self.stats['fallback_requests'] > 0:
-            recommendations.append("Some requests required fallback - run python quick_fix.py to diagnose")
-        
-        return recommendations[:5]
-    
     def get_system_health(self) -> Dict[str, Any]:
-        """Get comprehensive system health report"""
+        """Get system health report"""
         health_score = 0
         components = {}
         
-        # Offline LLM (30% of health)
         if self.offline_available:
             health_score += 30
-            components['offline_llm'] = 'Available and optimized'
+            components['offline_llm'] = 'Available and ready'
         else:
-            components['offline_llm'] = 'Unavailable (affects general performance)'
+            components['offline_llm'] = 'Unavailable'
         
-        # Online LLM (40% of health - important for current info)
         if self.online_available:
             health_score += 40
-            components['online_llm'] = 'Available with FIXED current info detection'
+            components['online_llm'] = 'Available for current info'
         else:
-            components['online_llm'] = 'Unavailable (no current information access)'
+            components['online_llm'] = 'Unavailable'
         
-        # Skills Manager (20% of health)
         if self.skills_available:
             health_score += 20
             components['skills_manager'] = 'Available for instant responses'
         else:
-            components['skills_manager'] = 'Unavailable (no instant datetime/calculator)'
+            components['skills_manager'] = 'Unavailable'
         
-        # Routing system (10% of health)
-        health_score += 10  # Always available
-        components['routing_system'] = 'Active with FIXED current info priority'
+        health_score += 10  # Always available routing
+        components['routing_system'] = 'Active with current info priority'
         
-        # Determine health status
         if health_score >= 90:
             status = 'Excellent'
         elif health_score >= 70:
@@ -815,19 +724,11 @@ class LightningRouter:
             'overall_health_score': health_score,
             'system_status': status,
             'components': components,
-            'fallback_available': True,
-            'current_info_capability': 'FIXED - Properly routes to online' if self.online_available else 'Limited to basic datetime only',
-            'routing_fixes': [
-                'Current info detection now prioritized',
-                'Skills no longer intercept current info queries',
-                'Enhanced pattern matching for current information',
-                'Proper online routing for comprehensive current data'
-            ],
-            'recommendations': self._get_enhanced_recommendations()
+            'current_info_capability': 'Available' if self.online_available else 'Limited'
         }
     
     async def close(self):
-        """Clean shutdown of all router components"""
+        """Clean shutdown"""
         if self.offline_llm:
             try:
                 await self.offline_llm.close()
