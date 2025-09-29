@@ -8,7 +8,7 @@ import time
 import json
 from enum import Enum
 from dataclasses import dataclass, asdict
-from typing import Dict, List, Optional, AsyncGenerator, Tuple
+from typing import Dict, List, Optional, AsyncGenerator, Tuple, Any
 from pathlib import Path
 
 # Import the enhanced query analyzer (assuming it's in modules/)
@@ -239,6 +239,9 @@ class IntelligentRouter:
         self.total_decisions = 0
         self.decision_history: List[IntelligentRouteDecision] = []
         
+        # Initialization flag
+        self._initialized = False
+        
         # Routing configuration
         self.routing_config = self._load_routing_config()
     
@@ -360,14 +363,19 @@ class IntelligentRouter:
     async def make_intelligent_decision(self, query: str) -> IntelligentRouteDecision:
         """Make intelligent routing decision using enhanced analysis"""
         
+        # Ensure systems are initialized
+        if not self._initialized:
+            await self._check_llm_availability()
+            self._initialized = True
+        
         # Step 1: Analyze the query
         analysis = await self.query_analyzer.analyze_query(query)
         
-        # Step 2: Get current system performance
+        # Step 2: Get current system performance - FIXED
         system_performance = {
-            'offline': self.systems['offline'],
-            'online': self.systems['online'], 
-            'skills': self.systems['skills']
+            'offline': self.performance_tracker.systems['offline'],
+            'online': self.performance_tracker.systems['online'], 
+            'skills': self.performance_tracker.systems['skills']
         }
         
         # Step 3: Apply intelligent routing logic
@@ -386,6 +394,54 @@ class IntelligentRouter:
             self.decision_history = self.decision_history[-500:]
         
         return decision
+    
+    async def route_query(self, query: str, use_history: List[Dict] = None) -> Dict[str, Any]:
+        """
+        Test-compatible routing method
+        
+        Returns:
+            {
+                'route': 'offline' | 'online' | 'skill' | 'error',
+                'response': str,
+                'reasoning': str,
+                'response_time': float,
+                'confidence': float
+            }
+        """
+        start_time = time.time()
+        
+        # Make sure systems are initialized
+        if not self._initialized:
+            await self._check_llm_availability()
+            self._initialized = True
+        
+        # Make routing decision
+        decision = await self.make_intelligent_decision(query)
+        
+        # Get actual response
+        try:
+            response_text = await self.get_response(query)
+            success = True
+        except Exception as e:
+            response_text = f"Error: {str(e)}"
+            success = False
+        
+        response_time = time.time() - start_time
+        
+        return {
+            'route': decision.route_type,
+            'response': response_text,
+            'reasoning': decision.reason,
+            'confidence': decision.confidence,
+            'response_time': response_time,
+            'success': success,
+            'expected_time': decision.expected_time,
+            'analysis': {
+                'intent': decision.analysis.intent.value,
+                'complexity': decision.analysis.complexity.value,
+                'current_info_score': decision.analysis.current_info_score
+            }
+        }
     
     def _apply_routing_logic(self, analysis: QueryAnalysis, 
                            system_performance: Dict[str, SystemPerformance]) -> IntelligentRouteDecision:
