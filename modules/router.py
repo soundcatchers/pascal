@@ -49,6 +49,28 @@ class RouteDecision:
     @property
     def use_skill(self) -> bool:
         return self.route_type == 'skill'
+    
+    # Add dictionary-like access for backwards compatibility
+    def __getitem__(self, key):
+        """Allow dict-like access for backwards compatibility"""
+        if key == 'route':
+            return self.route_type
+        elif key == 'is_current_info':
+            return self.is_current_info
+        elif key == 'reason':
+            return self.reason
+        elif key == 'confidence':
+            return self.confidence
+        elif key == 'warning':
+            return getattr(self, 'warning', None)
+        return getattr(self, key, None)
+    
+    def get(self, key, default=None):
+        """Dict-like get method"""
+        try:
+            return self[key]
+        except (KeyError, AttributeError):
+            return default
 
 class IntelligentRouter:
     """Intelligent router with 95%+ accuracy"""
@@ -74,6 +96,9 @@ class IntelligentRouter:
         # Intelligence tracking
         self.last_decision = None
         self.decision_history = []
+        
+        # Initialization flag
+        self._initialized = False
         
         # Performance tracking
         self.stats = {
@@ -105,6 +130,8 @@ class IntelligentRouter:
         
         # Set mode
         self._set_mode()
+        
+        self._initialized = True
         
         if settings.debug_mode:
             print(f"[ROUTER] 🎯 Mode: {self.mode.value}")
@@ -175,6 +202,10 @@ class IntelligentRouter:
     
     async def _make_intelligent_decision(self, query: str) -> RouteDecision:
         """Make intelligent routing decision"""
+        
+        # Ensure initialization
+        if not self._initialized:
+            await self._check_llm_availability()
         
         # Analyze query
         analysis = await self.query_analyzer.analyze_query(query)
@@ -250,8 +281,93 @@ class IntelligentRouter:
             intent=analysis.intent.value
         )
     
+    def _decide_route(self, query: str) -> Dict[str, Any]:
+        """
+        BACKWARDS COMPATIBILITY METHOD
+        Synchronous wrapper for _make_intelligent_decision
+        Returns dict for compatibility with older code
+        """
+        # Ensure initialization happens
+        if not self._initialized:
+            # Run async initialization synchronously
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                # If loop is already running, we can't use run_until_complete
+                # Create a new task and wait for it
+                import concurrent.futures
+                with concurrent.futures.ThreadPoolExecutor() as executor:
+                    future = executor.submit(asyncio.run, self._check_llm_availability())
+                    future.result()
+            else:
+                loop.run_until_complete(self._check_llm_availability())
+        
+        # Make decision
+        loop = asyncio.get_event_loop()
+        if loop.is_running():
+            # If loop is already running, we need to handle this differently
+            import concurrent.futures
+            with concurrent.futures.ThreadPoolExecutor() as executor:
+                future = executor.submit(asyncio.run, self._make_intelligent_decision(query))
+                decision = future.result()
+        else:
+            decision = loop.run_until_complete(self._make_intelligent_decision(query))
+        
+        # Convert RouteDecision to dict for backwards compatibility
+        return {
+            'route': decision.route_type,
+            'reason': decision.reason,
+            'confidence': decision.confidence if isinstance(decision.confidence, str) else 'high',
+            'is_current_info': decision.is_current_info,
+            'score': getattr(decision, 'score', 0.0)
+        }
+    
+    def route_query(self, query: str, systems: Dict) -> Dict:
+        """
+        Route a query with system availability check
+        Compatible with both old and new calling patterns
+        """
+        # Get routing decision
+        decision_dict = self._decide_route(query)
+        
+        # Track statistics
+        self.stats['total_requests'] += 1
+        
+        # Check if requested system is available
+        route = decision_dict['route']
+        
+        # Online requested but not available
+        if route == 'online' and not systems.get('online'):
+            decision_dict['route'] = 'offline'
+            decision_dict['reason'] = f"Online unavailable, using offline. ({decision_dict['reason']})"
+            decision_dict['confidence'] = 'fallback'
+            
+            if systems.get('offline'):
+                # Add warning for current info queries
+                if decision_dict.get('is_current_info'):
+                    decision_dict['warning'] = 'Note: Information may not be current (offline mode)'
+        
+        # Offline requested but not available
+        elif route == 'offline' and not systems.get('offline'):
+            decision_dict['route'] = 'online'
+            decision_dict['reason'] = f"Offline unavailable, using online. ({decision_dict['reason']})"
+            decision_dict['confidence'] = 'fallback'
+        
+        # Track routing
+        if decision_dict['route'] == 'offline':
+            self.stats['offline_requests'] += 1
+        elif decision_dict['route'] == 'online':
+            self.stats['online_requests'] += 1
+            if decision_dict.get('is_current_info'):
+                self.stats['current_info_routed_online'] += 1
+        
+        return decision_dict
+    
     async def get_streaming_response(self, query: str) -> AsyncGenerator[str, None]:
         """Get streaming response with intelligent routing"""
+        
+        # Ensure initialization
+        if not self._initialized:
+            await self._check_llm_availability()
         
         # Make intelligent decision
         decision = await self._make_intelligent_decision(query)
@@ -495,19 +611,33 @@ class IntelligentRouter:
             'recommendations': recommendations
         }
     
-    # Legacy compatibility
+    # Legacy compatibility methods
     def _needs_current_information(self, query: str) -> bool:
-        """Legacy method"""
-        analysis = asyncio.run(self.query_analyzer.analyze_query(query))
+        """Legacy method for current info detection"""
+        loop = asyncio.get_event_loop()
+        if loop.is_running():
+            import concurrent.futures
+            with concurrent.futures.ThreadPoolExecutor() as executor:
+                future = executor.submit(asyncio.run, self.query_analyzer.analyze_query(query))
+                analysis = future.result()
+        else:
+            analysis = loop.run_until_complete(self.query_analyzer.analyze_query(query))
         return analysis.current_info_score >= 0.7
     
     def _detect_current_info_enhanced(self, query: str) -> bool:
-        """Legacy method"""
+        """Legacy method for current info detection"""
         return self._needs_current_information(query)
     
     def _decide_route_enhanced(self, query: str) -> RouteDecision:
-        """Legacy method"""
-        return asyncio.run(self._make_intelligent_decision(query))
+        """Legacy method - returns RouteDecision object"""
+        loop = asyncio.get_event_loop()
+        if loop.is_running():
+            import concurrent.futures
+            with concurrent.futures.ThreadPoolExecutor() as executor:
+                future = executor.submit(asyncio.run, self._make_intelligent_decision(query))
+                return future.result()
+        else:
+            return loop.run_until_complete(self._make_intelligent_decision(query))
     
     async def close(self):
         """Clean shutdown"""
