@@ -1,5 +1,5 @@
 """
-Pascal AI Assistant - FIXED Enhanced Skills Manager
+Pascal AI Assistant - Enhanced Skills Manager - CLEANED
 Only handles simple instant queries, allows router to handle current info
 """
 
@@ -34,7 +34,7 @@ class SkillResult:
             self.data = {}
 
 class EnhancedSkillsManager:
-    """FIXED: Skills manager that only handles simple instant responses"""
+    """Skills manager that only handles simple instant responses"""
     
     def __init__(self):
         from config.settings import settings
@@ -62,11 +62,10 @@ class EnhancedSkillsManager:
         # FIXED: Only simple, instant patterns - NO current info patterns
         self.skill_patterns = {
             'datetime': [
-                # ONLY simple time queries - NOT comprehensive current info
+                # ONLY simple time queries - NOT date queries
                 r'^what time is it\??$',
                 r'^time\??$',
                 r'^current time\??$',
-                # REMOVED: date queries that should go to online for current info
             ],
             'calculator': [
                 r'\b\d+\s*[\+\-\*\/\%]\s*\d+',
@@ -80,25 +79,16 @@ class EnhancedSkillsManager:
             ],
             'weather': [
                 r'\bweather in\b',
-                r'\bweather today\b',
-                r'\bcurrent weather\b',
-                r'\bweather now\b',
                 r'\btemperature in\b',
                 r'\bhow hot is it\b',
                 r'\bhow cold is it\b',
                 r'\bis it raining\b',
-                r'\bweather forecast\b'
             ],
             'news': [
                 r'\blatest news\b',
                 r'\brecent news\b',
-                r'\bnews today\b',
                 r'\bbreaking news\b',
-                r'\bcurrent events\b',
-                r'\bwhat\'?s happening\b',
-                r'\bin the news\b',
                 r'\bnews headlines\b',
-                r'\btoday\'?s news\b'
             ]
         }
     
@@ -126,7 +116,7 @@ class EnhancedSkillsManager:
     async def initialize(self) -> Dict[str, Dict[str, Any]]:
         """Initialize skills manager"""
         if self.settings.debug_mode:
-            print("🚀 Initializing FIXED Enhanced Skills Manager...")
+            print("🚀 Initializing Enhanced Skills Manager...")
         
         # Initialize HTTP session for API calls
         if AIOHTTP_AVAILABLE:
@@ -252,43 +242,36 @@ class EnhancedSkillsManager:
                 }
     
     def can_handle_directly(self, query: str) -> Optional[str]:
-        """FIXED: Only handle simple instant queries - NOT current info"""
+        """FIXED: Only handle simple instant queries - NOT comprehensive current info"""
         query_lower = query.lower().strip()
         
-        # CRITICAL FIX: Only handle SIMPLE datetime queries
-        # Exclude any query that might need comprehensive current information
+        # CRITICAL FIX: Only handle SIMPLE time queries
+        # Do NOT handle date/day queries - those go to online
         for pattern in self.skill_patterns['datetime']:
-            if re.search(pattern, query_lower):
-                # ADDITIONAL CHECK: Exclude if it's asking for comprehensive info
-                if any(word in query_lower for word in ['day', 'date', 'today', 'what day']):
-                    # These should go to online for comprehensive current info
-                    if self.settings.debug_mode:
-                        print(f"[SKILLS] Skipping datetime - comprehensive info needed: '{query}'")
-                    continue
-                
+            if re.search(pattern, query_lower, re.IGNORECASE):
                 if self.settings.debug_mode:
-                    print(f"[SKILLS] Simple datetime skill can handle: '{pattern}' matched")
+                    print(f"[SKILLS] Simple time skill can handle: '{pattern}' matched")
                 return 'datetime'
         
-        # Calculator queries (these are always instant and don't need current info)
+        # Calculator queries (these are always instant)
         for pattern in self.skill_patterns['calculator']:
-            if re.search(pattern, query_lower):
+            if re.search(pattern, query_lower, re.IGNORECASE):
                 if self.settings.debug_mode:
                     print(f"[SKILLS] Calculator skill can handle: '{pattern}' matched")
                 return 'calculator'
         
-        # Weather queries (if API available) - but these should mostly go to online
+        # Weather queries (if API available) - rarely used now
         if self.api_status['weather']['available']:
             for pattern in self.skill_patterns['weather']:
-                if re.search(pattern, query_lower):
+                if re.search(pattern, query_lower, re.IGNORECASE):
                     if self.settings.debug_mode:
                         print(f"[SKILLS] Weather skill can handle: '{pattern}' matched")
                     return 'weather'
         
-        # News queries (if API available) - but these should mostly go to online
+        # News queries (if API available) - rarely used now
         if self.api_status['news']['available']:
             for pattern in self.skill_patterns['news']:
-                if re.search(pattern, query_lower):
+                if re.search(pattern, query_lower, re.IGNORECASE):
                     if self.settings.debug_mode:
                         print(f"[SKILLS] News skill can handle: '{pattern}' matched")
                     return 'news'
@@ -305,7 +288,7 @@ class EnhancedSkillsManager:
                 self.skill_stats[skill_name]['executions'] += 1
             
             # Execute skill
-            if skill_name == 'datetime':
+            if skill_name == 'datetime' or skill_name == 'time':
                 result = await self._execute_datetime_skill(query)
             elif skill_name == 'calculator':
                 result = await self._execute_calculator_skill(query)
@@ -346,16 +329,11 @@ class EnhancedSkillsManager:
             )
     
     async def _execute_datetime_skill(self, query: str) -> SkillResult:
-        """FIXED: Only handle simple time queries"""
+        """FIXED: Only handle simple time queries - CLEAN RESPONSE"""
         now = datetime.now()
-        query_lower = query.lower()
         
-        # ONLY handle time queries - NOT date/day queries (those should go to online)
-        if any(word in query_lower for word in ['time', 'what time']):
-            response = f"The current time is {now.strftime('%I:%M %p')}."
-        else:
-            # Should not reach here with the fixed can_handle_directly
-            response = f"It's currently {now.strftime('%I:%M %p')}."
+        # Simple time response - NO error messages
+        response = f"The current time is {now.strftime('%I:%M %p')}."
         
         return SkillResult(
             success=True,
@@ -528,246 +506,36 @@ class EnhancedSkillsManager:
             )
     
     async def _execute_weather_skill(self, query: str) -> SkillResult:
-        """Weather skill with improved error handling"""
-        if not self.api_status['weather']['available']:
-            return SkillResult(
-                success=False,
-                response="Weather information is not available. Please configure the OpenWeatherMap API key in your .env file. Get a free key at openweathermap.org/api",
-                execution_time=0.001,
-                skill_name='weather'
-            )
-        
-        # Extract location from query
-        location = self._extract_location_from_query(query) or "London"
-        
-        try:
-            url = "https://api.openweathermap.org/data/2.5/weather"
-            params = {
-                'q': location,
-                'appid': self.weather_api_key,
-                'units': 'metric'
-            }
-            
-            async with self.session.get(url, params=params, timeout=aiohttp.ClientTimeout(total=10)) as response:
-                if response.status == 200:
-                    data = await response.json()
-                    
-                    # Parse weather data
-                    temp = data['main']['temp']
-                    feels_like = data['main'].get('feels_like', temp)
-                    description = data['weather'][0]['description'].title()
-                    humidity = data['main']['humidity']
-                    location_name = data['name']
-                    country = data['sys'].get('country', '')
-                    
-                    # Build comprehensive response
-                    response_text = f"Current weather in {location_name}"
-                    if country:
-                        response_text += f", {country}"
-                    response_text += f": {description}, {temp}°C"
-                    
-                    if abs(feels_like - temp) > 2:
-                        response_text += f" (feels like {feels_like}°C)"
-                    
-                    response_text += f", humidity {humidity}%"
-                    
-                    return SkillResult(
-                        success=True,
-                        response=response_text,
-                        execution_time=0.5,
-                        skill_name='weather',
-                        data={
-                            'location': location_name,
-                            'country': country,
-                            'temperature': temp,
-                            'feels_like': feels_like,
-                            'description': description,
-                            'humidity': humidity
-                        }
-                    )
-                elif response.status == 404:
-                    return SkillResult(
-                        success=False,
-                        response=f"Could not find weather information for '{location}'. Please check the location name.",
-                        execution_time=0.5,
-                        skill_name='weather'
-                    )
-                elif response.status == 401:
-                    return SkillResult(
-                        success=False,
-                        response="Weather API authentication failed. Please check your OpenWeatherMap API key.",
-                        execution_time=0.5,
-                        skill_name='weather'
-                    )
-                else:
-                    return SkillResult(
-                        success=False,
-                        response=f"Weather service error (HTTP {response.status}). Please try again later.",
-                        execution_time=0.5,
-                        skill_name='weather'
-                    )
-                    
-        except asyncio.TimeoutError:
-            return SkillResult(
-                success=False,
-                response="Weather service request timed out. Please try again.",
-                execution_time=5.0,
-                skill_name='weather'
-            )
-        except Exception as e:
-            if self.settings.debug_mode:
-                print(f"[WEATHER] API Error: {e}")
-            
-            return SkillResult(
-                success=False,
-                response=f"Weather service is temporarily unavailable. Please try again later.",
-                execution_time=0.5,
-                skill_name='weather'
-            )
+        """Weather skill - delegates to online for better context"""
+        return SkillResult(
+            success=False,
+            response="For detailed weather information, I'll use my online connection for better context.",
+            execution_time=0.001,
+            skill_name='weather'
+        )
     
     async def _execute_news_skill(self, query: str) -> SkillResult:
-        """News skill with improved error handling"""
-        if not self.api_status['news']['available']:
-            return SkillResult(
-                success=False,
-                response="News information is not available. Please configure the News API key in your .env file. Get a free key at newsapi.org",
-                execution_time=0.001,
-                skill_name='news'
-            )
-        
-        try:
-            url = "https://newsapi.org/v2/top-headlines"
-            params = {
-                'apiKey': self.news_api_key,
-                'pageSize': 5,
-                'country': 'us',
-                'category': 'general'
-            }
-            
-            async with self.session.get(url, params=params, timeout=aiohttp.ClientTimeout(total=10)) as response:
-                if response.status == 200:
-                    data = await response.json()
-                    
-                    if data.get('articles') and len(data['articles']) > 0:
-                        articles = data['articles'][:3]  # Top 3 articles
-                        
-                        news_response = "Here are today's top news headlines:\n\n"
-                        for i, article in enumerate(articles, 1):
-                            title = article.get('title', 'No title')
-                            source = article.get('source', {}).get('name', 'Unknown source')
-                            
-                            # Truncate very long titles
-                            if len(title) > 80:
-                                title = title[:77] + "..."
-                            
-                            news_response += f"{i}. {title} (via {source})\n"
-                        
-                        return SkillResult(
-                            success=True,
-                            response=news_response.strip(),
-                            execution_time=0.7,
-                            skill_name='news',
-                            data={
-                                'articles_count': len(articles),
-                                'articles': articles
-                            }
-                        )
-                    else:
-                        return SkillResult(
-                            success=False,
-                            response="No news articles found at the moment. Please try again later.",
-                            execution_time=0.7,
-                            skill_name='news'
-                        )
-                elif response.status == 401:
-                    return SkillResult(
-                        success=False,
-                        response="News API authentication failed. Please check your News API key.",
-                        execution_time=0.7,
-                        skill_name='news'
-                    )
-                elif response.status == 429:
-                    return SkillResult(
-                        success=False,
-                        response="News API rate limit exceeded. Please try again later.",
-                        execution_time=0.7,
-                        skill_name='news'
-                    )
-                else:
-                    return SkillResult(
-                        success=False,
-                        response=f"News service error (HTTP {response.status}). Please try again later.",
-                        execution_time=0.7,
-                        skill_name='news'
-                    )
-                    
-        except asyncio.TimeoutError:
-            return SkillResult(
-                success=False,
-                response="News service request timed out. Please try again.",
-                execution_time=5.0,
-                skill_name='news'
-            )
-        except Exception as e:
-            if self.settings.debug_mode:
-                print(f"[NEWS] API Error: {e}")
-            
-            return SkillResult(
-                success=False,
-                response="News service is temporarily unavailable. Please try again later.",
-                execution_time=0.7,
-                skill_name='news'
-            )
-    
-    def _extract_location_from_query(self, query: str) -> Optional[str]:
-        """Extract location from weather query"""
-        import re
-        
-        # Look for location patterns
-        location_patterns = [
-            r'\b(?:weather|temperature|forecast)\s+(?:in|for|at)\s+([A-Za-z][A-Za-z\s]{1,25}?)(?:\s|$|[,.?!])',
-            r'\bin\s+([A-Za-z][A-Za-z\s]{1,25}?)(?:\s+(?:today|tomorrow|now))?\b'
-        ]
-        
-        for pattern in location_patterns:
-            match = re.search(pattern, query, re.IGNORECASE)
-            if match:
-                location = match.group(1).strip().title()
-                # Remove common trailing words
-                trailing_words = ['Today', 'Tomorrow', 'Now', 'Weather', 'Temperature']
-                for word in trailing_words:
-                    if location.endswith(f' {word}'):
-                        location = location[:-len(f' {word}')]
-                return location
-        
-        # Enhanced city detection
-        major_cities = [
-            'london', 'paris', 'new york', 'tokyo', 'berlin', 'madrid', 'rome',
-            'amsterdam', 'chicago', 'los angeles', 'sydney', 'melbourne',
-            'toronto', 'vancouver', 'dubai', 'singapore', 'hong kong', 'miami',
-            'boston', 'seattle', 'san francisco', 'mumbai', 'delhi', 'bangkok'
-        ]
-        
-        query_lower = query.lower()
-        for city in major_cities:
-            if re.search(r'\b' + re.escape(city) + r'\b', query_lower):
-                return city.title()
-        
-        return None
+        """News skill - delegates to online for better context"""
+        return SkillResult(
+            success=False,
+            response="For news and current events, I'll use my online connection for better context.",
+            execution_time=0.001,
+            skill_name='news'
+        )
     
     def list_available_skills(self) -> List[Dict[str, Any]]:
         """Get list of available skills with their current status"""
         skills = [
             {
                 'name': 'datetime',
-                'description': 'SIMPLE time queries only (not date/day - those go to online)',
+                'description': 'SIMPLE time queries only (not date/day)',
                 'examples': ['What time is it?', 'Time?', 'Current time'],
                 'speed': 'Instant (0.001s)',
                 'confidence': 'Very High',
                 'api_required': False,
                 'api_configured': True,
                 'priority': 1,
-                'note': 'FIXED: Only handles simple time, not comprehensive current info'
+                'note': 'FIXED: Only simple time, comprehensive queries go to online'
             },
             {
                 'name': 'calculator',
@@ -779,30 +547,6 @@ class EnhancedSkillsManager:
                 'api_configured': True,
                 'priority': 2
             },
-            {
-                'name': 'weather',
-                'description': 'Current weather information for any location',
-                'examples': ['Weather in London', 'Temperature today', 'Is it raining?'],
-                'speed': 'Fast (0.5-2s)',
-                'confidence': 'High' if self.api_status['weather']['available'] else 'Unavailable',
-                'api_required': True,
-                'api_configured': self.api_status['weather']['available'],
-                'priority': 3,
-                'status_message': self.api_status['weather']['message'],
-                'note': 'NOTE: Most weather queries should go to online for better context'
-            },
-            {
-                'name': 'news',
-                'description': 'Latest news headlines from reliable sources',
-                'examples': ['Latest news', 'Today\'s headlines', 'Breaking news'],
-                'speed': 'Fast (0.5-2s)',
-                'confidence': 'High' if self.api_status['news']['available'] else 'Unavailable',
-                'api_required': True,
-                'api_configured': self.api_status['news']['available'],
-                'priority': 4,
-                'status_message': self.api_status['news']['message'],
-                'note': 'NOTE: Most news queries should go to online for better context'
-            }
         ]
         
         return skills
@@ -831,54 +575,10 @@ class EnhancedSkillsManager:
                 'avg_execution_time': f"{avg_time:.3f}s",
                 'success_rate': f"{success_rate:.1f}%",
                 'total_time_saved': f"{time_saved:.1f}s",
-                'status': 'Available' if skill_name in ['datetime', 'calculator'] else 
-                         ('Available' if self.api_status.get(skill_name, {}).get('available') else 'API not configured'),
-                'fixed_note': 'FIXED: Only handles simple instant queries' if skill_name == 'datetime' else None
+                'status': 'Available' if skill_name in ['datetime', 'calculator'] else 'Delegated to online'
             }
         
         return stats
-    
-    def get_skill_recommendations(self) -> List[Dict[str, str]]:
-        """Get recommendations for improving skills functionality"""
-        recommendations = []
-        
-        recommendations.append({
-            'type': 'fix_applied',
-            'skill': 'datetime',
-            'message': 'FIXED: Skills now only handle simple time queries',
-            'action': 'Current date/day queries now route to online for comprehensive info',
-            'priority': 'info'
-        })
-        
-        if not self.api_status['weather']['available']:
-            recommendations.append({
-                'type': 'api_setup',
-                'skill': 'weather',
-                'message': 'Configure OpenWeatherMap API key for weather queries',
-                'action': 'Get free API key at openweathermap.org/api (1000 calls/day free)',
-                'priority': 'medium'
-            })
-        
-        if not self.api_status['news']['available']:
-            recommendations.append({
-                'type': 'api_setup',
-                'skill': 'news',
-                'message': 'Configure News API key for news queries',
-                'action': 'Get free API key at newsapi.org (100 requests/day free)',
-                'priority': 'medium'
-            })
-        
-        # System recommendations
-        if not AIOHTTP_AVAILABLE:
-            recommendations.append({
-                'type': 'system',
-                'skill': 'all_api_skills',
-                'message': 'aiohttp not available - API-based skills will not work',
-                'action': 'Install aiohttp: pip install aiohttp==3.9.5',
-                'priority': 'critical'
-            })
-        
-        return recommendations
     
     async def close(self):
         """Close the skills manager and cleanup resources"""
@@ -890,16 +590,14 @@ class EnhancedSkillsManager:
             self.session = None
         
         if self.settings.debug_mode:
-            # Show session summary
             total_executions = sum(stats['executions'] for stats in self.skill_stats.values())
             successful_executions = sum(stats['success_count'] for stats in self.skill_stats.values())
             
             if total_executions > 0:
                 success_rate = (successful_executions / total_executions) * 100
-                print(f"[SKILLS] 📊 FIXED Session summary: {successful_executions}/{total_executions} successful ({success_rate:.1f}%)")
-                print(f"[SKILLS] 🔧 FIXED: Only simple instant queries handled, current info routed to online")
+                print(f"[SKILLS] 📊 Session: {successful_executions}/{total_executions} successful ({success_rate:.1f}%)")
             
-            print("[SKILLS] 🔌 FIXED Enhanced Skills Manager closed")
+            print("[SKILLS] 🔌 Enhanced Skills Manager closed")
 
 # Maintain compatibility
 SkillsManager = EnhancedSkillsManager
