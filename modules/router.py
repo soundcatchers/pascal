@@ -1,5 +1,5 @@
 """
-Pascal AI Assistant - Intelligent Router (Production Ready)
+Pascal AI Assistant - Intelligent Router (Production Ready) - FIXED
 Multi-layer query analysis with 95%+ routing accuracy
 """
 
@@ -201,7 +201,7 @@ class IntelligentRouter:
             self.mode = RouteMode.FALLBACK
     
     async def _make_intelligent_decision(self, query: str) -> RouteDecision:
-        """Make intelligent routing decision"""
+        """Make intelligent routing decision - RETURNS RouteDecision OBJECT"""
         
         # Ensure initialization
         if not self._initialized:
@@ -281,11 +281,10 @@ class IntelligentRouter:
             intent=analysis.intent.value
         )
     
-    def _decide_route(self, query: str) -> Dict[str, Any]:
+    def _decide_route(self, query: str) -> RouteDecision:
         """
-        BACKWARDS COMPATIBILITY METHOD
+        FIXED: Now returns RouteDecision object instead of dict
         Synchronous wrapper for _make_intelligent_decision
-        Returns dict for compatibility with older code
         """
         # Ensure initialization happens
         if not self._initialized:
@@ -312,55 +311,49 @@ class IntelligentRouter:
         else:
             decision = loop.run_until_complete(self._make_intelligent_decision(query))
         
-        # Convert RouteDecision to dict for backwards compatibility
-        return {
-            'route': decision.route_type,
-            'reason': decision.reason,
-            'confidence': decision.confidence if isinstance(decision.confidence, str) else 'high',
-            'is_current_info': decision.is_current_info,
-            'score': getattr(decision, 'score', 0.0)
-        }
+        # FIXED: Return the RouteDecision object directly, not a dict
+        return decision
     
-    def route_query(self, query: str, systems: Dict) -> Dict:
+    def route_query(self, query: str, systems: Dict = None) -> RouteDecision:
         """
-        Route a query with system availability check
-        Compatible with both old and new calling patterns
+        FIXED: Route a query and return RouteDecision object
         """
         # Get routing decision
-        decision_dict = self._decide_route(query)
+        decision = self._decide_route(query)
         
         # Track statistics
         self.stats['total_requests'] += 1
         
-        # Check if requested system is available
-        route = decision_dict['route']
-        
-        # Online requested but not available
-        if route == 'online' and not systems.get('online'):
-            decision_dict['route'] = 'offline'
-            decision_dict['reason'] = f"Online unavailable, using offline. ({decision_dict['reason']})"
-            decision_dict['confidence'] = 'fallback'
+        # If systems dict provided, check availability
+        if systems:
+            route = decision.route_type
             
-            if systems.get('offline'):
-                # Add warning for current info queries
-                if decision_dict.get('is_current_info'):
-                    decision_dict['warning'] = 'Note: Information may not be current (offline mode)'
-        
-        # Offline requested but not available
-        elif route == 'offline' and not systems.get('offline'):
-            decision_dict['route'] = 'online'
-            decision_dict['reason'] = f"Offline unavailable, using online. ({decision_dict['reason']})"
-            decision_dict['confidence'] = 'fallback'
+            # Online requested but not available
+            if route == 'online' and not systems.get('online'):
+                decision.route_type = 'offline'
+                decision.reason = f"Online unavailable, using offline. ({decision.reason})"
+                decision.confidence = 0.5
+                
+                if systems.get('offline'):
+                    # Add warning for current info queries
+                    if decision.is_current_info:
+                        decision.warning = 'Note: Information may not be current (offline mode)'
+            
+            # Offline requested but not available
+            elif route == 'offline' and not systems.get('offline'):
+                decision.route_type = 'online'
+                decision.reason = f"Offline unavailable, using online. ({decision.reason})"
+                decision.confidence = 0.5
         
         # Track routing
-        if decision_dict['route'] == 'offline':
+        if decision.route_type == 'offline':
             self.stats['offline_requests'] += 1
-        elif decision_dict['route'] == 'online':
+        elif decision.route_type == 'online':
             self.stats['online_requests'] += 1
-            if decision_dict.get('is_current_info'):
+            if decision.is_current_info:
                 self.stats['current_info_routed_online'] += 1
         
-        return decision_dict
+        return decision
     
     async def get_streaming_response(self, query: str) -> AsyncGenerator[str, None]:
         """Get streaming response with intelligent routing"""
@@ -630,14 +623,7 @@ class IntelligentRouter:
     
     def _decide_route_enhanced(self, query: str) -> RouteDecision:
         """Legacy method - returns RouteDecision object"""
-        loop = asyncio.get_event_loop()
-        if loop.is_running():
-            import concurrent.futures
-            with concurrent.futures.ThreadPoolExecutor() as executor:
-                future = executor.submit(asyncio.run, self._make_intelligent_decision(query))
-                return future.result()
-        else:
-            return loop.run_until_complete(self._make_intelligent_decision(query))
+        return self._decide_route(query)
     
     async def close(self):
         """Clean shutdown"""
