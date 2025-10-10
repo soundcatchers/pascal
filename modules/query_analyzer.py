@@ -1,5 +1,5 @@
 """
-Pascal AI Assistant - Enhanced Query Analyzer
+Pascal AI Assistant - Enhanced Query Analyzer - FIXED
 Intelligent query classification and routing optimization
 """
 
@@ -54,19 +54,22 @@ class MultiLayerDetection:
         self._load_keywords()
     
     def _compile_patterns(self):
-        """Compile optimized regex patterns"""
+        """Compile optimized regex patterns - FIXED for date detection"""
         
-        # Layer 1: High-confidence current info patterns
+        # Layer 1: High-confidence current info patterns - FIXED
         self.high_confidence_patterns = [
-            # Datetime with current indicators
-            re.compile(r'\b(?:what|tell me|show me)\s+(?:day|date)\s+(?:is\s+)?(?:it\s+)?today\b', re.I),
-            re.compile(r'\btoday\'?s?\s+date\b', re.I),
-            re.compile(r'\bcurrent\s+date\b', re.I),
-            re.compile(r'\bwhat\s+day\s+is\s+(?:it\s+)?today\b', re.I),
+            # FIXED: Datetime with current indicators - more flexible patterns
+            re.compile(r'\bwhat\s+(?:day|date)\s+(?:is\s+)?(?:it\s+)?(?:today|now)?\b', re.I),
+            re.compile(r'\bwhat\s+day\s+is\s+it\b', re.I),  # "what day is it"
+            re.compile(r'\bwhat\s+day\s+is\s+today\b', re.I),  # "what day is today"
+            re.compile(r'\btoday\'?s?\s+(?:date|day)\b', re.I),
+            re.compile(r'\b(?:current|what)\s+date\b', re.I),
+            re.compile(r'\bwhat\s+is\s+(?:the\s+)?date\s+today\b', re.I),
+            re.compile(r'\btell\s+me\s+(?:the\s+)?(?:date|day)\b', re.I),
             
             # Political current info
             re.compile(r'\b(?:current|who\s+is\s+(?:the\s+)?current)\s+(?:president|pm|prime\s+minister)\b', re.I),
-            re.compile(r'\bwho\s+is\s+(?:the\s+)?(?:current\s+)?(?:us\s+|american\s+)?president\b', re.I),
+            re.compile(r'\bwho\s+is\s+(?:the\s+)?(?:current\s+)?(?:us\s+|american\s+|french\s+)?president\b', re.I),
             
             # News and events
             re.compile(r'\b(?:latest|breaking|recent|today\'?s?)\s+(?:news|headlines)\b', re.I),
@@ -101,27 +104,30 @@ class MultiLayerDetection:
     def _load_keywords(self):
         """Load keyword sets for analysis"""
         
-        # Strong current info indicators
+        # Strong current info indicators - ADDED date/day keywords
         self.strong_current_keywords = {
             'today', 'now', 'current', 'currently', 'latest', 'recent', 
-            'breaking', 'live', 'real-time', 'up-to-date', 'fresh'
+            'breaking', 'live', 'real-time', 'up-to-date', 'fresh',
+            'this', 'what', 'day', 'date'  # ADDED for better date detection
         }
         
         # Current info topics
         self.current_topics = {
             'news', 'headlines', 'weather', 'temperature', 'forecast',
             'president', 'election', 'politics', 'stocks', 'prices',
-            'scores', 'results', 'events', 'happening'
+            'scores', 'results', 'events', 'happening',
+            'day', 'date', 'time'  # ADDED
         }
         
         # Non-current indicators (reduce current info score)
         self.non_current_keywords = {
-            'explain', 'definition', 'what is', 'how does', 'tutorial',
-            'history', 'past', 'ancient', 'historical', 'traditional'
+            'explain', 'definition', 'how does', 'tutorial',
+            'history', 'past', 'ancient', 'historical', 'traditional',
+            'always', 'generally', 'typically'
         }
     
     def analyze(self, query: str) -> float:
-        """Multi-layer current information analysis
+        """Multi-layer current information analysis - FIXED
         Returns: Score from 0.0 (not current) to 1.0 (definitely current)
         """
         query_lower = query.lower().strip()
@@ -130,7 +136,9 @@ class MultiLayerDetection:
         # Layer 1: High-confidence patterns (strong indicators)
         for pattern in self.high_confidence_patterns:
             if pattern.search(query_lower):
-                score += 0.4  # Strong boost
+                score += 0.5  # INCREASED from 0.4 to 0.5 for stronger signal
+                if 'day' in query_lower or 'date' in query_lower:
+                    score += 0.1  # Extra boost for date queries
                 break
         
         # Layer 2: Medium-confidence patterns
@@ -146,7 +154,7 @@ class MultiLayerDetection:
                 temporal_count += 1
         
         if temporal_count > 0:
-            score += min(0.3, temporal_count * 0.1)
+            score += min(0.3, temporal_count * 0.15)  # INCREASED from 0.1 to 0.15
         
         # Layer 4: Keyword analysis
         words = set(re.findall(r'\b\w+\b', query_lower))
@@ -217,9 +225,10 @@ class QueryClassifier:
             ],
             
             QueryIntent.DATE_QUERY: [
-                re.compile(r'\bwhat\s+day\s+is\s+(?:it\s+)?today\b', re.I),
+                re.compile(r'\bwhat\s+day\s+is\s+(?:it\s+)?(?:today|now)?\b', re.I),
                 re.compile(r'\btoday\'?s?\s+date\b', re.I),
                 re.compile(r'\bcurrent\s+date\b', re.I),
+                re.compile(r'\bwhat\s+(?:is\s+)?(?:the\s+)?date\b', re.I),
             ],
             
             QueryIntent.WEATHER: [
@@ -419,10 +428,13 @@ async def test_analyzer():
     test_queries = [
         # Current info queries
         "What day is today?",
+        "What day is it today?",
+        "What day is it?",
+        "Tell me the date",
+        "What's today's date?",
         "Who is the current president?", 
         "Latest news headlines",
         "Current weather in London",
-        "Today's date",
         
         # Non-current queries
         "Hello, how are you?",
@@ -437,7 +449,7 @@ async def test_analyzer():
         "News about AI",     # Could be current or general
     ]
     
-    print("🧪 Testing Enhanced Query Analyzer")
+    print("🧪 Testing Enhanced Query Analyzer (FIXED)")
     print("=" * 50)
     
     for query in test_queries:
@@ -450,6 +462,14 @@ async def test_analyzer():
         print(f"  Confidence: {analysis.confidence:.2f}")
         print(f"  Temporal Indicators: {analysis.temporal_indicators}")
         print(f"  Processing Time: {analysis.processing_time:.4f}s")
+        
+        # Show routing decision
+        if analysis.current_info_score >= 0.7:
+            print(f"  → Should route to: ONLINE (current info)")
+        elif analysis.complexity == QueryComplexity.INSTANT:
+            print(f"  → Should route to: SKILL (instant)")
+        else:
+            print(f"  → Should route to: OFFLINE (general)")
     
     print(f"\n📊 Analysis Statistics:")
     stats = analyzer.get_analysis_stats()
