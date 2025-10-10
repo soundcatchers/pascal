@@ -1,5 +1,5 @@
 """
-Pascal AI Assistant - Enhanced Query Analyzer - FIXED POLITICAL QUERIES
+Pascal AI Assistant - Enhanced Query Analyzer - FIXED "CURRENT" DETECTION
 Intelligent query classification and routing optimization
 """
 
@@ -54,11 +54,11 @@ class MultiLayerDetection:
         self._load_keywords()
     
     def _compile_patterns(self):
-        """Compile optimized regex patterns - FIXED for political queries"""
+        """Compile optimized regex patterns - FIXED for generic "current" queries"""
         
-        # Layer 1: High-confidence current info patterns - FIXED
+        # Layer 1: High-confidence current info patterns - EXPANDED
         self.high_confidence_patterns = [
-            # FIXED: Datetime with current indicators - more flexible patterns
+            # DateTime patterns
             re.compile(r'\bwhat\s+(?:day|date)\s+(?:is\s+)?(?:it\s+)?(?:today|now)?\b', re.I),
             re.compile(r'\bwhat\s+day\s+is\s+it\b', re.I),
             re.compile(r'\bwhat\s+day\s+is\s+today\b', re.I),
@@ -67,11 +67,22 @@ class MultiLayerDetection:
             re.compile(r'\bwhat\s+is\s+(?:the\s+)?date\s+today\b', re.I),
             re.compile(r'\btell\s+me\s+(?:the\s+)?(?:date|day)\b', re.I),
             
-            # FIXED: Political current info - allows for country/nationality words
+            # Political patterns
             re.compile(r'\b(?:who\s+is|who\'?s)\s+(?:the\s+)?current\s+(?:\w+\s+)?(?:president|prime\s+minister|pm|leader)\b', re.I),
             re.compile(r'\bcurrent\s+(?:\w+\s+)?(?:president|prime\s+minister|pm|leader)\b', re.I),
             re.compile(r'\b(?:who\s+is|who\'?s)\s+(?:the\s+)?(?:us|uk|french|german|canadian|australian|indian|japanese|chinese)?\s*(?:president|prime\s+minister|pm)\b', re.I),
             re.compile(r'\b(?:who\s+is|who\'?s)\s+(?:president|prime\s+minister|pm)\s+(?:of|in)\s+\w+\b', re.I),
+            
+            # CRITICAL FIX: Generic "current" patterns for ANY fact/record/information
+            re.compile(r'\bcurrent\s+(?:world|land|speed|temperature|stock|price|exchange|population)\s+record\b', re.I),
+            re.compile(r'\bcurrent\s+(?:\w+\s+)?(?:record|price|rate|value|status|standing|ranking|leader|champion)\b', re.I),
+            re.compile(r'\bwhat\s+is\s+(?:the\s+)?current\s+\w+', re.I),  # "what is the current [anything]"
+            re.compile(r'\bwhat\'?s\s+(?:the\s+)?current\s+\w+', re.I),  # "what's the current [anything]"
+            
+            # CRITICAL FIX: Temporal phrases "as of [date/year]"
+            re.compile(r'\bas\s+of\s+(?:today|now|this\s+year|\d{4}|january|february|march|april|may|june|july|august|september|october|november|december)', re.I),
+            re.compile(r'\bin\s+\d{4}\b', re.I),  # "in 2025"
+            re.compile(r'\bthis\s+(?:year|month|week)\b', re.I),
             
             # News and events
             re.compile(r'\b(?:latest|breaking|recent|today\'?s?)\s+(?:news|headlines)\b', re.I),
@@ -85,6 +96,10 @@ class MultiLayerDetection:
             # Sports current
             re.compile(r'\b(?:latest|current|today\'?s?)\s+(?:scores?|results?)\b', re.I),
             re.compile(r'\bwho\s+won\s+(?:today|yesterday|last\s+night)\b', re.I),
+            
+            # Market/financial current
+            re.compile(r'\bcurrent\s+(?:stock|bitcoin|crypto|market)\s+price\b', re.I),
+            re.compile(r'\b(?:stock|bitcoin)\s+price\s+(?:today|now)\b', re.I),
         ]
         
         # Layer 2: Medium-confidence patterns
@@ -93,35 +108,42 @@ class MultiLayerDetection:
             re.compile(r'\b(?:stock|share)\s+price\b', re.I),
             re.compile(r'\bexchange\s+rate\b', re.I),
             re.compile(r'\bnews\s+about\b', re.I),
-            # ADDED: More political patterns
             re.compile(r'\b(?:prime\s+minister|president|leader)\s+of\s+(?:the\s+)?\w+\b', re.I),
+            # ADDED: "latest" with any noun
+            re.compile(r'\blatest\s+\w+\b', re.I),
         ]
         
-        # Layer 3: Temporal indicator patterns
+        # Layer 3: Temporal indicator patterns - EXPANDED
         self.temporal_patterns = [
             re.compile(r'\b(?:today|now|currently|right\s+now|at\s+the\s+moment)\b', re.I),
             re.compile(r'\b(?:latest|recent|breaking|fresh|new)\b', re.I),
             re.compile(r'\b(?:this\s+(?:morning|afternoon|evening|week|month|year))\b', re.I),
             re.compile(r'\b(?:up\s+to\s+date|real\s+time|live)\b', re.I),
-            re.compile(r'\bcurrent\b', re.I),  # ADDED: standalone "current"
+            re.compile(r'\bcurrent\b', re.I),
+            re.compile(r'\bas\s+of\b', re.I),  # ADDED
+            re.compile(r'\bin\s+\d{4}\b', re.I),  # ADDED: "in 2025"
         ]
     
     def _load_keywords(self):
         """Load keyword sets for analysis"""
         
-        # Strong current info indicators - ADDED political keywords
+        # Strong current info indicators - EXPANDED
         self.strong_current_keywords = {
             'today', 'now', 'current', 'currently', 'latest', 'recent', 
             'breaking', 'live', 'real-time', 'up-to-date', 'fresh',
-            'this', 'what', 'day', 'date', 'who', 'is'
+            'this', 'what', 'day', 'date', 'who', 'is',
+            'as', 'of'  # ADDED for "as of"
         }
         
-        # Current info topics - ADDED political titles
+        # Current info topics - EXPANDED
         self.current_topics = {
             'news', 'headlines', 'weather', 'temperature', 'forecast',
             'president', 'election', 'politics', 'stocks', 'prices',
             'scores', 'results', 'events', 'happening',
-            'day', 'date', 'time', 'prime', 'minister', 'pm', 'leader'
+            'day', 'date', 'time', 'prime', 'minister', 'pm', 'leader',
+            'record', 'price', 'rate', 'value', 'status',  # ADDED
+            'standing', 'ranking', 'champion', 'holder',  # ADDED
+            'bitcoin', 'crypto', 'market', 'exchange'  # ADDED
         }
         
         # Non-current indicators (reduce current info score)
@@ -142,9 +164,17 @@ class MultiLayerDetection:
         for pattern in self.high_confidence_patterns:
             if pattern.search(query_lower):
                 score += 0.5
-                # Extra boost for political queries with "current"
-                if 'current' in query_lower and any(word in query_lower for word in ['president', 'prime', 'minister', 'pm', 'leader']):
+                
+                # EXTRA BOOST: "current" + any noun
+                if 'current' in query_lower:
+                    # Check if "current" is followed by a noun (not just "currently")
+                    if re.search(r'\bcurrent\s+\w+', query_lower):
+                        score += 0.2  # Big boost for "current [thing]"
+                
+                # EXTRA BOOST: "as of" indicates time-specific query
+                if 'as of' in query_lower:
                     score += 0.15
+                
                 break
         
         # Layer 2: Medium-confidence patterns
@@ -170,14 +200,14 @@ class MultiLayerDetection:
         if current_word_count > 0:
             score += min(0.3, current_word_count * 0.15)
         
-        # Current topics - BOOSTED for political queries
+        # Current topics
         topic_word_count = len(words.intersection(self.current_topics))
         if topic_word_count > 0:
             score += min(0.25, topic_word_count * 0.12)
-            # Extra boost if multiple political keywords present
-            political_words = words.intersection({'president', 'prime', 'minister', 'pm', 'leader', 'current'})
-            if len(political_words) >= 2:
-                score += 0.15
+            
+            # Extra boost for multiple topic words
+            if topic_word_count >= 2:
+                score += 0.1
         
         # Non-current indicators (penalty)
         non_current_count = len(words.intersection(self.non_current_keywords))
@@ -188,12 +218,15 @@ class MultiLayerDetection:
         # Question format analysis
         if query.strip().endswith('?'):
             if any(q in query_lower for q in ['what', 'when', 'who', 'where']):
-                # Interrogative questions more likely to need current info
                 score += 0.1
         
-        # ADDED: "who is" questions are almost always current info
+        # "who is" questions are almost always current info
         if query_lower.startswith('who is') or query_lower.startswith("who's"):
             score += 0.15
+        
+        # CRITICAL: "what is the current" is DEFINITELY current info
+        if re.search(r'\bwhat\s+is\s+(?:the\s+)?current\b', query_lower):
+            score += 0.25
         
         # Ensure score stays in bounds
         return max(0.0, min(1.0, score))
@@ -308,8 +341,12 @@ class QueryClassifier:
                 if pattern.search(query_lower):
                     return intent
         
-        # ADDED: Political queries are CURRENT_INFO
+        # Political queries are CURRENT_INFO
         if any(word in query_lower for word in ['president', 'prime minister', 'pm', 'leader']) and any(word in query_lower for word in ['who', 'current', 'is']):
+            return QueryIntent.CURRENT_INFO
+        
+        # ADDED: "current [anything]" is CURRENT_INFO
+        if re.search(r'\bcurrent\s+\w+', query_lower):
             return QueryIntent.CURRENT_INFO
         
         # Default classification based on query characteristics
@@ -416,7 +453,7 @@ class EnhancedQueryAnalyzer:
         high_confidence_intents = {
             QueryIntent.GREETING, QueryIntent.CALCULATION, 
             QueryIntent.TIME_QUERY, QueryIntent.DATE_QUERY,
-            QueryIntent.CURRENT_INFO  # ADDED
+            QueryIntent.CURRENT_INFO
         }
         if intent in high_confidence_intents:
             confidence += 0.2
@@ -424,7 +461,7 @@ class EnhancedQueryAnalyzer:
         # Query length confidence
         word_count = len(query.split())
         if word_count <= 5 or word_count >= 15:
-            confidence += 0.1  # Very short or long queries are easier to classify
+            confidence += 0.1
         
         return min(1.0, confidence)
     
@@ -439,57 +476,48 @@ class EnhancedQueryAnalyzer:
             'analyses_per_second': f"{1/avg_time:.1f}" if avg_time > 0 else "N/A"
         }
 
-# Test function for development
+# Test function
 async def test_analyzer():
-    """Test the enhanced query analyzer"""
+    """Test the enhanced query analyzer with problematic queries"""
     analyzer = EnhancedQueryAnalyzer()
     
     test_queries = [
-        # Political queries - SHOULD ALL BE ONLINE
-        "Who is the current US president?",
-        "Who is the current English prime minister?",
-        "Who is the current UK PM?",
-        "Who is the current French president?",
-        "Current German chancellor",
-        "Who is president of France?",
+        # The problematic queries from user's debug output
+        "what is the current land speed record",
+        "what is the current land speed record as of today in 2025",
         
-        # Date/time queries
-        "What day is today?",
-        "What day is it?",
-        "What time is it?",
+        # Other current queries
+        "what day is it",
+        "who is the current english pm",
+        "what time is it",
         
-        # Non-current queries
-        "Hello, how are you?",
-        "What is 2+2?",
-        "Explain Python programming",
-        "What is the capital of France?",
+        # Should be offline
+        "explain how recursion works",
+        "what is the capital of France",
     ]
     
-    print("🧪 Testing Enhanced Query Analyzer (FIXED POLITICAL QUERIES)")
-    print("=" * 60)
+    print("🧪 Testing Enhanced Query Analyzer (FIXED 'CURRENT' DETECTION)")
+    print("=" * 70)
     
     for query in test_queries:
         analysis = await analyzer.analyze_query(query)
         
-        print(f"\nQuery: '{query}'")
-        print(f"  Intent: {analysis.intent.value}")
-        print(f"  Complexity: {analysis.complexity.value}")
-        print(f"  Current Info Score: {analysis.current_info_score:.2f}")
-        print(f"  Confidence: {analysis.confidence:.2f}")
-        print(f"  Temporal Indicators: {analysis.temporal_indicators}")
+        print(f"\n📝 Query: '{query}'")
+        print(f"   Current Info Score: {analysis.current_info_score:.2f}")
+        print(f"   Intent: {analysis.intent.value}")
+        print(f"   Complexity: {analysis.complexity.value}")
+        print(f"   Confidence: {analysis.confidence:.2f}")
+        print(f"   Temporal: {analysis.temporal_indicators}")
         
         # Show routing decision
         if analysis.current_info_score >= 0.7:
-            print(f"  → Should route to: ONLINE (current info) ✓")
+            print(f"   ✅ Should route to: ONLINE (current info)")
         elif analysis.complexity == QueryComplexity.INSTANT:
-            print(f"  → Should route to: SKILL (instant)")
+            print(f"   → Should route to: SKILL (instant)")
         else:
-            print(f"  → Should route to: OFFLINE (general)")
+            print(f"   → Should route to: OFFLINE (general)")
     
-    print(f"\n📊 Analysis Statistics:")
-    stats = analyzer.get_analysis_stats()
-    for key, value in stats.items():
-        print(f"  {key}: {value}")
+    print(f"\n" + "=" * 70)
 
 if __name__ == "__main__":
     import asyncio
