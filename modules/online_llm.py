@@ -1,6 +1,6 @@
 """
-Pascal AI Assistant - Online LLM with Google Search Integration
-Provides real current information using Google Custom Search API
+Pascal AI Assistant - Online LLM with IMPROVED Google Search Integration
+FIXED: detect_needs_search() now matches query_analyzer patterns
 """
 
 import asyncio
@@ -47,11 +47,13 @@ class OnlineLLM:
         self.search_count = 0
         self.search_success_count = 0
         
-        # Temporal indicators for current info detection
+        # IMPROVED: Comprehensive temporal indicators matching query_analyzer
         self.strong_temporal_indicators = [
             'today', 'now', 'currently', 'right now', 'at the moment',
-            'latest', 'recent', 'breaking', 'current', 'live', 'real-time',
-            'as of', 'in 2025', 'this year'
+            'latest', 'recent', 'recently', 'breaking', 'current', 'live', 'real-time',
+            'as of', 'in 2025', 'this year', 'this week', 'this month',
+            'yesterday', 'last night', 'last week', 'last month',
+            'who won', 'what happened', 'won', 'happened'  # NEW!
         ]
     
     async def initialize(self) -> bool:
@@ -178,11 +180,52 @@ class OnlineLLM:
             return None
     
     def detect_needs_search(self, query: str) -> bool:
-        """Detect if query needs Google search"""
+        """IMPROVED: Detect if query needs Google search - matches query_analyzer patterns"""
         query_lower = query.lower().strip()
+        
+        # CRITICAL FIX: High-confidence patterns that MUST trigger search
+        high_confidence_search_patterns = [
+            # "who won" patterns
+            r'\bwho\s+won\s+(?:the\s+)?(?:last|latest|recent|yesterday\'?s?|today\'?s?)',
+            r'\bwho\s+won\s+(?:the\s+)?(?:\w+\s+)?(?:race|game|match|championship|election)',
+            
+            # "what happened" patterns  
+            r'\bwhat\s+happened\s+(?:in|with|to|at)\s+\w+\s+(?:recently|lately|today|yesterday|this\s+week)',
+            r'\bwhat\s+happened\s+(?:recently|lately|today|yesterday)',
+            r'\bwhat\'?s\s+happening\s+(?:in|with|today)',
+            
+            # "current" patterns
+            r'\bwhat\s+is\s+(?:the\s+)?current\s+\w+',
+            r'\bwhat\'?s\s+(?:the\s+)?current\s+\w+',
+            r'\bcurrent\s+(?:world|land|speed|temperature|stock|price|exchange|population)\s+record',
+            r'\bcurrent\s+(?:\w+\s+)?(?:record|price|rate|value|status|standing|ranking)',
+            
+            # "as of" patterns
+            r'\bas\s+of\s+(?:today|now|this\s+year|\d{4})',
+            
+            # News/events patterns
+            r'\b(?:latest|breaking|recent|today\'?s?)\s+(?:news|headlines|events)',
+            r'\bcurrent\s+events',
+            
+            # Political patterns
+            r'\b(?:who\s+is|who\'?s)\s+(?:the\s+)?current\s+(?:\w+\s+)?(?:president|prime\s+minister|pm|leader)',
+        ]
+        
+        # Check high-confidence patterns first
+        for pattern in high_confidence_search_patterns:
+            if re.search(pattern, query_lower):
+                if settings.debug_mode:
+                    print(f"[GOOGLE] High-confidence search trigger: {pattern}")
+                return True
         
         # Check for temporal indicators
         has_temporal = any(indicator in query_lower for indicator in self.strong_temporal_indicators)
+        
+        # Medium-confidence: temporal indicator + question mark
+        if has_temporal and '?' in query:
+            if settings.debug_mode:
+                print(f"[GOOGLE] Temporal + question mark search trigger")
+            return True
         
         # Check for question words + current/latest/recent
         current_question_patterns = [
@@ -194,11 +237,9 @@ class OnlineLLM:
         
         for pattern in current_question_patterns:
             if re.search(pattern, query_lower):
+                if settings.debug_mode:
+                    print(f"[GOOGLE] Current question pattern search trigger: {pattern}")
                 return True
-        
-        # If has temporal indicators and looks like a factual question
-        if has_temporal and '?' in query:
-            return True
         
         return False
     
@@ -289,7 +330,7 @@ class OnlineLLM:
             yield "Online services are not available."
             return
         
-        # Check if we need to search
+        # IMPROVED: Check if we need to search
         needs_search = self.detect_needs_search(query)
         
         try:
@@ -442,7 +483,7 @@ Current year: {datetime_info['current_year']}
             'enhancements': [
                 '✅ Google Custom Search API integrated',
                 '✅ Real-time web search for current info',
-                '✅ Automatic search triggering',
+                '✅ IMPROVED search detection (matches query_analyzer)',
                 '✅ Search results included in LLM context',
                 '✅ Source attribution in responses'
             ]
