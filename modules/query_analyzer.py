@@ -1,22 +1,22 @@
 """
-Pascal AI Assistant - Enhanced Query Analyzer - FIXED "CURRENT" DETECTION
-Intelligent query classification and routing optimization
+Pascal AI Assistant - IMPROVED Query Analyzer (COMPLETE)
+Fixed to catch "who won the last", "what happened recently", etc.
 """
 
 import re
 import time
 from enum import Enum
 from dataclasses import dataclass
-from typing import Dict, List, Optional, Tuple, Set
+from typing import Dict, List, Optional, Set
 from datetime import datetime
 
 class QueryComplexity(Enum):
     """Query complexity levels"""
-    INSTANT = "instant"        # <0.5s - Skills only
-    SIMPLE = "simple"          # <2s - Prefer offline
-    MODERATE = "moderate"      # 2-4s - Balanced routing  
-    COMPLEX = "complex"        # 4-8s - Quality routing
-    CURRENT = "current"        # Variable - Must be online if available
+    INSTANT = "instant"
+    SIMPLE = "simple"
+    MODERATE = "moderate"
+    COMPLEX = "complex"
+    CURRENT = "current"
 
 class QueryIntent(Enum):
     """Query intent classification"""
@@ -47,45 +47,49 @@ class QueryAnalysis:
     metadata: Dict[str, any]
 
 class MultiLayerDetection:
-    """Multi-layer current information detection system"""
+    """IMPROVED multi-layer current information detection"""
     
     def __init__(self):
         self._compile_patterns()
         self._load_keywords()
     
     def _compile_patterns(self):
-        """Compile optimized regex patterns - FIXED for generic "current" queries"""
+        """IMPROVED patterns - catch more recent event queries"""
         
-        # Layer 1: High-confidence current info patterns - EXPANDED
+        # Layer 1: High-confidence current info patterns
         self.high_confidence_patterns = [
             # DateTime patterns
             re.compile(r'\bwhat\s+(?:day|date)\s+(?:is\s+)?(?:it\s+)?(?:today|now)?\b', re.I),
             re.compile(r'\bwhat\s+day\s+is\s+it\b', re.I),
-            re.compile(r'\bwhat\s+day\s+is\s+today\b', re.I),
             re.compile(r'\btoday\'?s?\s+(?:date|day)\b', re.I),
             re.compile(r'\b(?:current|what)\s+date\b', re.I),
-            re.compile(r'\bwhat\s+is\s+(?:the\s+)?date\s+today\b', re.I),
-            re.compile(r'\btell\s+me\s+(?:the\s+)?(?:date|day)\b', re.I),
             
             # Political patterns
             re.compile(r'\b(?:who\s+is|who\'?s)\s+(?:the\s+)?current\s+(?:\w+\s+)?(?:president|prime\s+minister|pm|leader)\b', re.I),
             re.compile(r'\bcurrent\s+(?:\w+\s+)?(?:president|prime\s+minister|pm|leader)\b', re.I),
-            re.compile(r'\b(?:who\s+is|who\'?s)\s+(?:the\s+)?(?:us|uk|french|german|canadian|australian|indian|japanese|chinese)?\s*(?:president|prime\s+minister|pm)\b', re.I),
-            re.compile(r'\b(?:who\s+is|who\'?s)\s+(?:president|prime\s+minister|pm)\s+(?:of|in)\s+\w+\b', re.I),
             
-            # CRITICAL FIX: Generic "current" patterns for ANY fact/record/information
+            # Generic "current" patterns
             re.compile(r'\bcurrent\s+(?:world|land|speed|temperature|stock|price|exchange|population)\s+record\b', re.I),
             re.compile(r'\bcurrent\s+(?:\w+\s+)?(?:record|price|rate|value|status|standing|ranking|leader|champion)\b', re.I),
-            re.compile(r'\bwhat\s+is\s+(?:the\s+)?current\s+\w+', re.I),  # "what is the current [anything]"
-            re.compile(r'\bwhat\'?s\s+(?:the\s+)?current\s+\w+', re.I),  # "what's the current [anything]"
+            re.compile(r'\bwhat\s+is\s+(?:the\s+)?current\s+\w+', re.I),
+            re.compile(r'\bwhat\'?s\s+(?:the\s+)?current\s+\w+', re.I),
             
-            # CRITICAL FIX: Temporal phrases "as of [date/year]"
+            # Temporal phrases "as of"
             re.compile(r'\bas\s+of\s+(?:today|now|this\s+year|\d{4}|january|february|march|april|may|june|july|august|september|october|november|december)', re.I),
-            re.compile(r'\bin\s+\d{4}\b', re.I),  # "in 2025"
+            re.compile(r'\bin\s+\d{4}\b', re.I),
             re.compile(r'\bthis\s+(?:year|month|week)\b', re.I),
             
+            # NEW: "who won" patterns for recent events
+            re.compile(r'\bwho\s+won\s+(?:the\s+)?(?:last|latest|recent|yesterday\'?s?|today\'?s?)', re.I),
+            re.compile(r'\bwho\s+won\s+(?:the\s+)?(?:\w+\s+)?(?:race|game|match|championship|election)', re.I),
+            
+            # NEW: "what happened" patterns for recent events
+            re.compile(r'\bwhat\s+happened\s+(?:in|with|to|at)\s+\w+\s+(?:recently|lately|today|yesterday|this\s+week)', re.I),
+            re.compile(r'\bwhat\s+happened\s+(?:recently|lately|today|yesterday)', re.I),
+            re.compile(r'\bwhat\'?s\s+happening\s+(?:in|with|today)', re.I),
+            
             # News and events
-            re.compile(r'\b(?:latest|breaking|recent|today\'?s?)\s+(?:news|headlines)\b', re.I),
+            re.compile(r'\b(?:latest|breaking|recent|today\'?s?)\s+(?:news|headlines|events)\b', re.I),
             re.compile(r'\bwhat\'?s\s+(?:happening|in\s+the\s+news)\s+(?:today|now|currently)?\b', re.I),
             re.compile(r'\bcurrent\s+events\b', re.I),
             
@@ -93,9 +97,10 @@ class MultiLayerDetection:
             re.compile(r'\b(?:current|today\'?s?|now)\s+weather\b', re.I),
             re.compile(r'\bweather\s+(?:today|now|currently)\b', re.I),
             
-            # Sports current
-            re.compile(r'\b(?:latest|current|today\'?s?)\s+(?:scores?|results?)\b', re.I),
+            # Sports current - EXPANDED
+            re.compile(r'\b(?:latest|current|today\'?s?|yesterday\'?s?)\s+(?:scores?|results?)\b', re.I),
             re.compile(r'\bwho\s+won\s+(?:today|yesterday|last\s+night)\b', re.I),
+            re.compile(r'\bwho\s+won\s+(?:the\s+)?last\s+\w+\s+(?:race|game|match)\b', re.I),
             
             # Market/financial current
             re.compile(r'\bcurrent\s+(?:stock|bitcoin|crypto|market)\s+price\b', re.I),
@@ -108,72 +113,89 @@ class MultiLayerDetection:
             re.compile(r'\b(?:stock|share)\s+price\b', re.I),
             re.compile(r'\bexchange\s+rate\b', re.I),
             re.compile(r'\bnews\s+about\b', re.I),
-            re.compile(r'\b(?:prime\s+minister|president|leader)\s+of\s+(?:the\s+)?\w+\b', re.I),
-            # ADDED: "latest" with any noun
             re.compile(r'\blatest\s+\w+\b', re.I),
+            re.compile(r'\brecent\s+\w+\b', re.I),  # NEW
+            re.compile(r'\bwho\s+won\b', re.I),  # NEW - any "who won" gets medium score
+            re.compile(r'\bwhat\s+happened\b', re.I),  # NEW - any "what happened" gets medium score
         ]
         
-        # Layer 3: Temporal indicator patterns - EXPANDED
+        # Layer 3: Temporal indicator patterns
         self.temporal_patterns = [
             re.compile(r'\b(?:today|now|currently|right\s+now|at\s+the\s+moment)\b', re.I),
             re.compile(r'\b(?:latest|recent|breaking|fresh|new)\b', re.I),
             re.compile(r'\b(?:this\s+(?:morning|afternoon|evening|week|month|year))\b', re.I),
+            re.compile(r'\b(?:yesterday|last\s+night|last\s+week|last\s+month)\b', re.I),  # NEW
+            re.compile(r'\brecently\b', re.I),  # NEW - explicit "recently"
+            re.compile(r'\blately\b', re.I),  # NEW
             re.compile(r'\b(?:up\s+to\s+date|real\s+time|live)\b', re.I),
             re.compile(r'\bcurrent\b', re.I),
-            re.compile(r'\bas\s+of\b', re.I),  # ADDED
-            re.compile(r'\bin\s+\d{4}\b', re.I),  # ADDED: "in 2025"
+            re.compile(r'\bas\s+of\b', re.I),
+            re.compile(r'\bin\s+\d{4}\b', re.I),
+            re.compile(r'\blast\s+\w+\s+(?:race|game|match|election)\b', re.I),  # NEW
         ]
     
     def _load_keywords(self):
-        """Load keyword sets for analysis"""
+        """Load keyword sets - EXPANDED"""
         
-        # Strong current info indicators - EXPANDED
+        # Strong current info indicators
         self.strong_current_keywords = {
             'today', 'now', 'current', 'currently', 'latest', 'recent', 
             'breaking', 'live', 'real-time', 'up-to-date', 'fresh',
             'this', 'what', 'day', 'date', 'who', 'is',
-            'as', 'of'  # ADDED for "as of"
+            'as', 'of', 'recently', 'lately', 'yesterday', 'won',
+            'happened', 'last'  # NEW
         }
         
-        # Current info topics - EXPANDED
+        # Current info topics
         self.current_topics = {
             'news', 'headlines', 'weather', 'temperature', 'forecast',
             'president', 'election', 'politics', 'stocks', 'prices',
             'scores', 'results', 'events', 'happening',
             'day', 'date', 'time', 'prime', 'minister', 'pm', 'leader',
-            'record', 'price', 'rate', 'value', 'status',  # ADDED
-            'standing', 'ranking', 'champion', 'holder',  # ADDED
-            'bitcoin', 'crypto', 'market', 'exchange'  # ADDED
+            'record', 'price', 'rate', 'value', 'status',
+            'standing', 'ranking', 'champion', 'holder',
+            'bitcoin', 'crypto', 'market', 'exchange',
+            'race', 'game', 'match', 'won', 'winner'  # NEW sports terms
         }
         
-        # Non-current indicators (reduce current info score)
+        # Non-current indicators
         self.non_current_keywords = {
             'explain', 'definition', 'how does', 'tutorial',
             'history', 'past', 'ancient', 'historical', 'traditional',
-            'always', 'generally', 'typically', 'was', 'were', 'had been'
+            'always', 'generally', 'typically', 'theory', 'concept',
+            'fundamentals', 'basics'
         }
     
     def analyze(self, query: str) -> float:
-        """Multi-layer current information analysis - FIXED
+        """IMPROVED multi-layer analysis
         Returns: Score from 0.0 (not current) to 1.0 (definitely current)
         """
         query_lower = query.lower().strip()
         score = 0.0
         
-        # Layer 1: High-confidence patterns (strong indicators)
+        # Layer 1: High-confidence patterns
         for pattern in self.high_confidence_patterns:
             if pattern.search(query_lower):
                 score += 0.5
                 
-                # EXTRA BOOST: "current" + any noun
-                if 'current' in query_lower:
-                    # Check if "current" is followed by a noun (not just "currently")
-                    if re.search(r'\bcurrent\s+\w+', query_lower):
-                        score += 0.2  # Big boost for "current [thing]"
+                # EXTRA BOOST for "current" + noun
+                if 'current' in query_lower and re.search(r'\bcurrent\s+\w+', query_lower):
+                    score += 0.2
                 
-                # EXTRA BOOST: "as of" indicates time-specific query
+                # EXTRA BOOST for "as of"
                 if 'as of' in query_lower:
                     score += 0.15
+                
+                # NEW: EXTRA BOOST for "who won"
+                if re.search(r'\bwho\s+won\b', query_lower):
+                    score += 0.2
+                
+                # NEW: EXTRA BOOST for "what happened" + recently/lately
+                if re.search(r'\bwhat\s+happened\b', query_lower):
+                    if any(word in query_lower for word in ['recently', 'lately', 'today', 'yesterday']):
+                        score += 0.25
+                    else:
+                        score += 0.15
                 
                 break
         
@@ -192,6 +214,14 @@ class MultiLayerDetection:
         if temporal_count > 0:
             score += min(0.3, temporal_count * 0.15)
         
+        # NEW: BOOST for "recently" or "lately" (very strong temporal indicators)
+        if 'recently' in query_lower or 'lately' in query_lower:
+            score += 0.2
+        
+        # NEW: BOOST for "last [event]" patterns
+        if re.search(r'\blast\s+\w+\s+(?:race|game|match|election|event)', query_lower):
+            score += 0.25
+        
         # Layer 4: Keyword analysis
         words = set(re.findall(r'\b\w+\b', query_lower))
         
@@ -205,7 +235,6 @@ class MultiLayerDetection:
         if topic_word_count > 0:
             score += min(0.25, topic_word_count * 0.12)
             
-            # Extra boost for multiple topic words
             if topic_word_count >= 2:
                 score += 0.1
         
@@ -215,16 +244,15 @@ class MultiLayerDetection:
             score -= min(0.3, non_current_count * 0.1)
         
         # Layer 5: Context analysis
-        # Question format analysis
         if query.strip().endswith('?'):
             if any(q in query_lower for q in ['what', 'when', 'who', 'where']):
                 score += 0.1
         
-        # "who is" questions are almost always current info
+        # "who is" questions
         if query_lower.startswith('who is') or query_lower.startswith("who's"):
             score += 0.15
         
-        # CRITICAL: "what is the current" is DEFINITELY current info
+        # "what is the current"
         if re.search(r'\bwhat\s+is\s+(?:the\s+)?current\b', query_lower):
             score += 0.25
         
@@ -345,8 +373,12 @@ class QueryClassifier:
         if any(word in query_lower for word in ['president', 'prime minister', 'pm', 'leader']) and any(word in query_lower for word in ['who', 'current', 'is']):
             return QueryIntent.CURRENT_INFO
         
-        # ADDED: "current [anything]" is CURRENT_INFO
+        # "current [anything]" is CURRENT_INFO
         if re.search(r'\bcurrent\s+\w+', query_lower):
+            return QueryIntent.CURRENT_INFO
+        
+        # NEW: "who won" or "what happened" = CURRENT_INFO
+        if 'who won' in query_lower or 'what happened' in query_lower:
             return QueryIntent.CURRENT_INFO
         
         # Default classification based on query characteristics
@@ -483,7 +515,8 @@ async def test_analyzer():
     
     test_queries = [
         # The problematic queries from user's debug output
-        "what is the current land speed record",
+        "who won the last f1 race and where was it?",
+        "what happened in french polotitc recently",
         "what is the current land speed record as of today in 2025",
         
         # Other current queries
@@ -494,9 +527,10 @@ async def test_analyzer():
         # Should be offline
         "explain how recursion works",
         "what is the capital of France",
+        "hi pascal",
     ]
     
-    print("🧪 Testing Enhanced Query Analyzer (FIXED 'CURRENT' DETECTION)")
+    print("🧪 Testing Enhanced Query Analyzer (IMPROVED)")
     print("=" * 70)
     
     for query in test_queries:
@@ -518,6 +552,12 @@ async def test_analyzer():
             print(f"   → Should route to: OFFLINE (general)")
     
     print(f"\n" + "=" * 70)
+    
+    # Show stats
+    stats = analyzer.get_analysis_stats()
+    print(f"\n📊 Analyzer Stats:")
+    print(f"   Total analyses: {stats['total_analyses']}")
+    print(f"   Average time: {stats['average_analysis_time']}")
 
 if __name__ == "__main__":
     import asyncio
