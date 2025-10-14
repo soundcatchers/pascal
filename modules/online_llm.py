@@ -1,6 +1,6 @@
 """
-Pascal AI Assistant - Online LLM with IMPROVED Google Search Integration
-FIXED: detect_needs_search() now matches query_analyzer patterns
+Pascal AI Assistant - Online LLM with IMPROVED Google News Search
+FIXED: News queries now use dedicated news search for better results
 """
 
 import asyncio
@@ -20,7 +20,7 @@ except ImportError:
 from config.settings import settings
 
 class OnlineLLM:
-    """Online LLM with Google Search for current information"""
+    """Online LLM with Google Search and dedicated News Search"""
     
     def __init__(self):
         self.session = None
@@ -46,14 +46,43 @@ class OnlineLLM:
         self.response_times = []
         self.search_count = 0
         self.search_success_count = 0
+        self.news_search_count = 0
+        self.news_search_success_count = 0
         
-        # IMPROVED: Comprehensive temporal indicators matching query_analyzer
+        # Temporal indicators
         self.strong_temporal_indicators = [
             'today', 'now', 'currently', 'right now', 'at the moment',
             'latest', 'recent', 'recently', 'breaking', 'current', 'live', 'real-time',
             'as of', 'in 2025', 'this year', 'this week', 'this month',
             'yesterday', 'last night', 'last week', 'last month',
-            'who won', 'what happened', 'won', 'happened'  # NEW!
+            'who won', 'what happened', 'won', 'happened'
+        ]
+        
+        # NEWS-SPECIFIC indicators
+        self.news_indicators = [
+            # Event queries
+            'what happened', 'what\'s happening', 'happening in',
+            'latest news', 'breaking news', 'recent news', 'news about',
+            
+            # Political/government
+            'government', 'president', 'prime minister', 'election',
+            'parliament', 'senate', 'congress', 'political',
+            
+            # Conflict/war
+            'war', 'conflict', 'gaza', 'ukraine', 'military',
+            'attack', 'fighting', 'crisis',
+            
+            # Sports events
+            'who won', 'won the', 'race', 'match', 'game',
+            'championship', 'tournament', 'final',
+            
+            # General events
+            'last week', 'this week', 'yesterday', 'recently',
+            'just happened', 'announced', 'reported',
+            
+            # Update queries
+            'update on', 'latest with', 'latest on',
+            'current situation', 'status of'
         ]
     
     async def initialize(self) -> bool:
@@ -95,9 +124,9 @@ class OnlineLLM:
                 if settings.debug_mode:
                     print("✅ [GROQ] API initialized")
                     if self.google_search_available:
-                        print("✅ [GOOGLE] Search configured and ready")
+                        print("✅ [GOOGLE] Search configured (general + news)")
                     else:
-                        print("⚠️  [GOOGLE] Search not configured (add GOOGLE_SEARCH_API_KEY and GOOGLE_SEARCH_ENGINE_ID to .env)")
+                        print("⚠️  [GOOGLE] Search not configured")
                 
                 return True
             else:
@@ -169,7 +198,6 @@ class OnlineLLM:
         try:
             return json.loads(text.strip())
         except json.JSONDecodeError:
-            # Try to extract JSON
             try:
                 start_idx = text.find('{')
                 end_idx = text.rfind('}')
@@ -180,34 +208,23 @@ class OnlineLLM:
             return None
     
     def detect_needs_search(self, query: str) -> bool:
-        """IMPROVED: Detect if query needs Google search - matches query_analyzer patterns"""
+        """Detect if query needs Google search"""
         query_lower = query.lower().strip()
         
-        # CRITICAL FIX: High-confidence patterns that MUST trigger search
+        # High-confidence search patterns
         high_confidence_search_patterns = [
-            # "who won" patterns
             r'\bwho\s+won\s+(?:the\s+)?(?:last|latest|recent|yesterday\'?s?|today\'?s?)',
             r'\bwho\s+won\s+(?:the\s+)?(?:\w+\s+)?(?:race|game|match|championship|election)',
-            
-            # "what happened" patterns  
             r'\bwhat\s+happened\s+(?:in|with|to|at)\s+\w+\s+(?:recently|lately|today|yesterday|this\s+week)',
             r'\bwhat\s+happened\s+(?:recently|lately|today|yesterday)',
             r'\bwhat\'?s\s+happening\s+(?:in|with|today)',
-            
-            # "current" patterns
             r'\bwhat\s+is\s+(?:the\s+)?current\s+\w+',
             r'\bwhat\'?s\s+(?:the\s+)?current\s+\w+',
             r'\bcurrent\s+(?:world|land|speed|temperature|stock|price|exchange|population)\s+record',
             r'\bcurrent\s+(?:\w+\s+)?(?:record|price|rate|value|status|standing|ranking)',
-            
-            # "as of" patterns
             r'\bas\s+of\s+(?:today|now|this\s+year|\d{4})',
-            
-            # News/events patterns
             r'\b(?:latest|breaking|recent|today\'?s?)\s+(?:news|headlines|events)',
             r'\bcurrent\s+events',
-            
-            # Political patterns
             r'\b(?:who\s+is|who\'?s)\s+(?:the\s+)?current\s+(?:\w+\s+)?(?:president|prime\s+minister|pm|leader)',
         ]
         
@@ -221,13 +238,12 @@ class OnlineLLM:
         # Check for temporal indicators
         has_temporal = any(indicator in query_lower for indicator in self.strong_temporal_indicators)
         
-        # Medium-confidence: temporal indicator + question mark
         if has_temporal and '?' in query:
             if settings.debug_mode:
                 print(f"[GOOGLE] Temporal + question mark search trigger")
             return True
         
-        # Check for question words + current/latest/recent
+        # Check current question patterns
         current_question_patterns = [
             r'\bwhat\s+is\s+(?:the\s+)?current\b',
             r'\bwho\s+is\s+(?:the\s+)?current\b',
@@ -238,20 +254,96 @@ class OnlineLLM:
         for pattern in current_question_patterns:
             if re.search(pattern, query_lower):
                 if settings.debug_mode:
-                    print(f"[GOOGLE] Current question pattern search trigger: {pattern}")
+                    print(f"[GOOGLE] Current question pattern search trigger")
                 return True
         
         return False
     
-    async def google_search(self, query: str, num_results: int = 3) -> List[Dict[str, Any]]:
-        """Search Google and return top results"""
+    def detect_needs_news_search(self, query: str) -> bool:
+        """FIXED: Detect if query needs dedicated NEWS search"""
+        query_lower = query.lower().strip()
+        
+        # HIGH PRIORITY: News-specific patterns
+        high_priority_news_patterns = [
+            # "what happened" patterns
+            r'\bwhat\s+happened\s+(?:with|in|to|at)',
+            r'\bwhat\'?s\s+happening\s+(?:with|in)',
+            r'\bwhat\s+happened\s+(?:recently|lately|today|yesterday|last\s+week)',
+            
+            # Government/political
+            r'\b(?:government|parliament|senate|congress)\s+(?:last\s+week|this\s+week|recently|today)',
+            r'\b(?:election|vote|referendum)\s+(?:result|outcome|winner)',
+            
+            # War/conflict
+            r'\b(?:war|conflict|fighting|attack)\s+in\s+\w+',
+            r'\blatest\s+(?:with|on)\s+(?:the\s+)?(?:war|conflict|situation)',
+            
+            # Sports results
+            r'\bwho\s+won\s+(?:the\s+)?(?:last|latest|yesterday\'?s?|today\'?s?)\s+(?:race|game|match|tournament)',
+            r'\b(?:f1|formula\s+one|nfl|nba|premier\s+league)\s+(?:race|game|match)\s+(?:result|winner)',
+            
+            # News queries
+            r'\blatest\s+news\s+(?:about|on|regarding)',
+            r'\bbreaking\s+news',
+            r'\brecent\s+news\s+(?:about|on)',
+            r'\bnews\s+(?:about|regarding)\s+\w+',
+            
+            # Update queries
+            r'\bupdate\s+on\s+(?:the\s+)?\w+',
+            r'\blatest\s+(?:with|on)\s+(?:the\s+)?\w+',
+            r'\bcurrent\s+situation\s+(?:in|with)',
+        ]
+        
+        # Check high-priority patterns
+        for pattern in high_priority_news_patterns:
+            if re.search(pattern, query_lower):
+                if settings.debug_mode:
+                    print(f"[GOOGLE NEWS] High-priority news pattern: {pattern}")
+                return True
+        
+        # Check for news indicator keywords
+        news_keyword_count = sum(1 for indicator in self.news_indicators if indicator in query_lower)
+        
+        if news_keyword_count >= 2:
+            if settings.debug_mode:
+                print(f"[GOOGLE NEWS] Multiple news indicators ({news_keyword_count})")
+            return True
+        
+        # Single strong news indicator + temporal
+        strong_news_keywords = [
+            'what happened', 'government', 'war', 'conflict', 
+            'gaza', 'ukraine', 'election', 'who won'
+        ]
+        
+        has_strong_news = any(keyword in query_lower for keyword in strong_news_keywords)
+        has_temporal = any(indicator in query_lower for indicator in ['last week', 'recently', 'yesterday', 'today', 'latest'])
+        
+        if has_strong_news and has_temporal:
+            if settings.debug_mode:
+                print(f"[GOOGLE NEWS] Strong news keyword + temporal indicator")
+            return True
+        
+        return False
+    
+    async def google_search(self, query: str, num_results: int = 3, search_type: str = 'general') -> List[Dict[str, Any]]:
+        """
+        Search Google and return top results
+        
+        Args:
+            query: Search query
+            num_results: Number of results to return
+            search_type: 'general' or 'news'
+        """
         if not self.google_search_available:
             if settings.debug_mode:
-                print("⚠️  [GOOGLE] Search not available - API keys not configured")
+                print("⚠️  [GOOGLE] Search not available")
             return []
         
         try:
-            self.search_count += 1
+            if search_type == 'news':
+                self.news_search_count += 1
+            else:
+                self.search_count += 1
             
             search_url = "https://www.googleapis.com/customsearch/v1"
             params = {
@@ -261,8 +353,17 @@ class OnlineLLM:
                 'num': num_results
             }
             
+            # Add news-specific parameters
+            if search_type == 'news':
+                # Sort by date for news queries
+                params['sort'] = 'date'
+                # Optionally restrict to news sites
+                params['siteSearch'] = 'news'
+                params['siteSearchFilter'] = 'i'  # include
+            
             if settings.debug_mode:
-                print(f"[GOOGLE] 🔍 Searching: {query}")
+                search_label = "NEWS" if search_type == 'news' else "WEB"
+                print(f"[GOOGLE {search_label}] 🔍 Searching: {query}")
             
             async with self.session.get(
                 search_url,
@@ -278,13 +379,18 @@ class OnlineLLM:
                             'title': item.get('title', ''),
                             'link': item.get('link', ''),
                             'snippet': item.get('snippet', ''),
-                            'source': item.get('displayLink', '')
+                            'source': item.get('displayLink', ''),
+                            'search_type': search_type
                         })
                     
-                    self.search_success_count += 1
+                    if search_type == 'news':
+                        self.news_search_success_count += 1
+                    else:
+                        self.search_success_count += 1
                     
                     if settings.debug_mode:
-                        print(f"[GOOGLE] ✅ Found {len(results)} results")
+                        search_label = "NEWS" if search_type == 'news' else "WEB"
+                        print(f"[GOOGLE {search_label}] ✅ Found {len(results)} results")
                     
                     return results
                     
@@ -294,7 +400,7 @@ class OnlineLLM:
                     return []
                 elif response.status in [401, 403]:
                     if settings.debug_mode:
-                        print("❌ [GOOGLE] Invalid API key or Search Engine ID")
+                        print("❌ [GOOGLE] Invalid API key")
                     return []
                 else:
                     if settings.debug_mode:
@@ -311,7 +417,10 @@ class OnlineLLM:
         if not results:
             return ""
         
-        formatted = "\n\nREAL-TIME SEARCH RESULTS FROM GOOGLE:\n"
+        search_type = results[0].get('search_type', 'general')
+        label = "REAL-TIME NEWS SEARCH RESULTS" if search_type == 'news' else "REAL-TIME SEARCH RESULTS FROM GOOGLE"
+        
+        formatted = f"\n\n{label}:\n"
         formatted += "=" * 60 + "\n"
         
         for i, result in enumerate(results, 1):
@@ -325,13 +434,21 @@ class OnlineLLM:
     
     async def generate_response_stream(self, query: str, personality_context: str, 
                                      memory_context: str) -> AsyncGenerator[str, None]:
-        """Generate streaming response with Google Search integration"""
+        """Generate streaming response with intelligent search routing"""
         if not self.available:
             yield "Online services are not available."
             return
         
-        # IMPROVED: Check if we need to search
+        # FIXED: Intelligent search type detection
         needs_search = self.detect_needs_search(query)
+        needs_news_search = self.detect_needs_news_search(query)
+        
+        # News search takes priority over general search
+        if needs_news_search:
+            search_type = 'news'
+            needs_search = True
+        else:
+            search_type = 'general'
         
         try:
             start_time = time.time()
@@ -345,11 +462,15 @@ class OnlineLLM:
                 'current_year': now.year,
             }
             
-            # Search Google if needed
+            # Search Google/News if needed
             search_results = []
             if needs_search and self.google_search_available:
-                yield "🔍 Searching Google... "
-                search_results = await self.google_search(query, num_results=3)
+                if search_type == 'news':
+                    yield "📰 Searching latest news... "
+                else:
+                    yield "🔍 Searching Google... "
+                
+                search_results = await self.google_search(query, num_results=3, search_type=search_type)
             
             # Build enhanced prompt
             messages = []
@@ -367,7 +488,10 @@ Current year: {datetime_info['current_year']}
             # Add search results if available
             if search_results:
                 system_content += self._format_search_results(search_results)
-                system_content += "\n\nIMPORTANT: Use the search results above to answer the user's question with current, accurate information. Cite the sources naturally in your response."
+                if search_type == 'news':
+                    system_content += "\n\nIMPORTANT: Use the NEWS search results above to answer the user's question with current, accurate news information. Cite the sources naturally in your response."
+                else:
+                    system_content += "\n\nIMPORTANT: Use the search results above to answer the user's question with current, accurate information. Cite the sources naturally in your response."
             
             messages.append({"role": "system", "content": system_content})
             
@@ -424,8 +548,11 @@ Current year: {datetime_info['current_year']}
                             self.response_times = self.response_times[-20:]
                         
                         if settings.debug_mode:
-                            search_note = " (with Google search)" if search_results else ""
-                            print(f"[GROQ] ✅ Response in {response_time:.2f}s{search_note}")
+                            if search_results:
+                                search_label = "news" if search_type == 'news' else "web"
+                                print(f"[GROQ] ✅ Response in {response_time:.2f}s (with {search_label} search)")
+                            else:
+                                print(f"[GROQ] ✅ Response in {response_time:.2f}s")
                     else:
                         self.failure_count += 1
                         yield "\n\nI didn't receive a proper response."
@@ -448,7 +575,7 @@ Current year: {datetime_info['current_year']}
     
     async def generate_response(self, query: str, personality_context: str, 
                                memory_context: str) -> str:
-        """Generate non-streaming response with Google Search"""
+        """Generate non-streaming response"""
         parts = []
         async for chunk in self.generate_response_stream(query, personality_context, memory_context):
             parts.append(chunk)
@@ -458,7 +585,9 @@ Current year: {datetime_info['current_year']}
         """Get performance statistics"""
         avg_time = self.total_time / max(self.request_count, 1)
         success_rate = (self.success_count / max(self.request_count, 1)) * 100
+        
         search_success_rate = (self.search_success_count / max(self.search_count, 1)) * 100 if self.search_count > 0 else 0
+        news_search_success_rate = (self.news_search_success_count / max(self.news_search_count, 1)) * 100 if self.news_search_count > 0 else 0
         
         recent_avg = 0
         if self.response_times:
@@ -476,15 +605,18 @@ Current year: {datetime_info['current_year']}
             'recent_avg_time': recent_avg,
             'google_search': {
                 'configured': self.google_search_available,
-                'total_searches': self.search_count,
-                'successful_searches': self.search_success_count,
-                'search_success_rate': search_success_rate
+                'total_web_searches': self.search_count,
+                'total_news_searches': self.news_search_count,
+                'successful_web_searches': self.search_success_count,
+                'successful_news_searches': self.news_search_success_count,
+                'web_search_success_rate': search_success_rate,
+                'news_search_success_rate': news_search_success_rate
             },
             'enhancements': [
                 '✅ Google Custom Search API integrated',
-                '✅ Real-time web search for current info',
-                '✅ IMPROVED search detection (matches query_analyzer)',
-                '✅ Search results included in LLM context',
+                '✅ Dedicated NEWS search for recent events',
+                '✅ Intelligent routing: news vs general search',
+                '✅ Real-time web + news search capabilities',
                 '✅ Source attribution in responses'
             ]
         }
@@ -501,6 +633,7 @@ Current year: {datetime_info['current_year']}
                 avg_time = self.total_time / self.request_count
                 success_rate = (self.success_count / self.request_count) * 100
                 print(f"[GROQ] 📊 Session: {self.request_count} requests, {avg_time:.2f}s avg, {success_rate:.1f}% success")
-                if self.search_count > 0:
-                    print(f"[GOOGLE] 📊 {self.search_count} searches, {self.search_success_count} successful")
+                if self.search_count > 0 or self.news_search_count > 0:
+                    print(f"[GOOGLE] 📊 Web: {self.search_count} searches ({self.search_success_count} successful)")
+                    print(f"[GOOGLE NEWS] 📊 News: {self.news_search_count} searches ({self.news_search_success_count} successful)")
             print("[GROQ] 🔌 Connection closed")
