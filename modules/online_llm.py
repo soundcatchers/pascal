@@ -1,6 +1,6 @@
 """
-Pascal AI Assistant - Online LLM with IMPROVED Google News Search
-FIXED: News queries now use dedicated news search for better results
+Pascal AI Assistant - Online LLM with INTELLIGENT Search Routing
+FIXED: Sports use general search, politics/news use news search
 """
 
 import asyncio
@@ -20,7 +20,7 @@ except ImportError:
 from config.settings import settings
 
 class OnlineLLM:
-    """Online LLM with Google Search and dedicated News Search"""
+    """Online LLM with intelligent Google Search routing"""
     
     def __init__(self):
         self.session = None
@@ -58,7 +58,7 @@ class OnlineLLM:
             'who won', 'what happened', 'won', 'happened'
         ]
         
-        # NEWS-SPECIFIC indicators
+        # NEWS-SPECIFIC indicators (NON-SPORTS)
         self.news_indicators = [
             # Event queries
             'what happened', 'what\'s happening', 'happening in',
@@ -72,11 +72,7 @@ class OnlineLLM:
             'war', 'conflict', 'gaza', 'ukraine', 'military',
             'attack', 'fighting', 'crisis',
             
-            # Sports events
-            'who won', 'won the', 'race', 'match', 'game',
-            'championship', 'tournament', 'final',
-            
-            # General events
+            # General events (non-sports)
             'last week', 'this week', 'yesterday', 'recently',
             'just happened', 'announced', 'reported',
             
@@ -124,7 +120,7 @@ class OnlineLLM:
                 if settings.debug_mode:
                     print("✅ [GROQ] API initialized")
                     if self.google_search_available:
-                        print("✅ [GOOGLE] Search configured (general + news)")
+                        print("✅ [GOOGLE] Intelligent search routing (general + news)")
                     else:
                         print("⚠️  [GOOGLE] Search not configured")
                 
@@ -208,23 +204,37 @@ class OnlineLLM:
             return None
     
     def detect_needs_search(self, query: str) -> bool:
-        """Detect if query needs Google search"""
+        """Detect if query needs Google search
+        
+        NOTE: This detects if ANY search is needed. 
+        detect_needs_news_search() determines if it should be NEWS vs GENERAL search.
+        Sports queries trigger search but use GENERAL search for better results.
+        """
         query_lower = query.lower().strip()
         
-        # High-confidence search patterns
+        # High-confidence search patterns (includes sports which will use GENERAL search)
         high_confidence_search_patterns = [
+            # Sports results (will use GENERAL search, not news)
             r'\bwho\s+won\s+(?:the\s+)?(?:last|latest|recent|yesterday\'?s?|today\'?s?)',
             r'\bwho\s+won\s+(?:the\s+)?(?:\w+\s+)?(?:race|game|match|championship|election)',
+            
+            # Event queries
             r'\bwhat\s+happened\s+(?:in|with|to|at)\s+\w+\s+(?:recently|lately|today|yesterday|this\s+week)',
             r'\bwhat\s+happened\s+(?:recently|lately|today|yesterday)',
             r'\bwhat\'?s\s+happening\s+(?:in|with|today)',
+            
+            # Current patterns
             r'\bwhat\s+is\s+(?:the\s+)?current\s+\w+',
             r'\bwhat\'?s\s+(?:the\s+)?current\s+\w+',
             r'\bcurrent\s+(?:world|land|speed|temperature|stock|price|exchange|population)\s+record',
             r'\bcurrent\s+(?:\w+\s+)?(?:record|price|rate|value|status|standing|ranking)',
+            
+            # Temporal phrases
             r'\bas\s+of\s+(?:today|now|this\s+year|\d{4})',
             r'\b(?:latest|breaking|recent|today\'?s?)\s+(?:news|headlines|events)',
             r'\bcurrent\s+events',
+            
+            # Political
             r'\b(?:who\s+is|who\'?s)\s+(?:the\s+)?current\s+(?:\w+\s+)?(?:president|prime\s+minister|pm|leader)',
         ]
         
@@ -232,7 +242,7 @@ class OnlineLLM:
         for pattern in high_confidence_search_patterns:
             if re.search(pattern, query_lower):
                 if settings.debug_mode:
-                    print(f"[GOOGLE] High-confidence search trigger: {pattern}")
+                    print(f"[GOOGLE] High-confidence search trigger")
                 return True
         
         # Check for temporal indicators
@@ -260,10 +270,28 @@ class OnlineLLM:
         return False
     
     def detect_needs_news_search(self, query: str) -> bool:
-        """FIXED: Detect if query needs dedicated NEWS search"""
+        """FIXED: Detect if query needs dedicated NEWS search
+        
+        Sports queries work better with GENERAL search
+        Political/conflict/government queries work better with NEWS search
+        """
         query_lower = query.lower().strip()
         
-        # HIGH PRIORITY: News-specific patterns
+        # EXCLUSION: Sports queries should NOT use news search
+        sports_exclusion_patterns = [
+            r'\bwho\s+won\s+(?:the\s+)?(?:last|latest|yesterday\'?s?|today\'?s?)\s+(?:race|game|match|tournament)',
+            r'\b(?:f1|formula\s+one|formula\s+1|moto\s?gp|btcc|nascar|indycar|nfl|nba|premier\s+league)\s+(?:race|game|match)',
+            r'\b(?:race|match|game)\s+(?:result|winner)',
+        ]
+        
+        # Check if it's a sports query - if so, DON'T use news search
+        for pattern in sports_exclusion_patterns:
+            if re.search(pattern, query_lower):
+                if settings.debug_mode:
+                    print(f"[GOOGLE] Sports query detected - using GENERAL search instead of news")
+                return False
+        
+        # HIGH PRIORITY: News-specific patterns (NON-SPORTS)
         high_priority_news_patterns = [
             # "what happened" patterns
             r'\bwhat\s+happened\s+(?:with|in|to|at)',
@@ -278,17 +306,13 @@ class OnlineLLM:
             r'\b(?:war|conflict|fighting|attack)\s+in\s+\w+',
             r'\blatest\s+(?:with|on)\s+(?:the\s+)?(?:war|conflict|situation)',
             
-            # Sports results
-            r'\bwho\s+won\s+(?:the\s+)?(?:last|latest|yesterday\'?s?|today\'?s?)\s+(?:race|game|match|tournament)',
-            r'\b(?:f1|formula\s+one|nfl|nba|premier\s+league)\s+(?:race|game|match)\s+(?:result|winner)',
-            
-            # News queries
+            # News queries (explicit)
             r'\blatest\s+news\s+(?:about|on|regarding)',
             r'\bbreaking\s+news',
             r'\brecent\s+news\s+(?:about|on)',
             r'\bnews\s+(?:about|regarding)\s+\w+',
             
-            # Update queries
+            # Update queries (non-sports)
             r'\bupdate\s+on\s+(?:the\s+)?\w+',
             r'\blatest\s+(?:with|on)\s+(?:the\s+)?\w+',
             r'\bcurrent\s+situation\s+(?:in|with)',
@@ -298,7 +322,7 @@ class OnlineLLM:
         for pattern in high_priority_news_patterns:
             if re.search(pattern, query_lower):
                 if settings.debug_mode:
-                    print(f"[GOOGLE NEWS] High-priority news pattern: {pattern}")
+                    print(f"[GOOGLE NEWS] High-priority news pattern matched")
                 return True
         
         # Check for news indicator keywords
@@ -309,16 +333,19 @@ class OnlineLLM:
                 print(f"[GOOGLE NEWS] Multiple news indicators ({news_keyword_count})")
             return True
         
-        # Single strong news indicator + temporal
+        # Single strong news indicator + temporal (exclude sports)
         strong_news_keywords = [
             'what happened', 'government', 'war', 'conflict', 
-            'gaza', 'ukraine', 'election', 'who won'
+            'gaza', 'ukraine', 'election'
         ]
         
         has_strong_news = any(keyword in query_lower for keyword in strong_news_keywords)
         has_temporal = any(indicator in query_lower for indicator in ['last week', 'recently', 'yesterday', 'today', 'latest'])
         
-        if has_strong_news and has_temporal:
+        # But NOT if it's a sports query
+        has_sports = any(sport in query_lower for sport in ['race', 'f1', 'formula', 'moto', 'btcc', 'nascar', 'game', 'match', 'tournament'])
+        
+        if has_strong_news and has_temporal and not has_sports:
             if settings.debug_mode:
                 print(f"[GOOGLE NEWS] Strong news keyword + temporal indicator")
             return True
@@ -439,11 +466,11 @@ class OnlineLLM:
             yield "Online services are not available."
             return
         
-        # FIXED: Intelligent search type detection
+        # INTELLIGENT: Determine search type
         needs_search = self.detect_needs_search(query)
         needs_news_search = self.detect_needs_news_search(query)
         
-        # News search takes priority over general search
+        # News search takes priority, but sports are excluded
         if needs_news_search:
             search_type = 'news'
             needs_search = True
@@ -614,8 +641,9 @@ Current year: {datetime_info['current_year']}
             },
             'enhancements': [
                 '✅ Google Custom Search API integrated',
-                '✅ Dedicated NEWS search for recent events',
-                '✅ Intelligent routing: news vs general search',
+                '✅ Intelligent routing: sports→general, politics/news→news search',
+                '✅ Sports queries optimized for general search',
+                '✅ Political/conflict queries optimized for news search',
                 '✅ Real-time web + news search capabilities',
                 '✅ Source attribution in responses'
             ]
