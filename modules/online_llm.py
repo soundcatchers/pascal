@@ -1,6 +1,6 @@
 """
-Pascal AI Assistant - Online LLM with INTELLIGENT Search Routing
-FIXED: Sports use general search, politics/news use news search
+Pascal AI Assistant - Online LLM with IMPROVED Sports Search
+FIXED: Better search query optimization for sports results
 """
 
 import asyncio
@@ -20,7 +20,7 @@ except ImportError:
 from config.settings import settings
 
 class OnlineLLM:
-    """Online LLM with intelligent Google Search routing"""
+    """Online LLM with improved sports search handling"""
     
     def __init__(self):
         self.session = None
@@ -203,20 +203,113 @@ class OnlineLLM:
                 pass
             return None
     
-    def detect_needs_search(self, query: str) -> bool:
-        """Detect if query needs Google search
+    def _optimize_search_query(self, query: str) -> str:
+        """FIXED: Optimize search query for better results, especially sports"""
+        query_lower = query.lower().strip()
         
-        NOTE: This detects if ANY search is needed. 
-        detect_needs_news_search() determines if it should be NEWS vs GENERAL search.
-        Sports queries trigger search but use GENERAL search for better results.
-        """
+        # SPORTS-SPECIFIC optimizations
+        sports_patterns = {
+            # F1/Formula 1
+            r'who won (?:the )?last f1 race': 'F1 race winner latest 2025',
+            r'last f1 race': 'F1 race results latest 2025',
+            r'f1 race.*where': 'F1 latest race winner location 2025',
+            r'next f1 race': 'F1 race schedule next 2025',
+            r'where.*next f1': 'F1 next race location 2025',
+            
+            # BTCC
+            r'who won (?:the )?last btcc': 'BTCC race winner latest 2025',
+            r'btcc.*last race': 'BTCC latest race results 2025',
+            
+            # Generic sports
+            r'who won (?:the )?last (\w+) race': r'\1 race winner latest results 2025',
+            r'who won (?:the )?last (\w+) game': r'\1 game winner latest results',
+            r'who won (?:the )?last (\w+) match': r'\1 match winner latest results',
+            
+            # Results queries
+            r'latest (\w+) results': r'\1 results latest 2025',
+            r'recent (\w+) results': r'\1 results recent 2025',
+        }
+        
+        # Check sports patterns first
+        for pattern, replacement in sports_patterns.items():
+            if re.search(pattern, query_lower):
+                optimized = re.sub(pattern, replacement, query_lower)
+                if settings.debug_mode:
+                    print(f"[GOOGLE] Query optimized for sports: '{query}' -> '{optimized}'")
+                return optimized
+        
+        # POLITICS/NEWS optimizations
+        politics_patterns = {
+            r'who is (?:the )?current (?:english |uk |british )?(?:pm|prime minister)': 'UK prime minister current 2025',
+            r'current (?:english |uk |british )?(?:pm|prime minister)': 'UK prime minister current 2025',
+            r'who is (?:the )?(?:english |uk |british )?(?:pm|prime minister)': 'UK prime minister current 2025',
+        }
+        
+        for pattern, replacement in politics_patterns.items():
+            if re.search(pattern, query_lower):
+                if settings.debug_mode:
+                    print(f"[GOOGLE] Query optimized for politics: '{query}' -> '{replacement}'")
+                return replacement
+        
+        # GENERAL optimizations - make queries shorter and more targeted
+        # Remove filler words
+        filler_words = [
+            'can you tell me', 'please tell me', 'i want to know',
+            'what is the', 'who is the', 'where is the',
+            'do you know', 'could you', 'would you',
+            'tell me about', 'information about'
+        ]
+        
+        optimized = query_lower
+        for filler in filler_words:
+            optimized = optimized.replace(filler, '')
+        
+        # Simplify temporal phrases
+        temporal_replacements = {
+            'what happened recently': 'latest news',
+            'what\'s happening': 'current news',
+            'right now': 'current',
+            'at the moment': 'current',
+            'as of today': '2025',
+        }
+        
+        for old, new in temporal_replacements.items():
+            optimized = optimized.replace(old, new)
+        
+        # Clean up extra spaces
+        optimized = ' '.join(optimized.split())
+        
+        # Limit query length (Google works better with shorter queries)
+        words = optimized.split()
+        if len(words) > 8:
+            # Keep most important words (nouns, verbs, years, names)
+            important_words = []
+            for word in words:
+                if (word.isdigit() or  # years
+                    word in ['2025', '2024', 'latest', 'current', 'winner', 'results'] or  # key terms
+                    word[0].isupper() or  # proper nouns
+                    len(word) > 4):  # longer words tend to be more specific
+                    important_words.append(word)
+            
+            if len(important_words) > 0:
+                optimized = ' '.join(important_words[:8])
+        
+        if settings.debug_mode and optimized != query_lower:
+            print(f"[GOOGLE] Query optimized: '{query}' -> '{optimized}'")
+        
+        return optimized if optimized != query_lower else query
+    
+    def detect_needs_search(self, query: str) -> bool:
+        """Detect if query needs Google search"""
         query_lower = query.lower().strip()
         
         # High-confidence search patterns (includes sports which will use GENERAL search)
         high_confidence_search_patterns = [
-            # Sports results (will use GENERAL search, not news)
+            # Sports results
             r'\bwho\s+won\s+(?:the\s+)?(?:last|latest|recent|yesterday\'?s?|today\'?s?)',
             r'\bwho\s+won\s+(?:the\s+)?(?:\w+\s+)?(?:race|game|match|championship|election)',
+            r'\b(?:last|latest|next)\s+(?:f1|formula|btcc|race|game|match)',
+            r'\b(?:f1|formula\s*(?:1|one)|btcc|nascar|indycar)\s+(?:race|results?|winner)',
             
             # Event queries
             r'\bwhat\s+happened\s+(?:in|with|to|at)\s+\w+\s+(?:recently|lately|today|yesterday|this\s+week)',
@@ -227,7 +320,6 @@ class OnlineLLM:
             r'\bwhat\s+is\s+(?:the\s+)?current\s+\w+',
             r'\bwhat\'?s\s+(?:the\s+)?current\s+\w+',
             r'\bcurrent\s+(?:world|land|speed|temperature|stock|price|exchange|population)\s+record',
-            r'\bcurrent\s+(?:\w+\s+)?(?:record|price|rate|value|status|standing|ranking)',
             
             # Temporal phrases
             r'\bas\s+of\s+(?:today|now|this\s+year|\d{4})',
@@ -253,35 +345,17 @@ class OnlineLLM:
                 print(f"[GOOGLE] Temporal + question mark search trigger")
             return True
         
-        # Check current question patterns
-        current_question_patterns = [
-            r'\bwhat\s+is\s+(?:the\s+)?current\b',
-            r'\bwho\s+is\s+(?:the\s+)?current\b',
-            r'\bwhat\'?s\s+(?:the\s+)?(?:current|latest)\b',
-            r'\b(?:current|latest|recent)\s+\w+\s+(?:record|price|rate|value)\b',
-        ]
-        
-        for pattern in current_question_patterns:
-            if re.search(pattern, query_lower):
-                if settings.debug_mode:
-                    print(f"[GOOGLE] Current question pattern search trigger")
-                return True
-        
         return False
     
     def detect_needs_news_search(self, query: str) -> bool:
-        """FIXED: Detect if query needs dedicated NEWS search
-        
-        Sports queries work better with GENERAL search
-        Political/conflict/government queries work better with NEWS search
-        """
+        """Detect if query needs NEWS search (not sports)"""
         query_lower = query.lower().strip()
         
         # EXCLUSION: Sports queries should NOT use news search
         sports_exclusion_patterns = [
-            r'\bwho\s+won\s+(?:the\s+)?(?:last|latest|yesterday\'?s?|today\'?s?)\s+(?:race|game|match|tournament)',
-            r'\b(?:f1|formula\s+one|formula\s+1|moto\s?gp|btcc|nascar|indycar|nfl|nba|premier\s+league)\s+(?:race|game|match)',
-            r'\b(?:race|match|game)\s+(?:result|winner)',
+            r'\b(?:f1|formula|btcc|nascar|indycar|race|game|match)\b',
+            r'\bwho\s+won\s+(?:the\s+)?(?:last|latest)',
+            r'\b(?:sports?|scores?|results?)\b',
         ]
         
         # Check if it's a sports query - if so, DON'T use news search
@@ -291,41 +365,7 @@ class OnlineLLM:
                     print(f"[GOOGLE] Sports query detected - using GENERAL search instead of news")
                 return False
         
-        # HIGH PRIORITY: News-specific patterns (NON-SPORTS)
-        high_priority_news_patterns = [
-            # "what happened" patterns
-            r'\bwhat\s+happened\s+(?:with|in|to|at)',
-            r'\bwhat\'?s\s+happening\s+(?:with|in)',
-            r'\bwhat\s+happened\s+(?:recently|lately|today|yesterday|last\s+week)',
-            
-            # Government/political
-            r'\b(?:government|parliament|senate|congress)\s+(?:last\s+week|this\s+week|recently|today)',
-            r'\b(?:election|vote|referendum)\s+(?:result|outcome|winner)',
-            
-            # War/conflict
-            r'\b(?:war|conflict|fighting|attack)\s+in\s+\w+',
-            r'\blatest\s+(?:with|on)\s+(?:the\s+)?(?:war|conflict|situation)',
-            
-            # News queries (explicit)
-            r'\blatest\s+news\s+(?:about|on|regarding)',
-            r'\bbreaking\s+news',
-            r'\brecent\s+news\s+(?:about|on)',
-            r'\bnews\s+(?:about|regarding)\s+\w+',
-            
-            # Update queries (non-sports)
-            r'\bupdate\s+on\s+(?:the\s+)?\w+',
-            r'\blatest\s+(?:with|on)\s+(?:the\s+)?\w+',
-            r'\bcurrent\s+situation\s+(?:in|with)',
-        ]
-        
-        # Check high-priority patterns
-        for pattern in high_priority_news_patterns:
-            if re.search(pattern, query_lower):
-                if settings.debug_mode:
-                    print(f"[GOOGLE NEWS] High-priority news pattern matched")
-                return True
-        
-        # Check for news indicator keywords
+        # Check for news indicators
         news_keyword_count = sum(1 for indicator in self.news_indicators if indicator in query_lower)
         
         if news_keyword_count >= 2:
@@ -333,32 +373,15 @@ class OnlineLLM:
                 print(f"[GOOGLE NEWS] Multiple news indicators ({news_keyword_count})")
             return True
         
-        # Single strong news indicator + temporal (exclude sports)
-        strong_news_keywords = [
-            'what happened', 'government', 'war', 'conflict', 
-            'gaza', 'ukraine', 'election'
-        ]
-        
-        has_strong_news = any(keyword in query_lower for keyword in strong_news_keywords)
-        has_temporal = any(indicator in query_lower for indicator in ['last week', 'recently', 'yesterday', 'today', 'latest'])
-        
-        # But NOT if it's a sports query
-        has_sports = any(sport in query_lower for sport in ['race', 'f1', 'formula', 'moto', 'btcc', 'nascar', 'game', 'match', 'tournament'])
-        
-        if has_strong_news and has_temporal and not has_sports:
-            if settings.debug_mode:
-                print(f"[GOOGLE NEWS] Strong news keyword + temporal indicator")
-            return True
-        
         return False
     
-    async def google_search(self, query: str, num_results: int = 3, search_type: str = 'general') -> List[Dict[str, Any]]:
+    async def google_search(self, query: str, num_results: int = 5, search_type: str = 'general') -> List[Dict[str, Any]]:
         """
-        Search Google and return top results
+        FIXED: Better Google search with query optimization
         
         Args:
             query: Search query
-            num_results: Number of results to return
+            num_results: Number of results to return (increased to 5)
             search_type: 'general' or 'news'
         """
         if not self.google_search_available:
@@ -372,25 +395,26 @@ class OnlineLLM:
             else:
                 self.search_count += 1
             
+            # CRITICAL: Optimize the query for better results
+            optimized_query = self._optimize_search_query(query)
+            
             search_url = "https://www.googleapis.com/customsearch/v1"
             params = {
                 'key': self.google_api_key,
                 'cx': self.google_search_id,
-                'q': query,
+                'q': optimized_query,
                 'num': num_results
             }
             
             # Add news-specific parameters
             if search_type == 'news':
-                # Sort by date for news queries
                 params['sort'] = 'date'
-                # Optionally restrict to news sites
                 params['siteSearch'] = 'news'
-                params['siteSearchFilter'] = 'i'  # include
+                params['siteSearchFilter'] = 'i'
             
             if settings.debug_mode:
                 search_label = "NEWS" if search_type == 'news' else "WEB"
-                print(f"[GOOGLE {search_label}] 🔍 Searching: {query}")
+                print(f"[GOOGLE {search_label}] 🔍 Searching: {optimized_query}")
             
             async with self.session.get(
                 search_url,
@@ -418,6 +442,8 @@ class OnlineLLM:
                     if settings.debug_mode:
                         search_label = "NEWS" if search_type == 'news' else "WEB"
                         print(f"[GOOGLE {search_label}] ✅ Found {len(results)} results")
+                        if len(results) == 0:
+                            print(f"[GOOGLE {search_label}] ⚠️  No results for: {optimized_query}")
                     
                     return results
                     
@@ -461,16 +487,15 @@ class OnlineLLM:
     
     async def generate_response_stream(self, query: str, personality_context: str, 
                                      memory_context: str) -> AsyncGenerator[str, None]:
-        """Generate streaming response with intelligent search routing"""
+        """Generate streaming response with improved search"""
         if not self.available:
             yield "Online services are not available."
             return
         
-        # INTELLIGENT: Determine search type
+        # Determine search type
         needs_search = self.detect_needs_search(query)
         needs_news_search = self.detect_needs_news_search(query)
         
-        # News search takes priority, but sports are excluded
         if needs_news_search:
             search_type = 'news'
             needs_search = True
@@ -497,7 +522,18 @@ class OnlineLLM:
                 else:
                     yield "🔍 Searching Google... "
                 
-                search_results = await self.google_search(query, num_results=3, search_type=search_type)
+                # FIXED: Use more results for better coverage
+                search_results = await self.google_search(query, num_results=5, search_type=search_type)
+                
+                # If no results, try a fallback search with simplified query
+                if not search_results and search_type == 'general':
+                    if settings.debug_mode:
+                        print("[GOOGLE] No results, trying fallback search...")
+                    
+                    # Extract key terms for fallback
+                    fallback_query = self._extract_key_terms(query)
+                    if fallback_query and fallback_query != query:
+                        search_results = await self.google_search(fallback_query, num_results=5, search_type='general')
             
             # Build enhanced prompt
             messages = []
@@ -516,9 +552,12 @@ Current year: {datetime_info['current_year']}
             if search_results:
                 system_content += self._format_search_results(search_results)
                 if search_type == 'news':
-                    system_content += "\n\nIMPORTANT: Use the NEWS search results above to answer the user's question with current, accurate news information. Cite the sources naturally in your response."
+                    system_content += "\n\nIMPORTANT: Use the NEWS search results above to answer with current information. If no clear answer is in the results, explain what information was found."
                 else:
-                    system_content += "\n\nIMPORTANT: Use the search results above to answer the user's question with current, accurate information. Cite the sources naturally in your response."
+                    system_content += "\n\nIMPORTANT: Use the search results above to answer with current information. If the results don't contain the specific answer, explain what was found and suggest the user check the latest sources directly."
+            elif needs_search:
+                # No results found but search was needed
+                system_content += "\n\nNote: Search was attempted but no results were found. Provide the best answer possible with available knowledge, and suggest checking current sources for the latest information."
             
             messages.append({"role": "system", "content": system_content})
             
@@ -600,6 +639,40 @@ Current year: {datetime_info['current_year']}
                 print(f"[GROQ] ❌ Error: {e}")
             yield "\n\nI'm having trouble with online services right now."
     
+    def _extract_key_terms(self, query: str) -> str:
+        """Extract key terms for fallback search"""
+        query_lower = query.lower()
+        
+        # Key terms to keep
+        key_terms = []
+        
+        # Extract sports terms
+        sports = ['f1', 'formula', 'btcc', 'nascar', 'race', 'game', 'match']
+        for sport in sports:
+            if sport in query_lower:
+                key_terms.append(sport)
+        
+        # Extract temporal terms
+        temporal = ['last', 'latest', 'recent', 'next', '2025', '2024']
+        for term in temporal:
+            if term in query_lower:
+                key_terms.append(term)
+        
+        # Extract action terms
+        actions = ['won', 'winner', 'results', 'champion']
+        for action in actions:
+            if action in query_lower:
+                key_terms.append(action)
+        
+        # If we have some terms, return them
+        if key_terms:
+            return ' '.join(key_terms)
+        
+        # Otherwise return first 3-4 meaningful words
+        words = query.split()
+        meaningful = [w for w in words if len(w) > 3 and w.lower() not in ['what', 'where', 'when', 'who', 'which', 'that', 'this', 'there']]
+        return ' '.join(meaningful[:4]) if meaningful else query
+    
     async def generate_response(self, query: str, personality_context: str, 
                                memory_context: str) -> str:
         """Generate non-streaming response"""
@@ -641,10 +714,11 @@ Current year: {datetime_info['current_year']}
             },
             'enhancements': [
                 '✅ Google Custom Search API integrated',
-                '✅ Intelligent routing: sports→general, politics/news→news search',
-                '✅ Sports queries optimized for general search',
-                '✅ Political/conflict queries optimized for news search',
-                '✅ Real-time web + news search capabilities',
+                '✅ IMPROVED: Query optimization for sports results',
+                '✅ FIXED: Better search terms extraction',
+                '✅ FIXED: F1/BTCC queries now work properly',
+                '✅ Fallback search for no results',
+                '✅ 5 results per search for better coverage',
                 '✅ Source attribution in responses'
             ]
         }
