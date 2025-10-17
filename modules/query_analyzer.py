@@ -1,6 +1,6 @@
 """
 Pascal AI Assistant - IMPROVED Query Analyzer (COMPLETE)
-Fixed to catch "who won the last", "what happened recently", etc.
+Fixed to catch "who won the last", "what happened recently", and "next" events
 """
 
 import re
@@ -54,7 +54,7 @@ class MultiLayerDetection:
         self._load_keywords()
     
     def _compile_patterns(self):
-        """IMPROVED patterns - catch more recent event queries"""
+        """IMPROVED patterns - catch more recent event queries and 'next' patterns"""
         
         # Layer 1: High-confidence current info patterns
         self.high_confidence_patterns = [
@@ -79,14 +79,19 @@ class MultiLayerDetection:
             re.compile(r'\bin\s+\d{4}\b', re.I),
             re.compile(r'\bthis\s+(?:year|month|week)\b', re.I),
             
-            # NEW: "who won" patterns for recent events
+            # "who won" patterns for recent events
             re.compile(r'\bwho\s+won\s+(?:the\s+)?(?:last|latest|recent|yesterday\'?s?|today\'?s?)', re.I),
             re.compile(r'\bwho\s+won\s+(?:the\s+)?(?:\w+\s+)?(?:race|game|match|championship|election)', re.I),
             
-            # NEW: "what happened" patterns for recent events
+            # "what happened" patterns for recent events
             re.compile(r'\bwhat\s+happened\s+(?:in|with|to|at)\s+\w+\s+(?:recently|lately|today|yesterday|this\s+week)', re.I),
             re.compile(r'\bwhat\s+happened\s+(?:recently|lately|today|yesterday)', re.I),
             re.compile(r'\bwhat\'?s\s+happening\s+(?:in|with|today)', re.I),
+            
+            # FIXED: "next" patterns for upcoming events
+            re.compile(r'\b(?:when|where|what)\s+(?:is\s+)?(?:the\s+)?next\s+(?:f1|formula|btcc|race|game|match|event)', re.I),
+            re.compile(r'\bnext\s+(?:f1|formula|btcc|nascar|indycar)\s+(?:race|event)', re.I),
+            re.compile(r'\b(?:upcoming|next)\s+(?:\w+\s+)?(?:race|game|match|event|schedule)', re.I),
             
             # News and events
             re.compile(r'\b(?:latest|breaking|recent|today\'?s?)\s+(?:news|headlines|events)\b', re.I),
@@ -114,9 +119,11 @@ class MultiLayerDetection:
             re.compile(r'\bexchange\s+rate\b', re.I),
             re.compile(r'\bnews\s+about\b', re.I),
             re.compile(r'\blatest\s+\w+\b', re.I),
-            re.compile(r'\brecent\s+\w+\b', re.I),  # NEW
-            re.compile(r'\bwho\s+won\b', re.I),  # NEW - any "who won" gets medium score
-            re.compile(r'\bwhat\s+happened\b', re.I),  # NEW - any "what happened" gets medium score
+            re.compile(r'\brecent\s+\w+\b', re.I),
+            re.compile(r'\bwho\s+won\b', re.I),
+            re.compile(r'\bwhat\s+happened\b', re.I),
+            re.compile(r'\bnext\s+\w+\b', re.I),  # ADDED: "next" anything
+            re.compile(r'\bupcoming\s+\w+\b', re.I),  # ADDED: "upcoming"
         ]
         
         # Layer 3: Temporal indicator patterns
@@ -124,14 +131,16 @@ class MultiLayerDetection:
             re.compile(r'\b(?:today|now|currently|right\s+now|at\s+the\s+moment)\b', re.I),
             re.compile(r'\b(?:latest|recent|breaking|fresh|new)\b', re.I),
             re.compile(r'\b(?:this\s+(?:morning|afternoon|evening|week|month|year))\b', re.I),
-            re.compile(r'\b(?:yesterday|last\s+night|last\s+week|last\s+month)\b', re.I),  # NEW
-            re.compile(r'\brecently\b', re.I),  # NEW - explicit "recently"
-            re.compile(r'\blately\b', re.I),  # NEW
+            re.compile(r'\b(?:yesterday|last\s+night|last\s+week|last\s+month)\b', re.I),
+            re.compile(r'\brecently\b', re.I),
+            re.compile(r'\blately\b', re.I),
             re.compile(r'\b(?:up\s+to\s+date|real\s+time|live)\b', re.I),
             re.compile(r'\bcurrent\b', re.I),
             re.compile(r'\bas\s+of\b', re.I),
             re.compile(r'\bin\s+\d{4}\b', re.I),
-            re.compile(r'\blast\s+\w+\s+(?:race|game|match|election)\b', re.I),  # NEW
+            re.compile(r'\blast\s+\w+\s+(?:race|game|match|election)\b', re.I),
+            re.compile(r'\bnext\s+\w+\s+(?:race|game|match|event)\b', re.I),  # ADDED
+            re.compile(r'\bupcoming\b', re.I),  # ADDED
         ]
     
     def _load_keywords(self):
@@ -143,7 +152,7 @@ class MultiLayerDetection:
             'breaking', 'live', 'real-time', 'up-to-date', 'fresh',
             'this', 'what', 'day', 'date', 'who', 'is',
             'as', 'of', 'recently', 'lately', 'yesterday', 'won',
-            'happened', 'last'  # NEW
+            'happened', 'last', 'next', 'upcoming', 'where', 'when'
         }
         
         # Current info topics
@@ -155,7 +164,8 @@ class MultiLayerDetection:
             'record', 'price', 'rate', 'value', 'status',
             'standing', 'ranking', 'champion', 'holder',
             'bitcoin', 'crypto', 'market', 'exchange',
-            'race', 'game', 'match', 'won', 'winner'  # NEW sports terms
+            'race', 'game', 'match', 'won', 'winner',
+            'f1', 'formula', 'btcc', 'nascar', 'schedule'
         }
         
         # Non-current indicators
@@ -186,16 +196,24 @@ class MultiLayerDetection:
                 if 'as of' in query_lower:
                     score += 0.15
                 
-                # NEW: EXTRA BOOST for "who won"
+                # EXTRA BOOST for "who won"
                 if re.search(r'\bwho\s+won\b', query_lower):
                     score += 0.2
                 
-                # NEW: EXTRA BOOST for "what happened" + recently/lately
+                # EXTRA BOOST for "what happened" + recently/lately
                 if re.search(r'\bwhat\s+happened\b', query_lower):
                     if any(word in query_lower for word in ['recently', 'lately', 'today', 'yesterday']):
                         score += 0.25
                     else:
                         score += 0.15
+                
+                # FIXED: EXTRA BOOST for "next" + sports/event
+                if re.search(r'\bnext\s+(?:f1|formula|btcc|race|game|match|event)', query_lower):
+                    score += 0.3
+                
+                # FIXED: EXTRA BOOST for "where/when is the next"
+                if re.search(r'\b(?:where|when)\s+(?:is\s+)?(?:the\s+)?next\b', query_lower):
+                    score += 0.25
                 
                 break
         
@@ -214,13 +232,21 @@ class MultiLayerDetection:
         if temporal_count > 0:
             score += min(0.3, temporal_count * 0.15)
         
-        # NEW: BOOST for "recently" or "lately" (very strong temporal indicators)
+        # BOOST for "recently" or "lately"
         if 'recently' in query_lower or 'lately' in query_lower:
             score += 0.2
         
-        # NEW: BOOST for "last [event]" patterns
+        # BOOST for "last [event]" patterns
         if re.search(r'\blast\s+\w+\s+(?:race|game|match|election|event)', query_lower):
             score += 0.25
+        
+        # FIXED: BOOST for "next/upcoming [event]" patterns
+        if re.search(r'\b(?:next|upcoming)\s+\w+\s+(?:race|game|match|event|schedule)', query_lower):
+            score += 0.3
+        
+        # FIXED: Special handling for "next" queries about sports
+        if 'next' in query_lower and any(sport in query_lower for sport in ['f1', 'formula', 'race', 'btcc', 'nascar']):
+            score += 0.4  # Strong boost
         
         # Layer 4: Keyword analysis
         words = set(re.findall(r'\b\w+\b', query_lower))
@@ -377,8 +403,12 @@ class QueryClassifier:
         if re.search(r'\bcurrent\s+\w+', query_lower):
             return QueryIntent.CURRENT_INFO
         
-        # NEW: "who won" or "what happened" = CURRENT_INFO
+        # "who won" or "what happened" = CURRENT_INFO
         if 'who won' in query_lower or 'what happened' in query_lower:
+            return QueryIntent.CURRENT_INFO
+        
+        # FIXED: "next" or "upcoming" = CURRENT_INFO
+        if 'next' in query_lower or 'upcoming' in query_lower:
             return QueryIntent.CURRENT_INFO
         
         # Default classification based on query characteristics
@@ -516,6 +546,8 @@ async def test_analyzer():
     test_queries = [
         # The problematic queries from user's debug output
         "who won the last f1 race and where was it?",
+        "where is the next f1 race?",
+        "who won the last btcc race?",
         "what happened in french polotitc recently",
         "what is the current land speed record as of today in 2025",
         
