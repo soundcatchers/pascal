@@ -348,7 +348,7 @@ class IntelligentRouter:
             init_time = time.time() - start_time
             
             # Skills are available if any work, even without API keys
-            self.skills_available = True
+            self.skills_available = any(s.get('available', False) for s in api_status.values())
             self.performance_tracker.record_request('skills', init_time, True, 'initialization')
             
             if settings.debug_mode:
@@ -395,60 +395,31 @@ class IntelligentRouter:
         
         return decision
     
-    async def route_query(self, query: str, use_history: List[Dict] = None) -> Dict[str, Any]:
-        """
-        Test-compatible routing method
-        
-        Returns:
-            {
-                'route': 'offline' | 'online' | 'skill' | 'error',
-                'response': str,
-                'reasoning': str,
-                'response_time': float,
-                'confidence': float
-            }
-        """
-        start_time = time.time()
-        
-        # Make sure systems are initialized
-        if not self._initialized:
-            await self._check_llm_availability()
-            self._initialized = True
-        
-        # Make routing decision
-        decision = await self.make_intelligent_decision(query)
-        
-        # Get actual response
-        try:
-            response_text = await self.get_response(query)
-            success = True
-        except Exception as e:
-            response_text = f"Error: {str(e)}"
-            success = False
-        
-        response_time = time.time() - start_time
-        
-        return {
-            'route': decision.route_type,
-            'response': response_text,
-            'reasoning': decision.reason,
-            'confidence': decision.confidence,
-            'response_time': response_time,
-            'success': success,
-            'expected_time': decision.expected_time,
-            'analysis': {
-                'intent': decision.analysis.intent.value,
-                'complexity': decision.analysis.complexity.value,
-                'current_info_score': decision.analysis.current_info_score
-            }
-        }
-    
     def _apply_routing_logic(self, analysis: QueryAnalysis, 
                            system_performance: Dict[str, SystemPerformance]) -> IntelligentRouteDecision:
         """Apply intelligent routing logic based on analysis and performance"""
         
         config = self.routing_config
-        
+
+        # PRIORITY 0: Sports-specific queries -> skills (if available)
+        try:
+            intent_val = analysis.intent.value if hasattr(analysis.intent, 'value') else str(analysis.intent)
+            intent_lower = intent_val.lower() if isinstance(intent_val, str) else ""
+            if any(tok in intent_lower for tok in ('sport', 'sports', 'f1', 'formula')):
+                if self.skills_available:
+                    expected_time = self.performance_tracker.get_expected_time('skills', intent_val)
+                    return IntelligentRouteDecision(
+                        route_type='skill',
+                        reason=f"Sports intent detected ({intent_val}) - routing to sports skill",
+                        confidence=0.98,
+                        analysis=analysis,
+                        system_performance=system_performance,
+                        expected_time=expected_time,
+                        fallback_route='online' if self.online_available else 'offline' if self.offline_available else 'fallback'
+                    )
+        except Exception:
+            pass
+
         # Priority 1: Current Information Detection
         if analysis.current_info_score >= config['current_info_threshold']:
             if self.online_available:
@@ -730,12 +701,33 @@ class IntelligentRouter:
         """Handle skills routing"""
         skill_name = self._determine_skill_name(decision.analysis.intent)
         
+        # If the route decision is generic 'skill' (e.g., sports) we prefer the explicit mapping
+        if decision.route_type == 'skill' and decision.analysis:
+            # try map intent to skill name first
+            mapped = self._determine_skill_name(decision.analysis.intent)
+            if mapped:
+                skill_name = mapped
+        
         if skill_name:
             try:
-                result = await self.skills_manager.execute_skill(query, skill_name)
-                if result and result.success:
-                    yield result.response
-                    return
+                # Use skills_manager.execute_skill if available
+                if self.skills_manager:
+                    result = await self.skills_manager.execute_skill(query, skill_name, entities=getattr(decision.analysis, 'entities', None))
+                    if result and result.success:
+                        yield result.response
+                        return
+                else:
+                    # No skills manager; try a direct module call
+                    try:
+                        mod = __import__(f"modules.skills.{skill_name}", fromlist=[''])
+                        if hasattr(mod, 'SportsSkill'):
+                            inst = getattr(mod, 'SportsSkill')()
+                            res = await inst.execute(query, getattr(decision.analysis, 'entities', None))
+                            if getattr(res, 'success', False):
+                                yield res.response
+                                return
+                    except Exception:
+                        pass
             except Exception:
                 pass
         
@@ -803,9 +795,22 @@ class IntelligentRouter:
             QueryIntent.TIME_QUERY: 'datetime',
             QueryIntent.CALCULATION: 'calculator',
             QueryIntent.WEATHER: 'weather',
-            QueryIntent.NEWS: 'news'
+            QueryIntent.NEWS: 'news',
+            # sports mapping - accept either QueryIntent.SPORTS or F1 label
+            getattr(QueryIntent, 'SPORTS', None): 'sports',
+            getattr(QueryIntent, 'F1', None): 'sports'
         }
-        return skill_mapping.get(intent)
+        # Try direct mapping
+        if intent in skill_mapping and skill_mapping[intent]:
+            return skill_mapping[intent]
+        # Try value-based mapping (string)
+        try:
+            iv = intent.value.lower()
+            if 'sport' in iv or 'f1' in iv or 'formula' in iv:
+                return 'sports'
+        except Exception:
+            pass
+        return None
     
     def _optimize_offline_for_query(self, analysis: QueryAnalysis):
         """Optimize offline model settings based on query analysis"""
