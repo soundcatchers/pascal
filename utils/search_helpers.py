@@ -4,7 +4,7 @@ Used to avoid poor query rewrites and to prefer targeted site searches for speci
 """
 
 from typing import Dict, Optional
-from datetime import datetime
+from datetime import datetime, timedelta
 
 def normalize_timeframe_to_dates(entities: Dict) -> Optional[Dict]:
     """
