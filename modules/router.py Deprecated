@@ -1,4 +1,5 @@
 """
+Deprecated — use modules/intelligent_router.py
 Pascal AI Assistant - Intelligent Router (Production Ready) - FIXED
 Multi-layer query analysis with 95%+ routing accuracy
 """
