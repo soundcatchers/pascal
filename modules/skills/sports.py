@@ -44,15 +44,10 @@ class SportsSkill:
             async with self.session.get(url, params=params) as resp:
                 if resp.status == 200:
                     text = await resp.text()
-                    # Ergast returns XML if not requested as JSON; ensure JSON outcome:
                     try:
                         return json.loads(text)
                     except Exception:
-                        # Try to parse as JSON-like by replacing single quotes (fallback)
-                        try:
-                            return json.loads(text.strip())
-                        except Exception:
-                            return None
+                        return None
                 else:
                     return None
         except Exception:
@@ -75,34 +70,14 @@ class SportsSkill:
         Attempt to find pole-sitter for the sprint (or qualifying) and event location.
         timeframe: dict with optional 'from' and 'to' datetimes if normalized by analyzer.
         """
-        # 1) Use Ergast to identify the next race / current round
-        erg = await self._ergast_current_round()
-        season = None
-        round_num = None
-        if erg:
-            series = erg.get("series", "")
-            # MRData -> RaceTable etc (Ergast structure)
-            # Fallback parsing: try to get season and race info by calling /current/next endpoints
-            # Use the 'RaceTable' by requesting schedule for current season
-            try:
-                season = erg.get("series", "")
-            except Exception:
-                pass
-
-        # Try Ergast: get next race results (last completed session)
-        # Ergast provides results endpoints like /{season}/{round}/results.json
-        # We need to find the round for 'this weekend' - Ergast exposes schedule: /{season}.json -> races list
-        # Fallback approach: fetch current season races and attempt to find an upcoming race around 'timeframe'
         try:
-            # Fetch current season race list
             cur = await self._fetch_json(f"{self.ergast_base}/current.json")
             if cur:
                 races = cur.get("MRData", {}).get("RaceTable", {}).get("Races", [])
-                # If timeframe provided, find race with date in timeframe
+                candidate = None
                 if timeframe and "from" in timeframe and "to" in timeframe:
                     fr = timeframe["from"].date()
                     to = timeframe["to"].date()
-                    candidate = None
                     for r in races:
                         try:
                             rd = datetime.strptime(r.get("date"), "%Y-%m-%d").date()
@@ -112,9 +87,7 @@ class SportsSkill:
                             candidate = r
                             break
                 else:
-                    # Fallback: choose first upcoming race with 'date' >= today
                     today = datetime.utcnow().date()
-                    candidate = None
                     for r in races:
                         try:
                             rd = datetime.strptime(r.get("date"), "%Y-%m-%d").date()
@@ -133,51 +106,37 @@ class SportsSkill:
                     locality = location.get("locality", "")
                     country = location.get("country", "")
                     location_str = f"{circuit}, {locality} ({country})" if locality else f"{circuit} ({country})"
-                    
-                    # Now attempt to get qualifying/sprint results for that round
-                    # Sprint result endpoint: /{season}/{round}/sprint.json (not official; Ergast may not expose sprint)
-                    # We'll try qualifying, then race, then results endpoint
+
                     season = race_season
                     round_num = race_round
 
-                    # Try sprint results (Ergast extension may not support sprint explicitly)
-                    sprint_resp = await self._fetch_json(f"{self.ergast_base}/{season}/{round_num}/results.json")
-                    # Attempt to parse the response to extract pole etc.
-                    if sprint_resp:
-                        races_data = sprint_resp.get("MRData", {}).get("RaceTable", {}).get("Races", [])
-                        if races_data:
-                            # There may be sessions; results JSON contains final race results (not sprint). For pole we want qualifying.
-                            # Try qualifying endpoint (ergast does not have qualifying per se in same API; but qualifying results endpoint is /qualifying)
-                            qual_resp = await self._fetch_json(f"{self.ergast_base}/{season}/{round_num}/qualifying.json")
-                            if qual_resp:
-                                races_q = qual_resp.get("MRData", {}).get("RaceTable", {}).get("Races", [])
-                                if races_q:
-                                    # qualifying first position
-                                    try:
-                                        qres = races_q[0].get("QualifyingResults", [])
-                                        if qres:
-                                            pole = qres[0]
-                                            driver = pole.get("Driver", {})
-                                            driver_name = f"{driver.get('givenName','')} {driver.get('familyName','')}".strip()
-                                            response = f"Pole (qualifying) for {race_name} ({location_str}) appears to be {driver_name}."
-                                            source = f"https://ergast.com/mrd/{season}/{round_num}/qualifying"
-                                            return SkillResult(True, response, source)
-                                    except Exception:
-                                        pass
+                    # Try qualifying (best available for pole information)
+                    qual_resp = await self._fetch_json(f"{self.ergast_base}/{season}/{round_num}/qualifying.json")
+                    if qual_resp:
+                        races_q = qual_resp.get("MRData", {}).get("RaceTable", {}).get("Races", [])
+                        if races_q:
+                            try:
+                                qres = races_q[0].get("QualifyingResults", [])
+                                if qres:
+                                    pole = qres[0]
+                                    driver = pole.get("Driver", {})
+                                    driver_name = f"{driver.get('givenName','')} {driver.get('familyName','')}".strip()
+                                    response = f"Pole (qualifying) for {race_name} ({location_str}) appears to be {driver_name}."
+                                    source = f"https://ergast.com/mrd/{season}/{round_num}/qualifying"
+                                    return SkillResult(True, response, source)
+                            except Exception:
+                                pass
 
-                            # If qualifying not available, attempt to return helpful contact info/sources
-                            # Fallback craft helpful message with source links
-                            source = candidate.get("url", "")
-                            response = (f"I found the {race_name} at {location_str}. I couldn't find a verified sprint-pole in Ergast results."
-                                        f" Try official F1 site or motorsport sites: https://www.formula1.com/")
-                            return SkillResult(False, response, "https://www.formula1.com/")
-                    
-                    # fallback message if everything fails
+                    # If qualifying not available, attempt race results (may not be sprint)
+                    results_resp = await self._fetch_json(f"{self.ergast_base}/{season}/{round_num}/results.json")
+                    if results_resp:
+                        # Provide location and direction to official F1 site as fallback
+                        return SkillResult(False, f"I found {race_name} at {location_str}, but couldn't find a verified sprint-pole in Ergast. Try the official F1 site: https://www.formula1.com/", "https://www.formula1.com/")
+
                     return SkillResult(False, f"I see {race_name} at {location_str}, but I couldn't find confirmed sprint pole information in the public API. Try the official F1 site: https://www.formula1.com/", "https://www.formula1.com/")
         except Exception:
             pass
 
-        # If Ergast failed entirely, try a targeted Google search suggestion (return helpful suggestion)
         return SkillResult(False, "I couldn't fetch race results from the structured F1 API. I can try a live web search of Formula1.com or ESPN if you want.", None)
 
     async def execute(self, query: str, entities: Dict[str, Any] = None) -> SkillResult:
@@ -189,23 +148,18 @@ class SportsSkill:
         if not self.session:
             await self.initialize()
 
-        # Extract timeframe if analyzer provided, else normalize 'this weekend' heuristically
         timeframe = None
         if entities:
             timeframe = entities.get("timeframe") or entities.get("date_range")
         if not timeframe:
-            # Heuristic: "this weekend" => next Saturday-Sunday
             now = datetime.utcnow()
-            # find upcoming saturday
-            days_ahead = (5 - now.weekday()) % 7  # Saturday index 5 (Mon=0)
+            days_ahead = (5 - now.weekday()) % 7
             sat = (now + timedelta(days=days_ahead)).replace(hour=0, minute=0, second=0, microsecond=0)
             sun = sat + timedelta(days=1)
             timeframe = {"from": sat, "to": sun}
 
-        # For now only handle F1-specific queries for pole / sprint / location
         query_lower = query.lower()
         if "pole" in query_lower or "sprint" in query_lower or "qualif" in query_lower:
             return await self.query_f1_pole_and_location(timeframe)
 
-        # Otherwise, not specialized
         return SkillResult(False, "Sports skill can handle F1 pole/qualifying/sprint queries. Try asking specifically 'who is on pole for the F1 sprint at [event]?'", None)
