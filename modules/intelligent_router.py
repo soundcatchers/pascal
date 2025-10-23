@@ -1,6 +1,7 @@
 """
 Pascal AI Assistant - Intelligent Router with Enhanced Decision Making
 Near-perfect routing decisions using multi-layer query analysis
+(with multi-turn prompt integration using the existing MemoryManager)
 """
 
 import asyncio
@@ -16,6 +17,9 @@ from modules.query_analyzer import (
     EnhancedQueryAnalyzer, QueryAnalysis, QueryComplexity, QueryIntent
 )
 from config.settings import settings
+
+# Prompt builder (compatible with existing modules/memory.MemoryManager)
+from modules.prompt_builder import build_prompt
 
 class SystemAvailability(Enum):
     """System availability status"""
@@ -214,7 +218,7 @@ class PerformanceTracker:
             pass  # Don't fail if saving doesn't work
 
 class IntelligentRouter:
-    """Intelligent router with enhanced decision making"""
+    """Intelligent router with enhanced decision making and multi-turn prompt integration"""
     
     def __init__(self, personality_manager, memory_manager):
         self.personality_manager = personality_manager
@@ -394,6 +398,54 @@ class IntelligentRouter:
             self.decision_history = self.decision_history[-500:]
         
         return decision
+    
+    async def route_query(self, query: str, use_history: List[Dict] = None, session_id: Optional[str] = None) -> Dict[str, Any]:
+        """
+        Test-compatible routing method
+        
+        Returns:
+            {
+                'route': 'offline' | 'online' | 'skill' | 'error',
+                'response': str,
+                'reasoning': str,
+                'response_time': float,
+                'confidence': float
+            }
+        """
+        start_time = time.time()
+        
+        # Make sure systems are initialized
+        if not self._initialized:
+            await self._check_llm_availability()
+            self._initialized = True
+        
+        # Make routing decision
+        decision = await self.make_intelligent_decision(query)
+        
+        # Get actual response (non-streaming)
+        try:
+            response_text = await self.get_response(query, session_id=session_id)
+            success = True
+        except Exception as e:
+            response_text = f"Error: {str(e)}"
+            success = False
+        
+        response_time = time.time() - start_time
+        
+        return {
+            'route': decision.route_type,
+            'response': response_text,
+            'reasoning': decision.reason,
+            'confidence': decision.confidence,
+            'response_time': response_time,
+            'success': success,
+            'expected_time': decision.expected_time,
+            'analysis': {
+                'intent': decision.analysis.intent.value,
+                'complexity': decision.analysis.complexity.value,
+                'current_info_score': decision.analysis.current_info_score
+            }
+        }
     
     def _apply_routing_logic(self, analysis: QueryAnalysis, 
                            system_performance: Dict[str, SystemPerformance]) -> IntelligentRouteDecision:
@@ -621,8 +673,8 @@ class IntelligentRouter:
         
         return decision
     
-    async def get_streaming_response(self, query: str) -> AsyncGenerator[str, None]:
-        """Get streaming response using intelligent routing"""
+    async def get_streaming_response(self, query: str, session_id: Optional[str] = None) -> AsyncGenerator[str, None]:
+        """Get streaming response using intelligent routing. Optionally integrate with MemoryManager session."""
         
         # Make routing decision
         decision = await self.make_intelligent_decision(query)
@@ -635,22 +687,28 @@ class IntelligentRouter:
         success = False
         response_generated = False
         
+        # Determine session context holder (MemoryManager is per-instance)
+        mem = getattr(self, 'memory_manager', None)
+        # use mem.session_id if provided and session_id not explicitly passed
+        if session_id is None and mem and hasattr(mem, 'session_id'):
+            session_id = getattr(mem, 'session_id', None)
+        
         try:
             # Route to appropriate system
             if decision.use_skill and self.skills_manager:
-                async for chunk in self._handle_skills_route(query, decision):
+                async for chunk in self._handle_skills_route(query, decision, session_id):
                     yield chunk
                     response_generated = True
                 success = True
                 
             elif decision.use_online and self.online_llm:
-                async for chunk in self._handle_online_route(query, decision):
+                async for chunk in self._handle_online_route(query, decision, session_id):
                     yield chunk
                     response_generated = True
                 success = True
                 
             elif decision.use_offline and self.offline_llm:
-                async for chunk in self._handle_offline_route(query, decision):
+                async for chunk in self._handle_offline_route(query, decision, session_id):
                     yield chunk
                     response_generated = True
                 success = True
@@ -697,7 +755,7 @@ class IntelligentRouter:
             if self.total_decisions % 10 == 0:
                 self.performance_tracker.save_performance_data()
     
-    async def _handle_skills_route(self, query: str, decision: IntelligentRouteDecision) -> AsyncGenerator[str, None]:
+    async def _handle_skills_route(self, query: str, decision: IntelligentRouteDecision, session_id: Optional[str]) -> AsyncGenerator[str, None]:
         """Handle skills routing"""
         skill_name = self._determine_skill_name(decision.analysis.intent)
         
@@ -714,8 +772,19 @@ class IntelligentRouter:
                 if self.skills_manager:
                     result = await self.skills_manager.execute_skill(query, skill_name, entities=getattr(decision.analysis, 'entities', None))
                     if result and result.success:
+                        # add to memory (if available)
+                        try:
+                            if self.memory_manager and session_id and asyncio.iscoroutinefunction(getattr(self.memory_manager, 'add_interaction', None)):
+                                # MemoryManager stores interactions by instance; ensure it's the intended session
+                                await self.memory_manager.add_interaction(query, result.response)
+                        except Exception:
+                            pass
                         yield result.response
                         return
+                    else:
+                        # If skill returned but not successful, yield its message and fallback
+                        if result:
+                            yield result.response
                 else:
                     # No skills manager; try a direct module call
                     try:
@@ -724,6 +793,12 @@ class IntelligentRouter:
                             inst = getattr(mod, 'SportsSkill')()
                             res = await inst.execute(query, getattr(decision.analysis, 'entities', None))
                             if getattr(res, 'success', False):
+                                # persist interaction
+                                try:
+                                    if self.memory_manager and session_id and asyncio.iscoroutinefunction(getattr(self.memory_manager, 'add_interaction', None)):
+                                        await self.memory_manager.add_interaction(query, res.response)
+                                except Exception:
+                                    pass
                                 yield res.response
                                 return
                     except Exception:
@@ -737,36 +812,73 @@ class IntelligentRouter:
             async for chunk in self._handle_fallback_system(query, decision.fallback_route):
                 yield chunk
     
-    async def _handle_online_route(self, query: str, decision: IntelligentRouteDecision) -> AsyncGenerator[str, None]:
-        """Handle online routing"""
+    async def _handle_online_route(self, query: str, decision: IntelligentRouteDecision, session_id: Optional[str]) -> AsyncGenerator[str, None]:
+        """Handle online routing with prompt-builder and memory integration"""
         try:
-            personality_context = await self.personality_manager.get_system_prompt()
-            memory_context = await self.memory_manager.get_context()
-            
+            # Personality & context
+            try:
+                personality_context = await self.personality_manager.get_system_prompt()
+            except Exception:
+                personality_context = ""
+            # Build multi-turn prompt using existing MemoryManager
+            try:
+                # choose conservative max_chars for online
+                prompt = await build_prompt(session_id or getattr(self.memory_manager, 'session_id', None),
+                                            query, self.memory_manager, self.personality_manager, max_chars=6000)
+            except Exception:
+                prompt = ""  # fallback
+
             if decision.analysis.current_info_score >= 0.7:
                 yield "🌐 Getting current information... "
             
+            # Stream from online LLM, accumulate for memory
+            response_buffer = ""
             async for chunk in self.online_llm.generate_response_stream(
-                query, personality_context, memory_context
+                query, personality_context, prompt
             ):
+                response_buffer += chunk
                 yield chunk
+                
+            # After streaming completed, persist to memory if possible
+            try:
+                if self.memory_manager and asyncio.iscoroutinefunction(getattr(self.memory_manager, 'add_interaction', None)):
+                    await self.memory_manager.add_interaction(query, response_buffer)
+            except Exception:
+                pass
                 
         except Exception as e:
             raise e
     
-    async def _handle_offline_route(self, query: str, decision: IntelligentRouteDecision) -> AsyncGenerator[str, None]:
-        """Handle offline routing"""
+    async def _handle_offline_route(self, query: str, decision: IntelligentRouteDecision, session_id: Optional[str]) -> AsyncGenerator[str, None]:
+        """Handle offline routing with prompt-builder and memory integration"""
         try:
-            personality_context = await self.personality_manager.get_system_prompt()
-            memory_context = await self.memory_manager.get_context()
+            try:
+                personality_context = await self.personality_manager.get_system_prompt()
+            except Exception:
+                personality_context = ""
+            try:
+                # smaller prompt budget for offline models
+                prompt = await build_prompt(session_id or getattr(self.memory_manager, 'session_id', None),
+                                            query, self.memory_manager, self.personality_manager, max_chars=2500)
+            except Exception:
+                prompt = ""
             
             # Optimize offline model settings based on query complexity
             self._optimize_offline_for_query(decision.analysis)
             
+            response_buffer = ""
             async for chunk in self.offline_llm.generate_response_stream(
-                query, personality_context, memory_context
+                query, personality_context, prompt
             ):
+                response_buffer += chunk
                 yield chunk
+            
+            # After streaming completed, persist to memory if possible
+            try:
+                if self.memory_manager and asyncio.iscoroutinefunction(getattr(self.memory_manager, 'add_interaction', None)):
+                    await self.memory_manager.add_interaction(query, response_buffer)
+            except Exception:
+                pass
                 
         except Exception as e:
             raise e
@@ -780,10 +892,10 @@ class IntelligentRouter:
     async def _handle_fallback_system(self, query: str, fallback_system: str) -> AsyncGenerator[str, None]:
         """Handle fallback to specific system"""
         if fallback_system == 'offline' and self.offline_available:
-            async for chunk in self._handle_offline_route(query, self.last_decision):
+            async for chunk in self._handle_offline_route(query, self.last_decision, getattr(self.memory_manager, 'session_id', None)):
                 yield chunk
         elif fallback_system == 'online' and self.online_available:
-            async for chunk in self._handle_online_route(query, self.last_decision):
+            async for chunk in self._handle_online_route(query, self.last_decision, getattr(self.memory_manager, 'session_id', None)):
                 yield chunk
         else:
             async for chunk in self._handle_fallback_route(query, self.last_decision):
@@ -883,12 +995,12 @@ class IntelligentRouter:
         else:
             return "I'm having trouble processing your request. Please try again."
     
-    async def get_response(self, query: str) -> str:
-        """Get non-streaming response"""
-        response_parts = []
-        async for chunk in self.get_streaming_response(query):
-            response_parts.append(chunk)
-        return ''.join(response_parts)
+    async def get_response(self, query: str, session_id: Optional[str] = None) -> str:
+        """Get non-streaming response (aggregates streaming response)"""
+        parts = []
+        async for chunk in self.get_streaming_response(query, session_id=session_id):
+            parts.append(chunk)
+        return ''.join(parts)
     
     def get_routing_stats(self) -> Dict[str, any]:
         """Get comprehensive routing statistics"""
