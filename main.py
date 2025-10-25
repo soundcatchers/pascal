@@ -6,6 +6,7 @@ Features: Simplified Nemotron + Groq with fast routing + Enhanced Conversational
 import asyncio
 import signal
 import sys
+import time  # FIXED: Added missing import
 from pathlib import Path
 from rich.console import Console
 from rich.panel import Panel
@@ -40,6 +41,9 @@ class Pascal:
             'online_queries': 0,
             'follow_up_queries': 0,
             'context_enhanced_queries': 0,
+            'greeting_queries': 0,
+            'forced_offline_queries': 0,
+            'forced_online_queries': 0,
             'start_time': None,
         }
     
@@ -61,6 +65,10 @@ class Pascal:
             
             # FIXED: Initialize enhanced intelligent router
             self.router = EnhancedIntelligentRouter.create(self.personality_manager, self.memory_manager)
+            
+            # Clear any stale context from previous sessions
+            if hasattr(self.router, 'clear_context'):
+                self.router.clear_context()
             
             # FIXED: Check system availability using correct method
             await self.router._check_llm_availability()
@@ -105,16 +113,14 @@ class Pascal:
     
     async def chat_loop(self):
         """FIXED: Enhanced conversational chat interaction loop"""
-        import time
         self.session_stats['start_time'] = time.time()
         
         self.console.print("\n💬 Chat with Pascal Enhanced Conversational Edition\n", style="cyan")
         self.console.print("Type 'help' for commands. Now with enhanced context awareness!\n", style="dim")
         
-        # Show initial tip based on available systems
         if self.router:
             if self.router.offline_available and self.router.online_available:
-                self.console.print("💡 Try: 'Who is the UK PM?' then 'What about their deputy?'\n", style="green")
+                self.console.print("💡 Try: 'Hello Pascal' (offline) then 'Who won the last F1 race?' (online) then 'Who came second?' (enhanced follow-up)\n", style="green")
             elif self.router.online_available:
                 self.console.print("💡 Online AI ready for current information and follow-ups!\n", style="green")
         
@@ -139,6 +145,11 @@ class Pascal:
                 # Update session stats
                 self.session_stats['queries'] += 1
                 
+                # Check if it's a greeting for stats
+                greeting_patterns = ['hello', 'hi', 'hey', 'how are you', 'good morning']
+                if any(pattern in user_input.lower() for pattern in greeting_patterns):
+                    self.session_stats['greeting_queries'] += 1
+                
                 # Stream Pascal's response using enhanced router
                 self.console.print("Pascal: ", style="bold magenta", end="")
                 
@@ -162,6 +173,13 @@ class Pascal:
                         elif decision.use_online:
                             self.session_stats['online_queries'] += 1
                         
+                        # Track enhanced routing decisions
+                        if 'enhanced context' in decision.reason.lower():
+                            if 'forcing offline' in decision.reason.lower():
+                                self.session_stats['forced_offline_queries'] += 1
+                            elif 'forcing online' in decision.reason.lower():
+                                self.session_stats['forced_online_queries'] += 1
+                        
                         # Track follow-ups and context enhancements
                         if 'follow-up' in decision.reason.lower():
                             self.session_stats['follow_up_queries'] += 1
@@ -173,6 +191,8 @@ class Pascal:
                         decision = self.router.last_decision
                         route_type = "NEMOTRON" if decision.use_offline else "GROQ" if decision.use_online else "SKILL"
                         extra_info = []
+                        if 'enhanced context' in decision.reason.lower():
+                            extra_info.append("Enhanced-Override")
                         if 'follow-up' in decision.reason.lower():
                             extra_info.append("Follow-up")
                         if 'context' in decision.reason.lower():
@@ -211,16 +231,8 @@ class Pascal:
         elif command == 'clear':
             await self.memory_manager.clear_session()
             # Reset router context
-            if hasattr(self.router, 'conversation_context'):
-                self.router.conversation_context = {
-                    'recent_topics': [],
-                    'last_intent': None,
-                    'source_memory': {},
-                    'follow_up_chain': [],
-                    'entities_mentioned': [],
-                    'current_topic': None,
-                    'topic_history': []
-                }
+            if hasattr(self.router, 'clear_context'):
+                self.router.clear_context()
             self.console.print("✅ Conversation and context cleared", style="green")
         
         elif command == 'context':
@@ -234,6 +246,24 @@ class Pascal:
         elif command == 'debug':
             settings.debug_mode = not settings.debug_mode
             self.console.print(f"Debug mode: {'ON' if settings.debug_mode else 'OFF'}", style="yellow")
+        
+        elif command == 'test':
+            # Test routing for different query types
+            test_queries = [
+                ("Hello Pascal", "Should route to OFFLINE"),
+                ("What day is today?", "Should route to ONLINE"),
+                ("Who won the last F1 race?", "Should route to ONLINE"),
+                ("Who came second?", "Should be enhanced follow-up to ONLINE")
+            ]
+            
+            for query, expected in test_queries:
+                try:
+                    decision, context_info = await self.router.make_enhanced_intelligent_decision(query, session_id=self.memory_manager.session_id)
+                    route_type = "OFFLINE" if decision.use_offline else "ONLINE" if decision.use_online else "SKILL"
+                    context_desc = "Greeting" if context_info['is_greeting'] else "Follow-up" if context_info['is_follow_up'] else "Standalone"
+                    self.console.print(f"'{query}' -> {route_type} ({context_desc}) - {expected}", style="dim")
+                except Exception as e:
+                    self.console.print(f"'{query}' -> ERROR: {e}", style="red")
         
         else:
             # Not a command, process as normal input
@@ -253,16 +283,17 @@ class Pascal:
         
         # Basic info
         status_table.add_row("Version", f"v{config['pascal_version']}", "Enhanced Conversational Edition")
-        status_table.add_row("Context Awareness", "✅ Enhanced", "Maintains conversation flow")
+        status_table.add_row("Context Awareness", "✅ Enhanced", "Overrides base router decisions")
         status_table.add_row("Follow-up Detection", "✅ Advanced", "Understands pronouns and references")
         status_table.add_row("Search Enhancement", "✅ Intelligent", "Context-aware query optimization")
+        status_table.add_row("Greeting Detection", "✅ Perfect", "Forces offline for personality")
         status_table.add_row("Streaming", "⚡ Enabled" if config['streaming_enabled'] else "❌ Disabled", "Real-time responses")
         
         # System status
         system_status = self._get_system_status()
         
         if system_status.get('offline_llm'):
-            status_table.add_row("Offline (Nemotron)", "✅ Ready", "Local AI via Ollama")
+            status_table.add_row("Offline (Nemotron)", "✅ Ready", "Local AI via Ollama - Greetings & Chat")
         else:
             status_table.add_row("Offline (Nemotron)", "❌ Not available", "Check Ollama")
         
@@ -294,21 +325,34 @@ class Pascal:
                     context_text = "\n".join(context_info)
                     self.console.print(Panel(context_text, title="🧠 Current Context", border_style="yellow"))
         
+        # FIXED: Simplified session context calculation
+        session_duration = 0
+        if hasattr(self.router, 'conversation_context') and self.router.conversation_context.get('session_start_time'):
+            session_duration = time.time() - self.router.conversation_context['session_start_time']
+        
         # Enhanced conversational features
-        perf_text = """[bold]⚡ Enhanced Conversational Features:[/bold]
-  • Context Awareness: Remembers conversation topics and sources
-  • Smart Follow-ups: Understands "who came second?" after F1 questions
-  • Search Enhancement: Transforms "he" to "Keir Starmer" in follow-ups
-  • Topic Flow: Tracks conversation progression for better responses
+        perf_text = f"""[bold]⚡ Enhanced Conversational Features:[/bold]
+  • Smart Routing Override: Greetings always go to offline for personality
+  • Context-Aware Follow-ups: "Who came second?" after F1 questions
+  • Search Enhancement: Improves F1 queries with better date ranges
+  • Entity Tracking: Remembers F1, politics, weather topics
+  • Session Context: Current session started {session_duration:.0f}s ago
+  
+[bold]Fixed Issues:[/bold]
+  • ✅ Greetings now route to offline (Nemotron) for better personality
+  • ✅ F1 searches improved with better date handling (2024-2025)
+  • ✅ Follow-ups maintain context and enhance search queries
+  • ✅ Memory leaks reduced with proper session cleanup
   
 [bold]Conversational Examples:[/bold]
-  • "Who is the UK Prime Minister?" → Gets current info
-  • "What about their deputy?" → Enhances to "UK Deputy Prime Minister"
-  • "Didn't he get a new one today?" → "Keir Starmer UK Deputy PM new today"
+  • "Hello Pascal" → OFFLINE (Nemotron) for friendly personality
+  • "Who won the last F1 race?" → ONLINE (Groq) with enhanced search
+  • "Who came second?" → ONLINE with F1 context enhancement
   
 [bold]Quick Commands:[/bold]
   • help/status - Show this information
   • context - Show current conversation context
+  • test - Test routing for different query types
   • clear - Clear conversation history and context
   • debug - Toggle debug mode
   • quit/exit - Stop Pascal"""
@@ -317,8 +361,8 @@ class Pascal:
         
         # Show session stats if available
         if self.session_stats['queries'] > 0:
-            stats_text = f"""Queries: {self.session_stats['queries']} | Follow-ups: {self.session_stats['follow_up_queries']} | Context-Enhanced: {self.session_stats['context_enhanced_queries']}
-Offline: {self.session_stats['offline_queries']} | Online: {self.session_stats['online_queries']}"""
+            stats_text = f"""Queries: {self.session_stats['queries']} | Greetings: {self.session_stats['greeting_queries']} | Follow-ups: {self.session_stats['follow_up_queries']} | Enhanced: {self.session_stats['context_enhanced_queries']}
+Offline: {self.session_stats['offline_queries']} | Online: {self.session_stats['online_queries']} | Forced Offline: {self.session_stats['forced_offline_queries']} | Forced Online: {self.session_stats['forced_online_queries']}"""
             self.console.print(Panel(stats_text, title="📊 Session Stats", border_style="blue"))
     
     def _get_system_status(self) -> dict:
@@ -330,7 +374,7 @@ Offline: {self.session_stats['offline_queries']} | Online: {self.session_stats['
         }
     
     async def shutdown(self):
-        """Enhanced graceful shutdown"""
+        """Enhanced graceful shutdown with proper cleanup"""
         self.console.print("\n🔄 Shutting down Pascal Enhanced Conversational Edition...", style="yellow")
         
         try:
@@ -338,13 +382,12 @@ Offline: {self.session_stats['offline_queries']} | Online: {self.session_stats['
             if self.memory_manager:
                 await self.memory_manager.save_session()
             
-            # Close router connections properly
+            # Close router connections properly to prevent memory leaks
             if self.router and hasattr(self.router, 'close'):
                 await self.router.close()
             
             # Show enhanced session summary
             if self.session_stats['queries'] > 0:
-                import time
                 session_duration = time.time() - self.session_stats['start_time']
                 
                 summary_table = Table(title="📊 Enhanced Session Summary", border_style="blue")
@@ -352,17 +395,24 @@ Offline: {self.session_stats['offline_queries']} | Online: {self.session_stats['
                 summary_table.add_column("Value", style="white")
                 
                 summary_table.add_row("Total Queries", str(self.session_stats['queries']))
+                summary_table.add_row("Greetings", str(self.session_stats['greeting_queries']))
                 summary_table.add_row("Follow-up Queries", str(self.session_stats['follow_up_queries']))
                 summary_table.add_row("Context-Enhanced", str(self.session_stats['context_enhanced_queries']))
                 summary_table.add_row("Offline Queries", str(self.session_stats['offline_queries']))
                 summary_table.add_row("Online Queries", str(self.session_stats['online_queries']))
+                summary_table.add_row("Forced Offline", str(self.session_stats['forced_offline_queries']))
+                summary_table.add_row("Forced Online", str(self.session_stats['forced_online_queries']))
                 summary_table.add_row("Session Duration", f"{session_duration/60:.1f} minutes")
                 
                 if self.session_stats['queries'] > 0:
                     follow_up_rate = (self.session_stats['follow_up_queries'] / self.session_stats['queries']) * 100
                     context_rate = (self.session_stats['context_enhanced_queries'] / self.session_stats['queries']) * 100
+                    greeting_rate = (self.session_stats['greeting_queries'] / self.session_stats['queries']) * 100
+                    override_rate = ((self.session_stats['forced_offline_queries'] + self.session_stats['forced_online_queries']) / self.session_stats['queries']) * 100
+                    summary_table.add_row("Greeting Rate", f"{greeting_rate:.1f}%")
                     summary_table.add_row("Follow-up Rate", f"{follow_up_rate:.1f}%")
                     summary_table.add_row("Context Enhancement Rate", f"{context_rate:.1f}%")
+                    summary_table.add_row("Enhanced Override Rate", f"{override_rate:.1f}%")
                 
                 self.console.print(summary_table)
             
