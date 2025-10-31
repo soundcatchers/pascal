@@ -225,38 +225,150 @@ class EnhancedContextMixin:
                 enhanced = enhanced.replace('latest f1 race', 'latest F1 race results')
                 return enhanced.strip()
         
-        if not context_info['is_follow_up'] or not context_info['entities_in_context']:
+        if not context_info['is_follow_up']:
             return query
         
         enhanced_query = query
         entities = context_info.get('entities_in_context', [])
+        context_summary = context_info.get('context_summary', '')
         
-        # If query has pronouns and we have entities, substitute context
-        if context_info['reference_words'] and entities:
-            query_lower = query.lower()
+        # Get full conversation context from memory
+        recent_context = self._get_recent_conversation_context()
+        recent_names = self._extract_recent_names_from_context(context_summary)
+        
+        # If query has pronouns or is a follow-up, substitute with specific context
+        query_lower = query.lower()
+        
+        # Handle location follow-ups (where, what location, etc.)
+        if any(word in query_lower for word in ['where', 'location', 'venue', 'place', 'held', 'city', 'country']):
+            if any('f1' in entity.lower() or 'formula' in entity.lower() for entity in entities):
+                # For F1 location questions, use full recent context
+                if recent_context:
+                    # Include the full previous Q&A for context
+                    enhanced_query = f"{recent_context} Follow-up: {query}"
+                elif recent_names:
+                    enhanced_query = f"{recent_names[0]} latest F1 race location {query}"
+                else:
+                    enhanced_query = f"latest F1 Grand Prix location {query}"
+        
+        # Handle pronoun substitutions with context
+        elif context_info['reference_words'] and (entities or recent_names):
+            # Handle specific pronouns
+            if 'he' in query_lower:
+                if recent_names:
+                    enhanced_query = query.replace('he', recent_names[0]).replace('He', recent_names[0])
+                elif any('keir starmer' in entity.lower() for entity in entities):
+                    enhanced_query = query.replace('he', 'Keir Starmer').replace('He', 'Keir Starmer')
             
-            # Handle specific cases
-            if 'he' in query_lower and any('keir starmer' in entity.lower() for entity in entities):
-                enhanced_query = query.replace('he', 'Keir Starmer').replace('He', 'Keir Starmer')
+            elif 'it' in query_lower:
+                if recent_names and any('f1' in entity.lower() or 'formula' in entity.lower() for entity in entities):
+                    enhanced_query = query.replace('it', f'{recent_names[0]} F1 race').replace('It', f'{recent_names[0]} F1 race')
+                elif any('formula' in entity.lower() or 'f1' in entity.lower() for entity in entities):
+                    enhanced_query = query.replace('it', 'Formula 1 race').replace('It', 'Formula 1 race')
             
-            elif 'it' in query_lower and any('formula' in entity.lower() or 'f1' in entity.lower() for entity in entities):
-                enhanced_query = query.replace('it', 'Formula 1 race').replace('It', 'Formula 1 race')
-            
-            # Handle F1 follow-ups specifically
-            elif any(word in query_lower for word in ['second', 'third', 'who came', 'who finished']) and any('f1' in entity.lower() or 'formula' in entity.lower() or 'grand prix' in entity.lower() for entity in entities):
-                # Add F1 context to the query
-                enhanced_query = f"F1 Formula 1 latest race results {enhanced_query} podium positions"
+            # Handle F1 podium follow-ups (second, third, etc.)
+            elif any(word in query_lower for word in ['second', 'third', 'who came', 'who finished']) and any('f1' in entity.lower() or 'formula' in entity.lower() for entity in entities):
+                if recent_context:
+                    # Include the full previous Q&A for better podium results
+                    enhanced_query = f"{recent_context} Follow-up: {enhanced_query} podium positions"
+                elif recent_names:
+                    enhanced_query = f"{recent_names[0]} F1 race results {enhanced_query} podium positions"
+                else:
+                    enhanced_query = f"F1 Formula 1 latest race results {enhanced_query} podium positions"
             
             # Add contextual terms for better search
             elif 'deputy' in query_lower and any('keir starmer' in entity.lower() or 'prime minister' in entity.lower() for entity in entities):
                 enhanced_query = f"UK Deputy Prime Minister {enhanced_query}"
             
-            elif any(word in query_lower for word in ['new', 'today', 'recent']) and entities:
-                # Add the most relevant entity as context
-                main_entity = entities[0]
-                enhanced_query = f"{main_entity} {enhanced_query}"
+            elif any(word in query_lower for word in ['new', 'today', 'recent']) and (entities or recent_names):
+                # Add the most relevant context
+                context_item = recent_names[0] if recent_names else entities[0]
+                enhanced_query = f"{context_item} {enhanced_query}"
         
         return enhanced_query
+    
+    def _get_recent_conversation_context(self) -> str:
+        """Get full recent conversation from memory for follow-up enhancement"""
+        context_text = ""
+        
+        # Always pull from memory if available
+        if hasattr(self, 'memory_manager') and self.memory_manager:
+            try:
+                # Get last interaction from short-term memory
+                if hasattr(self.memory_manager, 'short_term_memory') and self.memory_manager.short_term_memory:
+                    last_memory = self.memory_manager.short_term_memory[-1]  # Most recent interaction
+                    
+                    # Get both the question and answer
+                    user_question = last_memory.user_input if hasattr(last_memory, 'user_input') else ''
+                    assistant_answer = last_memory.assistant_response if hasattr(last_memory, 'assistant_response') else ''
+                    
+                    # Combine for context
+                    if user_question and assistant_answer:
+                        context_text = f"Previous Q: {user_question} A: {assistant_answer}"
+            except Exception:
+                pass
+        
+        return context_text
+    
+    def _extract_recent_names_from_context(self, context_summary: str) -> List[str]:
+        """Extract person names and key entities from recent context"""
+        names = []
+        
+        # Always try to get from memory first for better accuracy
+        if hasattr(self, 'memory_manager') and self.memory_manager:
+            try:
+                # Get last few interactions from short-term memory
+                if hasattr(self.memory_manager, 'short_term_memory') and self.memory_manager.short_term_memory:
+                    recent_memories = self.memory_manager.short_term_memory[-2:]  # Last 2 interactions
+                    for memory in recent_memories:
+                        # Extract from assistant responses
+                        response = memory.assistant_response if hasattr(memory, 'assistant_response') else ''
+                        names.extend(self._extract_names_from_text(response))
+            except Exception:
+                pass
+        
+        # If no names found in memory, try the context summary
+        if not names and context_summary:
+            names = self._extract_names_from_text(context_summary)
+        
+        # Remove duplicates while preserving order
+        seen = set()
+        unique_names = []
+        for name in names:
+            if name.lower() not in seen:
+                seen.add(name.lower())
+                unique_names.append(name)
+        
+        return unique_names[:3]  # Return top 3 most recent
+    
+    def _extract_names_from_text(self, text: str) -> List[str]:
+        """Extract driver names, locations, and other key entities from text"""
+        names = []
+        
+        # Common F1 drivers
+        drivers = [
+            'Lando Norris', 'Max Verstappen', 'Lewis Hamilton', 'Charles Leclerc',
+            'George Russell', 'Carlos Sainz', 'Fernando Alonso', 'Oscar Piastri',
+            'Sergio Perez', 'Pierre Gasly'
+        ]
+        
+        # Common F1 locations/races
+        locations = [
+            'Mexico City', 'Monaco', 'Silverstone', 'Monza', 'Spa',
+            'Singapore', 'Abu Dhabi', 'Las Vegas', 'Miami', 'Austin'
+        ]
+        
+        # Check for drivers
+        for driver in drivers:
+            if driver.lower() in text.lower():
+                names.append(driver)
+        
+        # Check for locations
+        for location in locations:
+            if location.lower() in text.lower():
+                names.append(location)
+        
+        return names
     
     def _update_conversation_context(self, query: str, decision, response_metadata: Dict = None):
         """Update conversation context after each interaction"""
