@@ -335,4 +335,19 @@ class Settings:
             'performance_mode': self.performance_mode,
             'streaming_enabled': self.streaming_enabled,
             'target_response_time': self.target_response_time,
-            'optimization_level': 'ultra_speed_pi5' if self.pi_model == 'Pi 5' else 'ultra_speed_
+            'optimization_level': 'ultra_speed_pi5' if self.pi_model == 'Pi 5' else 'ultra_speed_pi4'
+        }
+    
+    def get_config_summary(self) -> Dict[str, Any]:
+        """Get configuration summary"""
+        return {
+            'pascal_version': self.version,
+            'performance_mode': self.performance_mode,
+            'streaming_enabled': self.streaming_enabled,
+            'target_response_time': self.target_response_time,
+            'max_response_tokens': self.max_response_tokens,
+            'debug_mode': self.debug_mode
+        }
+
+# Create global settings instance
+settings = Settings()
