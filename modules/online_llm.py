@@ -1,6 +1,6 @@
 """
-Pascal AI Assistant - Online LLM with IMPROVED Sports Search
-FIXED: Better search query optimization for sports results
+Pascal AI Assistant - Online LLM with Brave Search API
+FREE tier search with better accuracy than Google Custom Search
 """
 
 import asyncio
@@ -33,10 +33,9 @@ class OnlineLLM:
         self.base_url = "https://api.groq.com/openai/v1/chat/completions"
         self.model = "llama-3.1-8b-instant"
         
-        # Google Search configuration
-        self.google_api_key = os.getenv('GOOGLE_SEARCH_API_KEY', '').strip()
-        self.google_search_id = os.getenv('GOOGLE_SEARCH_ENGINE_ID', '').strip()
-        self.google_search_available = bool(self.google_api_key and self.google_search_id)
+        # Brave Search configuration
+        self.brave_api_key = os.getenv('BRAVE_API_KEY', '').strip()
+        self.brave_search_available = bool(self.brave_api_key and self.brave_api_key != 'your_brave_api_key_here')
         
         # Performance tracking
         self.request_count = 0
@@ -82,7 +81,7 @@ class OnlineLLM:
         ]
     
     async def initialize(self) -> bool:
-        """Initialize Groq client and Google Search"""
+        """Initialize Groq client and Brave Search"""
         if not AIOHTTP_AVAILABLE:
             self.last_error = "aiohttp not installed - install with: pip install aiohttp"
             if settings.debug_mode:
@@ -119,10 +118,10 @@ class OnlineLLM:
                 
                 if settings.debug_mode:
                     print("✅ [GROQ] API initialized")
-                    if self.google_search_available:
-                        print("✅ [GOOGLE] Intelligent search routing (general + news)")
+                    if self.brave_search_available:
+                        print("✅ [BRAVE] Intelligent search routing (general + news)")
                     else:
-                        print("⚠️  [GOOGLE] Search not configured")
+                        print("⚠️  [BRAVE] Search not configured")
                 
                 return True
             else:
@@ -235,7 +234,7 @@ class OnlineLLM:
             if re.search(pattern, query_lower):
                 optimized = re.sub(pattern, replacement, query_lower)
                 if settings.debug_mode:
-                    print(f"[GOOGLE] Query optimized for sports: '{query}' -> '{optimized}'")
+                    print(f"[BRAVE] Query optimized for sports: '{query}' -> '{optimized}'")
                 return optimized
         
         # POLITICS/NEWS optimizations
@@ -248,7 +247,7 @@ class OnlineLLM:
         for pattern, replacement in politics_patterns.items():
             if re.search(pattern, query_lower):
                 if settings.debug_mode:
-                    print(f"[GOOGLE] Query optimized for politics: '{query}' -> '{replacement}'")
+                    print(f"[BRAVE] Query optimized for politics: '{query}' -> '{replacement}'")
                 return replacement
         
         # GENERAL optimizations - make queries shorter and more targeted
@@ -279,7 +278,7 @@ class OnlineLLM:
         # Clean up extra spaces
         optimized = ' '.join(optimized.split())
         
-        # Limit query length (Google works better with shorter queries)
+        # Limit query length (Brave works better with shorter queries)
         words = optimized.split()
         if len(words) > 8:
             # Keep most important words (nouns, verbs, years, names)
@@ -295,12 +294,12 @@ class OnlineLLM:
                 optimized = ' '.join(important_words[:8])
         
         if settings.debug_mode and optimized != query_lower:
-            print(f"[GOOGLE] Query optimized: '{query}' -> '{optimized}'")
+            print(f"[BRAVE] Query optimized: '{query}' -> '{optimized}'")
         
         return optimized if optimized != query_lower else query
     
     def detect_needs_search(self, query: str) -> bool:
-        """Detect if query needs Google search"""
+        """Detect if query needs Brave search"""
         query_lower = query.lower().strip()
         
         # High-confidence search patterns (includes sports which will use GENERAL search)
@@ -334,7 +333,7 @@ class OnlineLLM:
         for pattern in high_confidence_search_patterns:
             if re.search(pattern, query_lower):
                 if settings.debug_mode:
-                    print(f"[GOOGLE] High-confidence search trigger")
+                    print(f"[BRAVE] High-confidence search trigger")
                 return True
         
         # Check for temporal indicators
@@ -342,7 +341,7 @@ class OnlineLLM:
         
         if has_temporal and '?' in query:
             if settings.debug_mode:
-                print(f"[GOOGLE] Temporal + question mark search trigger")
+                print(f"[BRAVE] Temporal + question mark search trigger")
             return True
         
         return False
@@ -362,7 +361,7 @@ class OnlineLLM:
         for pattern in sports_exclusion_patterns:
             if re.search(pattern, query_lower):
                 if settings.debug_mode:
-                    print(f"[GOOGLE] Sports query detected - using GENERAL search instead of news")
+                    print(f"[BRAVE] Sports query detected - using GENERAL search instead of news")
                 return False
         
         # Check for news indicators
@@ -370,23 +369,23 @@ class OnlineLLM:
         
         if news_keyword_count >= 2:
             if settings.debug_mode:
-                print(f"[GOOGLE NEWS] Multiple news indicators ({news_keyword_count})")
+                print(f"[BRAVE NEWS] Multiple news indicators ({news_keyword_count})")
             return True
         
         return False
     
-    async def google_search(self, query: str, num_results: int = 5, search_type: str = 'general') -> List[Dict[str, Any]]:
+    async def brave_search(self, query: str, num_results: int = 5, search_type: str = 'general') -> List[Dict[str, Any]]:
         """
-        FIXED: Better Google search with query optimization
+        Brave Search API integration with query optimization
         
         Args:
             query: Search query
-            num_results: Number of results to return (increased to 5)
+            num_results: Number of results to return (default 5)
             search_type: 'general' or 'news'
         """
-        if not self.google_search_available:
+        if not self.brave_search_available:
             if settings.debug_mode:
-                print("⚠️  [GOOGLE] Search not available")
+                print("⚠️  [BRAVE] Search not available")
             return []
         
         try:
@@ -398,26 +397,33 @@ class OnlineLLM:
             # CRITICAL: Optimize the query for better results
             optimized_query = self._optimize_search_query(query)
             
-            search_url = "https://www.googleapis.com/customsearch/v1"
+            # Use dedicated news endpoint for news searches
+            if search_type == 'news':
+                search_url = "https://api.search.brave.com/res/v1/news/search"
+            else:
+                search_url = "https://api.search.brave.com/res/v1/web/search"
+            
+            headers = {
+                'Accept': 'application/json',
+                'Accept-Encoding': 'gzip',
+                'X-Subscription-Token': self.brave_api_key
+            }
             params = {
-                'key': self.google_api_key,
-                'cx': self.google_search_id,
                 'q': optimized_query,
-                'num': num_results
+                'count': min(num_results, 20)  # Brave max is 20
             }
             
-            # Add news-specific parameters
+            # Add news-specific parameters for Brave
             if search_type == 'news':
-                params['sort'] = 'date'
-                params['siteSearch'] = 'news'
-                params['siteSearchFilter'] = 'i'
+                params['freshness'] = 'pd'  # Past day for news
             
             if settings.debug_mode:
                 search_label = "NEWS" if search_type == 'news' else "WEB"
-                print(f"[GOOGLE {search_label}] 🔍 Searching: {optimized_query}")
+                print(f"[BRAVE {search_label}] 🔍 Searching: {optimized_query}")
             
             async with self.session.get(
                 search_url,
+                headers=headers,
                 params=params,
                 timeout=aiohttp.ClientTimeout(total=10)
             ) as response:
@@ -425,14 +431,29 @@ class OnlineLLM:
                     data = await response.json()
                     
                     results = []
-                    for item in data.get('items', [])[:num_results]:
-                        results.append({
-                            'title': item.get('title', ''),
-                            'link': item.get('link', ''),
-                            'snippet': item.get('snippet', ''),
-                            'source': item.get('displayLink', ''),
-                            'search_type': search_type
-                        })
+                    # Brave API returns different structures for web vs news
+                    if search_type == 'news':
+                        # News endpoint returns results directly
+                        news_results = data.get('results', [])
+                        for item in news_results[:num_results]:
+                            results.append({
+                                'title': item.get('title', ''),
+                                'link': item.get('url', ''),
+                                'snippet': item.get('description', ''),
+                                'source': item.get('meta_url', {}).get('hostname', ''),
+                                'search_type': search_type
+                            })
+                    else:
+                        # Web endpoint returns results in 'web' key
+                        web_results = data.get('web', {}).get('results', [])
+                        for item in web_results[:num_results]:
+                            results.append({
+                                'title': item.get('title', ''),
+                                'link': item.get('url', ''),
+                                'snippet': item.get('description', ''),
+                                'source': item.get('meta_url', {}).get('hostname', ''),
+                                'search_type': search_type
+                            })
                     
                     if search_type == 'news':
                         self.news_search_success_count += 1
@@ -441,28 +462,29 @@ class OnlineLLM:
                     
                     if settings.debug_mode:
                         search_label = "NEWS" if search_type == 'news' else "WEB"
-                        print(f"[GOOGLE {search_label}] ✅ Found {len(results)} results")
+                        print(f"[BRAVE {search_label}] ✅ Found {len(results)} results")
                         if len(results) == 0:
-                            print(f"[GOOGLE {search_label}] ⚠️  No results for: {optimized_query}")
+                            print(f"[BRAVE {search_label}] ⚠️  No results for: {optimized_query}")
                     
                     return results
                     
                 elif response.status == 429:
                     if settings.debug_mode:
-                        print("⚠️  [GOOGLE] Rate limited")
+                        print("⚠️  [BRAVE] Rate limited")
                     return []
                 elif response.status in [401, 403]:
                     if settings.debug_mode:
-                        print("❌ [GOOGLE] Invalid API key")
+                        print("❌ [BRAVE] Invalid API key")
                     return []
                 else:
                     if settings.debug_mode:
-                        print(f"❌ [GOOGLE] Search error: {response.status}")
+                        error_text = await response.text()
+                        print(f"❌ [BRAVE] Search error: {response.status} - {error_text[:100]}")
                     return []
                     
         except Exception as e:
             if settings.debug_mode:
-                print(f"❌ [GOOGLE] Search exception: {e}")
+                print(f"❌ [BRAVE] Search exception: {e}")
             return []
     
     def _format_search_results(self, results: List[Dict[str, Any]]) -> str:
@@ -471,7 +493,7 @@ class OnlineLLM:
             return ""
         
         search_type = results[0].get('search_type', 'general')
-        label = "REAL-TIME NEWS SEARCH RESULTS" if search_type == 'news' else "REAL-TIME SEARCH RESULTS FROM GOOGLE"
+        label = "REAL-TIME NEWS SEARCH RESULTS" if search_type == 'news' else "REAL-TIME SEARCH RESULTS FROM BRAVE"
         
         formatted = f"\n\n{label}:\n"
         formatted += "=" * 60 + "\n"
@@ -514,31 +536,31 @@ class OnlineLLM:
                 'current_year': now.year,
             }
             
-            # Search Google/News if needed
+            # Search Brave/News if needed
             search_results = []
-            if needs_search and self.google_search_available:
+            if needs_search and self.brave_search_available:
                 if search_type == 'news':
                     yield "📰 Searching latest news... "
                 else:
-                    yield "🔍 Searching Google... "
+                    yield "🔍 Searching Brave... "
                 
                 # FIXED: Use more results for better coverage
-                search_results = await self.google_search(query, num_results=5, search_type=search_type)
+                search_results = await self.brave_search(query, num_results=5, search_type=search_type)
                 
                 # If no results, try a fallback search with simplified query
                 if not search_results and search_type == 'general':
                     if settings.debug_mode:
-                        print("[GOOGLE] No results, trying fallback search...")
+                        print("[BRAVE] No results, trying fallback search...")
                     
                     # Extract key terms for fallback
                     fallback_query = self._extract_key_terms(query)
                     if fallback_query and fallback_query != query:
-                        search_results = await self.google_search(fallback_query, num_results=5, search_type='general')
+                        search_results = await self.brave_search(fallback_query, num_results=5, search_type='general')
             
             # Build enhanced prompt
             messages = []
             
-            # System message with current info
+            # System message with current info and conversation context
             system_content = f"""You are Pascal, a helpful AI assistant with access to real-time information.
 
 CURRENT DATE & TIME:
@@ -547,6 +569,11 @@ Current time: {datetime_info['current_time']}
 Current year: {datetime_info['current_year']}
 
 {personality_context[:200] if personality_context else ''}"""
+
+            # Add conversation context early for follow-up resolution (max 2048 chars)
+            if memory_context:
+                context_safe = memory_context[:2048] if len(memory_context) > 2048 else memory_context
+                system_content += f"\n\nRECENT CONVERSATION:\n{context_safe}"
 
             # Add search results if available
             if search_results:
@@ -560,10 +587,6 @@ Current year: {datetime_info['current_year']}
                 system_content += "\n\nNote: Search was attempted but no results were found. Provide the best answer possible with available knowledge, and suggest checking current sources for the latest information."
             
             messages.append({"role": "system", "content": system_content})
-            
-            # Add memory context
-            if memory_context:
-                messages.append({"role": "system", "content": f"Context: {memory_context[-200:]}"})
             
             # User query
             messages.append({"role": "user", "content": query})
@@ -703,8 +726,8 @@ Current year: {datetime_info['current_year']}
             'success_rate_percent': success_rate,
             'avg_response_time': avg_time,
             'recent_avg_time': recent_avg,
-            'google_search': {
-                'configured': self.google_search_available,
+            'brave_search': {
+                'configured': self.brave_search_available,
                 'total_web_searches': self.search_count,
                 'total_news_searches': self.news_search_count,
                 'successful_web_searches': self.search_success_count,
@@ -713,7 +736,7 @@ Current year: {datetime_info['current_year']}
                 'news_search_success_rate': news_search_success_rate
             },
             'enhancements': [
-                '✅ Google Custom Search API integrated',
+                '✅ Brave Search API integrated (FREE tier)',
                 '✅ IMPROVED: Query optimization for sports results',
                 '✅ FIXED: Better search terms extraction',
                 '✅ FIXED: F1/BTCC queries now work properly',
@@ -736,6 +759,6 @@ Current year: {datetime_info['current_year']}
                 success_rate = (self.success_count / self.request_count) * 100
                 print(f"[GROQ] 📊 Session: {self.request_count} requests, {avg_time:.2f}s avg, {success_rate:.1f}% success")
                 if self.search_count > 0 or self.news_search_count > 0:
-                    print(f"[GOOGLE] 📊 Web: {self.search_count} searches ({self.search_success_count} successful)")
-                    print(f"[GOOGLE NEWS] 📊 News: {self.news_search_count} searches ({self.news_search_success_count} successful)")
+                    print(f"[BRAVE] 📊 Web: {self.search_count} searches ({self.search_success_count} successful)")
+                    print(f"[BRAVE NEWS] 📊 News: {self.news_search_count} searches ({self.news_search_success_count} successful)")
             print("[GROQ] 🔌 Connection closed")
