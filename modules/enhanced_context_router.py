@@ -5,6 +5,7 @@ This provides additional context methods for better conversational flow and sear
 
 import asyncio
 import time
+import re
 from typing import Dict, Any, List, Optional, AsyncGenerator
 from config.settings import settings
 
@@ -43,23 +44,28 @@ class EnhancedContextMixin:
         query_lower = query.lower().strip()
         
         # Check for greetings first (these should always go offline)
+        # Use regex with strict boundaries: start/whitespace before, whitespace/end/punctuation after
         greeting_patterns = [
-            'hello', 'hi', 'hey', 'good morning', 'good afternoon', 'good evening',
-            'how are you', 'how do you do', 'what\'s up', 'greetings', 'howdy'
+            r'(?:^|\s)hello(?:\s|$|[,!?.])', r'(?:^|\s)hi(?:\s|$|[,!?.])', r'(?:^|\s)hey(?:\s|$|[,!?.])', 
+            r'(?:^|\s)good morning(?:\s|$|[,!?.])', r'(?:^|\s)good afternoon(?:\s|$|[,!?.])', 
+            r'(?:^|\s)good evening(?:\s|$|[,!?.])', r'(?:^|\s)how are you(?:\s|$|[,!?.])', 
+            r'(?:^|\s)how do you do(?:\s|$|[,!?.])', r"(?:^|\s)what'?s up(?:\s|$|[,!?.])", 
+            r'(?:^|\s)greetings(?:\s|$|[,!?.])', r'(?:^|\s)howdy(?:\s|$|[,!?.])'
         ]
         
-        context_info['is_greeting'] = any(pattern in query_lower for pattern in greeting_patterns)
+        context_info['is_greeting'] = any(re.search(pattern, query_lower) for pattern in greeting_patterns)
         if context_info['is_greeting']:
             context_info['should_force_offline'] = True
             return context_info
         
         # Check for casual chat patterns (should go offline)
         casual_patterns = [
-            'how\'s it going', 'what\'s new', 'tell me about yourself', 'nice to meet you',
-            'good to see you', 'how have you been'
+            r"(?:^|\s)how'?s it going(?:\s|$|[,!?.])", r"(?:^|\s)what'?s new(?:\s|$|[,!?.])", 
+            r'(?:^|\s)tell me about yourself(?:\s|$|[,!?.])', r'(?:^|\s)nice to meet you(?:\s|$|[,!?.])', 
+            r'(?:^|\s)good to see you(?:\s|$|[,!?.])', r'(?:^|\s)how have you been(?:\s|$|[,!?.])'
         ]
         
-        if any(pattern in query_lower for pattern in casual_patterns):
+        if any(re.search(pattern, query_lower) for pattern in casual_patterns):
             context_info['should_force_offline'] = True
             return context_info
         
