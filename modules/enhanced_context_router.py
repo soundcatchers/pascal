@@ -274,11 +274,49 @@ class EnhancedContextMixin:
         
         # If we have conversation history, include it with the follow-up
         if recent_context:
-            enhanced_query = f"{recent_context} Follow-up: {query}"
-            return enhanced_query
+            # CRITICAL: Try to create a simpler enhanced query first
+            simple_query = self._create_simple_enhanced_query(query, recent_context)
+            
+            # Use simple query if it's cleaner and shorter (better for search)
+            if simple_query and len(simple_query) < 100:
+                return simple_query
+            else:
+                # Fallback: Use full context
+                enhanced_query = f"{recent_context} Follow-up: {query}"
+                return enhanced_query
         
         # Fallback: No context available, return original query
         return query
+    
+    def _create_simple_enhanced_query(self, query: str, conversation_history: str) -> str:
+        """Create a simplified enhanced query by extracting key entities and merging with follow-up"""
+        import re
+        
+        # Extract names/entities from conversation history (proper nouns, capitalized words)
+        entities = re.findall(r'\b[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*\b', conversation_history)
+        
+        # Remove common words that aren't entities
+        stopwords = {'The', 'According', 'Result', 'Search', 'Brave', 'Based', 'However', 'From', 'Official', 'President', 'Prime', 'Minister'}
+        entities = [e for e in entities if e not in stopwords]
+        
+        # Get unique entities (preserve order)
+        seen = set()
+        unique_entities = []
+        for entity in entities:
+            if entity.lower() not in seen and len(entity) > 2:
+                seen.add(entity.lower())
+                unique_entities.append(entity)
+        
+        # If we found entities, create a simple query with them
+        if unique_entities:
+            # Take the most relevant entities (first 2)
+            key_entities = ' '.join(unique_entities[:2])
+            # Combine with current query
+            simple_query = f"{key_entities} {query} 2025"
+            return simple_query
+        
+        # No entities found, return empty (will use fallback)
+        return ""
     
     def _get_recent_conversation_context(self) -> str:
         """
@@ -305,8 +343,13 @@ class EnhancedContextMixin:
                         
                         # Add this Q&A pair to context
                         if user_question and assistant_answer:
-                            # Truncate long answers to keep query manageable
-                            truncated_answer = assistant_answer[:200] + '...' if len(assistant_answer) > 200 else assistant_answer
+                            # CRITICAL: Clean the answer to remove debug text and search indicators
+                            clean_answer = assistant_answer.replace('🔍 Searching Brave...', '').strip()
+                            clean_answer = clean_answer.replace('📰 Searching latest news...', '').strip()
+                            clean_answer = clean_answer.replace('🌐 Getting current information...', '').strip()
+                            
+                            # Truncate to keep query manageable (shorter for better search results)
+                            truncated_answer = clean_answer[:150] + '...' if len(clean_answer) > 150 else clean_answer
                             context_parts.append(f"Q: {user_question} A: {truncated_answer}")
             except Exception:
                 pass
