@@ -206,7 +206,20 @@ class OnlineLLM:
         """FIXED: Optimize search query for better results, especially sports"""
         query_lower = query.lower().strip()
         
-        # SPORTS-SPECIFIC optimizations
+        # CRITICAL: Skip hardcoded optimizations for enhanced follow-up queries!
+        # Enhanced queries already have full context from conversation history
+        if 'follow-up:' in query_lower or 'previous q:' in query_lower:
+            # Only do minimal cleanup - don't destroy the enhanced context!
+            if settings.debug_mode:
+                print(f"[BRAVE] Enhanced follow-up query - skipping hardcoded optimizations")
+            # Just clean up extra spaces and return
+            optimized = ' '.join(query.split())
+            # Limit to reasonable length for Brave API
+            if len(optimized) > 400:
+                optimized = optimized[:400]
+            return optimized
+        
+        # SPORTS-SPECIFIC optimizations (only for non-enhanced queries)
         sports_patterns = {
             # F1/Formula 1
             r'who won (?:the )?last f1 race': 'F1 race winner latest 2025',
