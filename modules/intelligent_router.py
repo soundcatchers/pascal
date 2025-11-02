@@ -274,7 +274,10 @@ class IntelligentRouter:
         return default_config
 
     async def _check_llm_availability(self):
-        """Enhanced system availability checking"""
+        """Enhanced system availability checking (runs once at startup)"""
+        # NOTE: Only runs once when _initialized is False
+        # If you see this on every query, the router object is being recreated
+        
         if settings.debug_mode:
             print("[INTELLIGENT_ROUTER] Checking system availability...")
 
