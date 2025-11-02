@@ -77,8 +77,70 @@ class EnhancedContextMixin:
         
         context_info['is_standalone'] = any(pattern in query_lower for pattern in standalone_patterns)
         
-        # If it's clearly standalone and long enough, it's not a follow-up
-        if context_info['is_standalone'] and len(query_lower.split()) > 4:
+        # TRULY GENERIC follow-up detection - works for ANY domain, any query type
+        # Run for ALL queries when recent memory exists (not just standalone patterns)
+        has_recent_memory = hasattr(self, 'memory_manager') and self.memory_manager
+        if has_recent_memory:
+            try:
+                # Get recent conversation context from memory
+                if hasattr(self.memory_manager, 'short_term_memory') and self.memory_manager.short_term_memory:
+                    last_memory = self.memory_manager.short_term_memory[-1]
+                    recent_query = last_memory.user_input if hasattr(last_memory, 'user_input') else ''
+                    recent_response = last_memory.assistant_response if hasattr(last_memory, 'assistant_response') else ''
+                    recent_text = (recent_query + " " + recent_response).lower()
+                    
+                    # Generic word-overlap check - no hardcoded topic keywords!
+                    # Works for quantum physics, finance, medicine, F1, politics, ANY domain
+                    
+                    # Extract content words (exclude stopwords, strip punctuation)
+                    stopwords = {'a', 'an', 'the', 'is', 'are', 'was', 'were', 'be', 'been', 'being',
+                                'in', 'on', 'at', 'to', 'for', 'of', 'with', 'by', 'from', 'about',
+                                'who', 'what', 'where', 'when', 'why', 'how', 'which', 'this', 'that'}
+                    
+                    # Strip punctuation from words so "details?" matches "details"
+                    import string
+                    query_words = set(
+                        word.strip(string.punctuation) 
+                        for word in query_lower.split() 
+                        if word.strip(string.punctuation) not in stopwords and len(word.strip(string.punctuation)) > 2
+                    )
+                    context_words = set(
+                        word.strip(string.punctuation) 
+                        for word in recent_text.split() 
+                        if word.strip(string.punctuation) not in stopwords and len(word.strip(string.punctuation)) > 2
+                    )
+                    
+                    # Check for word overlap - if they share content words, likely related
+                    word_overlap = query_words & context_words
+                    
+                    # Follow-up indicators (all generic, no hardcoding)
+                    has_word_overlap = len(word_overlap) > 0
+                    is_very_short = len(query_lower.split()) <= 5  # 1-5 words → likely follow-up
+                    is_short_query = len(query_lower.split()) <= 7
+                    # Expanded pronouns to include "you" for queries like "can you explain?"
+                    has_pronouns = any(word.strip(string.punctuation) in ['he', 'she', 'it', 'they', 'that', 'this', 'you', 'your'] 
+                                     for word in query_lower.split())
+                    
+                    # Detect follow-up with multiple heuristics (ordered by confidence):
+                    # 1. Word overlap → high confidence (same topic)
+                    # 2. Very short query (1-5 words) → high confidence (likely follow-up if recent context)
+                    # 3. Short query (6-7 words) with pronouns → medium confidence
+                    if has_word_overlap or is_very_short or (is_short_query and has_pronouns):
+                        # Follow-up detected! Works for ANY topic without hardcoding
+                        context_info['is_follow_up'] = True
+                        context_info['topic_continuity'] = True
+                        context_info['should_force_online'] = True  # Follow-ups need current info
+                        context_info['is_standalone'] = False  # Override standalone classification
+                        
+                        # No entity extraction needed - full context in enhancement
+                        context_info['entities_in_context'] = []
+                        context_info['context_summary'] = f"Follow-up ({len(word_overlap)} shared terms)"
+            except Exception as e:
+                if settings.debug_mode:
+                    print(f"[ENHANCED_CONTEXT] Generic follow-up detection error: {e}")
+        
+        # Only return early if it's truly standalone with NO topic continuity
+        if context_info['is_standalone'] and len(query_lower.split()) > 4 and not context_info['topic_continuity']:
             return context_info
         
         # Detect reference words (pronouns, demonstratives)
@@ -103,32 +165,11 @@ class EnhancedContextMixin:
             (time.time() - self.conversation_context['session_start_time']) > 30  # Been talking for a while
         )
         
-        context_info['is_follow_up'] = any(follow_up_indicators) and has_recent_context
+        # CRITICAL: Preserve is_follow_up if already set by topic continuity check
+        # Use OR to avoid overwriting True with False
+        context_info['is_follow_up'] = context_info['is_follow_up'] or (any(follow_up_indicators) and has_recent_context)
         
-        # Get recent conversation context from memory only if it seems like a follow-up
-        if context_info['is_follow_up']:
-            try:
-                if session_id and hasattr(self, 'memory_manager') and self.memory_manager:
-                    recent_context = await self.memory_manager.get_context(include_long_term=False)
-                    if recent_context:
-                        # Extract entities and topics from recent context
-                        context_info['entities_in_context'] = self._extract_entities_from_context(recent_context)
-                        context_info['context_summary'] = self._summarize_recent_context(recent_context)
-                        
-                        # Check topic continuity
-                        if self.conversation_context['current_topic']:
-                            context_info['topic_continuity'] = self._check_topic_continuity(query, recent_context)
-                        
-                        # If follow-up has current info context, force online
-                        if context_info['entities_in_context'] and any(
-                            entity in ['f1', 'formula 1', 'grand prix', 'prime minister', 'news'] 
-                            for entity in context_info['entities_in_context']
-                        ):
-                            context_info['should_force_online'] = True
-            except Exception as e:
-                if settings.debug_mode:
-                    print(f"[ENHANCED_CONTEXT] Context analysis error: {e}")
-        
+        # Return context_info - generic word-overlap check already handled everything
         return context_info
     
     def _extract_entities_from_context(self, context: str) -> List[str]:
@@ -212,103 +253,66 @@ class EnhancedContextMixin:
         return False
     
     def _enhance_search_query(self, query: str, context_info: Dict[str, Any]) -> str:
-        """Enhance search query with conversation context"""
+        """
+        Enhance search query with conversation context - TRULY GENERIC APPROACH
         
-        # For standalone F1 queries, improve the search terms
-        query_lower = query.lower()
-        if any(term in query_lower for term in ['f1', 'formula', 'grand prix']):
-            # Make F1 searches more current and broader
-            if 'last' in query_lower or 'latest' in query_lower:
-                # Remove specific year references and make more general
-                enhanced = query.replace('2025', '').replace('2024', '')
-                enhanced = enhanced.replace('last f1 race', 'latest F1 race results')
-                enhanced = enhanced.replace('latest f1 race', 'latest F1 race results')
-                return enhanced.strip()
+        This method works for ANY topic (F1, politics, weather, science, etc.) 
+        without ANY hardcoding. Strategy:
+        - Include recent conversation history (last 2-3 turns)
+        - Add current follow-up query
+        - Let search/LLM understand relationships from full context
         
+        Works "ad infinitum" for multi-turn follow-up chains without topic-specific code.
+        """
+        
+        # If not a follow-up, return query as-is
         if not context_info['is_follow_up']:
             return query
         
-        enhanced_query = query
-        entities = context_info.get('entities_in_context', [])
-        context_summary = context_info.get('context_summary', '')
-        
-        # Get full conversation context from memory
+        # Get recent conversation history (multiple turns for multi-turn chains)
         recent_context = self._get_recent_conversation_context()
-        recent_names = self._extract_recent_names_from_context(context_summary)
         
-        # If query has pronouns or is a follow-up, substitute with specific context
-        query_lower = query.lower()
+        # If we have conversation history, include it with the follow-up
+        if recent_context:
+            enhanced_query = f"{recent_context} Follow-up: {query}"
+            return enhanced_query
         
-        # Handle location follow-ups (where, what location, etc.)
-        if any(word in query_lower for word in ['where', 'location', 'venue', 'place', 'held', 'city', 'country']):
-            if any('f1' in entity.lower() or 'formula' in entity.lower() for entity in entities):
-                # For F1 location questions, use full recent context
-                if recent_context:
-                    # Include the full previous Q&A for context
-                    enhanced_query = f"{recent_context} Follow-up: {query}"
-                elif recent_names:
-                    enhanced_query = f"{recent_names[0]} latest F1 race location {query}"
-                else:
-                    enhanced_query = f"latest F1 Grand Prix location {query}"
-        
-        # Handle pronoun substitutions with context
-        elif context_info['reference_words'] and (entities or recent_names):
-            # Handle specific pronouns
-            if 'he' in query_lower:
-                if recent_names:
-                    enhanced_query = query.replace('he', recent_names[0]).replace('He', recent_names[0])
-                elif any('keir starmer' in entity.lower() for entity in entities):
-                    enhanced_query = query.replace('he', 'Keir Starmer').replace('He', 'Keir Starmer')
-            
-            elif 'it' in query_lower:
-                if recent_names and any('f1' in entity.lower() or 'formula' in entity.lower() for entity in entities):
-                    enhanced_query = query.replace('it', f'{recent_names[0]} F1 race').replace('It', f'{recent_names[0]} F1 race')
-                elif any('formula' in entity.lower() or 'f1' in entity.lower() for entity in entities):
-                    enhanced_query = query.replace('it', 'Formula 1 race').replace('It', 'Formula 1 race')
-            
-            # Handle F1 podium follow-ups (second, third, etc.)
-            elif any(word in query_lower for word in ['second', 'third', 'who came', 'who finished']) and any('f1' in entity.lower() or 'formula' in entity.lower() for entity in entities):
-                if recent_context:
-                    # Include the full previous Q&A for better podium results
-                    enhanced_query = f"{recent_context} Follow-up: {enhanced_query} podium positions"
-                elif recent_names:
-                    enhanced_query = f"{recent_names[0]} F1 race results {enhanced_query} podium positions"
-                else:
-                    enhanced_query = f"F1 Formula 1 latest race results {enhanced_query} podium positions"
-            
-            # Add contextual terms for better search
-            elif 'deputy' in query_lower and any('keir starmer' in entity.lower() or 'prime minister' in entity.lower() for entity in entities):
-                enhanced_query = f"UK Deputy Prime Minister {enhanced_query}"
-            
-            elif any(word in query_lower for word in ['new', 'today', 'recent']) and (entities or recent_names):
-                # Add the most relevant context
-                context_item = recent_names[0] if recent_names else entities[0]
-                enhanced_query = f"{context_item} {enhanced_query}"
-        
-        return enhanced_query
+        # Fallback: No context available, return original query
+        return query
     
     def _get_recent_conversation_context(self) -> str:
-        """Get full recent conversation from memory for follow-up enhancement"""
-        context_text = ""
+        """
+        Get recent conversation history from memory for follow-up enhancement
+        
+        Pulls last 2-3 turns to maintain context across multi-turn follow-up chains.
+        Example: Turn 1 (race winner) → Turn 2 (second place) → Turn 3 (location)
+        Turn 3 needs context from Turn 1, not just Turn 2.
+        """
+        context_parts = []
         
         # Always pull from memory if available
         if hasattr(self, 'memory_manager') and self.memory_manager:
             try:
-                # Get last interaction from short-term memory
+                # Get last 2-3 interactions from short-term memory for multi-turn chains
                 if hasattr(self.memory_manager, 'short_term_memory') and self.memory_manager.short_term_memory:
-                    last_memory = self.memory_manager.short_term_memory[-1]  # Most recent interaction
+                    # Get up to last 3 turns (more context for longer chains)
+                    recent_memories = self.memory_manager.short_term_memory[-3:]
                     
-                    # Get both the question and answer
-                    user_question = last_memory.user_input if hasattr(last_memory, 'user_input') else ''
-                    assistant_answer = last_memory.assistant_response if hasattr(last_memory, 'assistant_response') else ''
-                    
-                    # Combine for context
-                    if user_question and assistant_answer:
-                        context_text = f"Previous Q: {user_question} A: {assistant_answer}"
+                    for memory in recent_memories:
+                        # Get both the question and answer
+                        user_question = memory.user_input if hasattr(memory, 'user_input') else ''
+                        assistant_answer = memory.assistant_response if hasattr(memory, 'assistant_response') else ''
+                        
+                        # Add this Q&A pair to context
+                        if user_question and assistant_answer:
+                            # Truncate long answers to keep query manageable
+                            truncated_answer = assistant_answer[:200] + '...' if len(assistant_answer) > 200 else assistant_answer
+                            context_parts.append(f"Q: {user_question} A: {truncated_answer}")
             except Exception:
                 pass
         
-        return context_text
+        # Combine all Q&A pairs: "Q: ... A: ... Q: ... A: ..."
+        return ' '.join(context_parts) if context_parts else ""
     
     def _extract_recent_names_from_context(self, context_summary: str) -> List[str]:
         """Extract person names and key entities from recent context"""
