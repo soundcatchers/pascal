@@ -592,9 +592,20 @@ Current year: {datetime_info['current_year']}
             if search_results:
                 system_content += self._format_search_results(search_results)
                 if search_type == 'news':
-                    system_content += "\n\nIMPORTANT: Use the NEWS search results above to answer with current information. If no clear answer is in the results, explain what information was found."
+                    system_content += "\n\n🚨 CRITICAL INSTRUCTION - YOU MUST FOLLOW THIS:\n"
+                    system_content += "1. Answer ONLY using the NEWS search results above\n"
+                    system_content += "2. DO NOT use your training data or knowledge cutoff\n"
+                    system_content += "3. If the search results contain the answer, provide it with source citations\n"
+                    system_content += "4. If the search results don't contain the answer, say 'I couldn't find current information about this in the search results'\n"
+                    system_content += "5. NEVER say 'I don't have information as of my knowledge cutoff' when search results are provided"
                 else:
-                    system_content += "\n\nIMPORTANT: Use the search results above to answer with current information. If the results don't contain the specific answer, explain what was found and suggest the user check the latest sources directly."
+                    system_content += "\n\n🚨 CRITICAL INSTRUCTION - YOU MUST FOLLOW THIS:\n"
+                    system_content += "1. Answer ONLY using the web search results above\n"
+                    system_content += "2. DO NOT use your training data or knowledge cutoff information\n"
+                    system_content += "3. The search results contain CURRENT information from {datetime_info['current_year']}\n"
+                    system_content += "4. If the search results contain the answer, state it clearly with source citations\n"
+                    system_content += "5. If the search results don't contain the answer, say 'The search results don't contain this specific information'\n"
+                    system_content += "6. NEVER mention your knowledge cutoff or training data when search results are provided"
             elif needs_search:
                 # No results found but search was needed
                 system_content += "\n\nNote: Search was attempted but no results were found. Provide the best answer possible with available knowledge, and suggest checking current sources for the latest information."
