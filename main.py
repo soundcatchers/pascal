@@ -70,8 +70,9 @@ class Pascal:
             if hasattr(self.router, 'clear_context'):
                 self.router.clear_context()
             
-            # FIXED: Check system availability using correct method
+            # FIXED: Eager initialization at startup (not on first query)
             await self.router._check_llm_availability()
+            self.router._initialized = True  # Mark as initialized to prevent re-init on first query
             
             # Verify at least one system is available
             if not (self.router.offline_available or self.router.online_available):
