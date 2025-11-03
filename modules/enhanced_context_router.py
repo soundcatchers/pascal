@@ -77,67 +77,83 @@ class EnhancedContextMixin:
         
         context_info['is_standalone'] = any(pattern in query_lower for pattern in standalone_patterns)
         
-        # TRULY GENERIC follow-up detection - works for ANY domain, any query type
-        # Run for ALL queries when recent memory exists (not just standalone patterns)
-        has_recent_memory = hasattr(self, 'memory_manager') and self.memory_manager
-        if has_recent_memory:
-            try:
-                # Get recent conversation context from memory
-                if hasattr(self.memory_manager, 'short_term_memory') and self.memory_manager.short_term_memory:
-                    last_memory = self.memory_manager.short_term_memory[-1]
-                    recent_query = last_memory.user_input if hasattr(last_memory, 'user_input') else ''
-                    recent_response = last_memory.assistant_response if hasattr(last_memory, 'assistant_response') else ''
-                    recent_text = (recent_query + " " + recent_response).lower()
-                    
-                    # Generic word-overlap check - no hardcoded topic keywords!
-                    # Works for quantum physics, finance, medicine, F1, politics, ANY domain
-                    
-                    # Extract content words (exclude stopwords, strip punctuation)
-                    stopwords = {'a', 'an', 'the', 'is', 'are', 'was', 'were', 'be', 'been', 'being',
-                                'in', 'on', 'at', 'to', 'for', 'of', 'with', 'by', 'from', 'about',
-                                'who', 'what', 'where', 'when', 'why', 'how', 'which', 'this', 'that'}
-                    
-                    # Strip punctuation from words so "details?" matches "details"
-                    import string
-                    query_words = set(
-                        word.strip(string.punctuation) 
-                        for word in query_lower.split() 
-                        if word.strip(string.punctuation) not in stopwords and len(word.strip(string.punctuation)) > 2
-                    )
-                    context_words = set(
-                        word.strip(string.punctuation) 
-                        for word in recent_text.split() 
-                        if word.strip(string.punctuation) not in stopwords and len(word.strip(string.punctuation)) > 2
-                    )
-                    
-                    # Check for word overlap - if they share content words, likely related
-                    word_overlap = query_words & context_words
-                    
-                    # Follow-up indicators (all generic, no hardcoding)
-                    has_word_overlap = len(word_overlap) > 0
-                    is_very_short = len(query_lower.split()) <= 5  # 1-5 words → likely follow-up
-                    is_short_query = len(query_lower.split()) <= 7
-                    # Expanded pronouns to include "you" for queries like "can you explain?"
-                    has_pronouns = any(word.strip(string.punctuation) in ['he', 'she', 'it', 'they', 'that', 'this', 'you', 'your'] 
-                                     for word in query_lower.split())
-                    
-                    # Detect follow-up with multiple heuristics (ordered by confidence):
-                    # 1. Word overlap → high confidence (same topic)
-                    # 2. Very short query (1-5 words) → high confidence (likely follow-up if recent context)
-                    # 3. Short query (6-7 words) with pronouns → medium confidence
-                    if has_word_overlap or is_very_short or (is_short_query and has_pronouns):
-                        # Follow-up detected! Works for ANY topic without hardcoding
-                        context_info['is_follow_up'] = True
-                        context_info['topic_continuity'] = True
-                        context_info['should_force_online'] = True  # Follow-ups need current info
-                        context_info['is_standalone'] = False  # Override standalone classification
+        # STAGE 1: Detect topic shift phrases (signals NEW topic, not follow-up)
+        topic_shift_phrases = [
+            'how about', 'what about', 'now tell me', 'switching to', 'moving on',
+            'let\'s talk about', 'can you tell me about'
+        ]
+        has_topic_shift = any(phrase in query_lower for phrase in topic_shift_phrases)
+        
+        if has_topic_shift:
+            # Topic shift detected - treat as standalone query
+            context_info['is_follow_up'] = False
+            context_info['is_standalone'] = True
+            context_info['topic_continuity'] = False
+            if settings.debug_mode:
+                print(f"[ENHANCED_CONTEXT] 🔄 Topic shift detected: treating as standalone")
+            # Skip follow-up detection
+        else:
+            # TRULY GENERIC follow-up detection - works for ANY domain, any query type
+            # Run for ALL queries when recent memory exists (not just standalone patterns)
+            has_recent_memory = hasattr(self, 'memory_manager') and self.memory_manager
+            if has_recent_memory:
+                try:
+                    # Get recent conversation context from memory
+                    if hasattr(self.memory_manager, 'short_term_memory') and self.memory_manager.short_term_memory:
+                        last_memory = self.memory_manager.short_term_memory[-1]
+                        recent_query = last_memory.user_input if hasattr(last_memory, 'user_input') else ''
+                        recent_response = last_memory.assistant_response if hasattr(last_memory, 'assistant_response') else ''
+                        recent_text = (recent_query + " " + recent_response).lower()
                         
-                        # No entity extraction needed - full context in enhancement
-                        context_info['entities_in_context'] = []
-                        context_info['context_summary'] = f"Follow-up ({len(word_overlap)} shared terms)"
-            except Exception as e:
-                if settings.debug_mode:
-                    print(f"[ENHANCED_CONTEXT] Generic follow-up detection error: {e}")
+                        # Generic word-overlap check - no hardcoded topic keywords!
+                        # Works for quantum physics, finance, medicine, F1, politics, ANY domain
+                        
+                        # Extract content words (exclude stopwords, strip punctuation)
+                        stopwords = {'a', 'an', 'the', 'is', 'are', 'was', 'were', 'be', 'been', 'being',
+                                    'in', 'on', 'at', 'to', 'for', 'of', 'with', 'by', 'from', 'about',
+                                    'who', 'what', 'where', 'when', 'why', 'how', 'which', 'this', 'that'}
+                        
+                        # Strip punctuation from words so "details?" matches "details"
+                        import string
+                        query_words = set(
+                            word.strip(string.punctuation) 
+                            for word in query_lower.split() 
+                            if word.strip(string.punctuation) not in stopwords and len(word.strip(string.punctuation)) > 2
+                        )
+                        context_words = set(
+                            word.strip(string.punctuation) 
+                            for word in recent_text.split() 
+                            if word.strip(string.punctuation) not in stopwords and len(word.strip(string.punctuation)) > 2
+                        )
+                        
+                        # Check for word overlap - if they share content words, likely related
+                        word_overlap = query_words & context_words
+                        
+                        # Follow-up indicators (all generic, no hardcoding)
+                        has_word_overlap = len(word_overlap) > 0
+                        is_very_short = len(query_lower.split()) <= 5  # 1-5 words → likely follow-up
+                        is_short_query = len(query_lower.split()) <= 7
+                        # Expanded pronouns to include "you" for queries like "can you explain?"
+                        has_pronouns = any(word.strip(string.punctuation) in ['he', 'she', 'it', 'they', 'that', 'this', 'you', 'your'] 
+                                         for word in query_lower.split())
+                        
+                        # Detect follow-up with multiple heuristics (ordered by confidence):
+                        # 1. Word overlap → high confidence (same topic)
+                        # 2. Very short query (1-5 words) → high confidence (likely follow-up if recent context)
+                        # 3. Short query (6-7 words) with pronouns → medium confidence
+                        if has_word_overlap or is_very_short or (is_short_query and has_pronouns):
+                            # Follow-up detected! Works for ANY topic without hardcoding
+                            context_info['is_follow_up'] = True
+                            context_info['topic_continuity'] = True
+                            context_info['should_force_online'] = True  # Follow-ups need current info
+                            context_info['is_standalone'] = False  # Override standalone classification
+                            
+                            # No entity extraction needed - full context in enhancement
+                            context_info['entities_in_context'] = []
+                            context_info['context_summary'] = f"Follow-up ({len(word_overlap)} shared terms)"
+                except Exception as e:
+                    if settings.debug_mode:
+                        print(f"[ENHANCED_CONTEXT] Generic follow-up detection error: {e}")
         
         # Only return early if it's truly standalone with NO topic continuity
         if context_info['is_standalone'] and len(query_lower.split()) > 4 and not context_info['topic_continuity']:
@@ -343,10 +359,18 @@ class EnhancedContextMixin:
                         
                         # Add this Q&A pair to context
                         if user_question and assistant_answer:
-                            # CRITICAL: Clean the answer to remove debug text and search indicators
-                            clean_answer = assistant_answer.replace('🔍 Searching Brave...', '').strip()
-                            clean_answer = clean_answer.replace('📰 Searching latest news...', '').strip()
-                            clean_answer = clean_answer.replace('🌐 Getting current information...', '').strip()
+                            # CRITICAL: Clean the answer to remove ALL debug text and search indicators
+                            clean_answer = assistant_answer
+                            
+                            # Remove all search/debug markers (with and without emojis)
+                            debug_markers = [
+                                '🔍 Searching Brave...', 'Searching Brave', '🔍 Searching Brave',
+                                '📰 Searching latest news...', 'Searching latest news', '📰 Searching latest news',
+                                '🌐 Getting current information...', 'Getting current information',
+                                '🏔️', '🔍', '📰', '🌐', '⚡'  # Remove stray emojis
+                            ]
+                            for marker in debug_markers:
+                                clean_answer = clean_answer.replace(marker, '').strip()
                             
                             # Truncate to keep query manageable (shorter for better search results)
                             truncated_answer = clean_answer[:150] + '...' if len(clean_answer) > 150 else clean_answer
