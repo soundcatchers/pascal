@@ -315,6 +315,27 @@ class OnlineLLM:
         """Detect if query needs Brave search"""
         query_lower = query.lower().strip()
         
+        # CRITICAL: Enhanced/follow-up queries ALWAYS need search
+        # These queries have been enhanced with context and need current info
+        follow_up_indicators = [
+            'Follow-up:', 'Previous Q:', 'Q:', 'A:',  # Enhanced query markers
+        ]
+        if any(indicator in query for indicator in follow_up_indicators):
+            if settings.debug_mode:
+                print(f"[BRAVE] Enhanced/follow-up query - forcing search")
+            return True
+        
+        # CRITICAL: Queries with person names + question words likely need current info
+        # E.g., "Donald Trump who is his vice president? 2025"
+        has_name = bool(re.search(r'\b[A-Z][a-z]+\s+[A-Z][a-z]+\b', query))  # Proper noun (name)
+        has_question = any(word in query_lower for word in ['who', 'what', 'where', 'when', 'how', 'which'])
+        has_year = bool(re.search(r'\b202[0-9]\b', query))  # 2020-2029
+        
+        if has_name and has_question and has_year:
+            if settings.debug_mode:
+                print(f"[BRAVE] Name + question + year - forcing search")
+            return True
+        
         # High-confidence search patterns (includes sports which will use GENERAL search)
         high_confidence_search_patterns = [
             # Sports results
