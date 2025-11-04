@@ -15,6 +15,7 @@ from pathlib import Path
 from datetime import datetime, timedelta
 
 from config.settings import settings
+from modules.auth_challenge import AuthChallengeManager, ChallengeType
 
 class MemoryInteraction:
     """Represents a single interaction in memory"""
@@ -56,6 +57,9 @@ class MemoryManager:
         self.long_term_memory: List[MemoryInteraction] = []
         self.user_preferences: Dict[str, Any] = {}
         self.learned_facts: Dict[str, Any] = {}
+        
+        # NEW: Individual tracking (people Pascal knows about)
+        self.individuals: Dict[str, Dict[str, Any]] = {}
 
         # Memory limits
         self.short_term_limit = getattr(settings, 'short_term_memory_limit', 50)
@@ -67,6 +71,9 @@ class MemoryManager:
 
         # Memory file path
         self.memory_file = settings.get_memory_path(session_id)
+        
+        # Authentication manager for sensitive operations
+        self.auth_manager = AuthChallengeManager()
 
     async def load_session(self, session_id: str = None) -> bool:
         """Load memory from file"""
@@ -99,6 +106,7 @@ class MemoryManager:
             # Load user data
             self.user_preferences = data.get('user_preferences', {})
             self.learned_facts = data.get('learned_facts', {})
+            self.individuals = data.get('individuals', {})
 
             # Clean old memories if needed
             await self._cleanup_old_memories()
@@ -127,7 +135,8 @@ class MemoryManager:
                     for interaction in self.short_term_memory
                 ],
                 'user_preferences': self.user_preferences,
-                'learned_facts': self.learned_facts
+                'learned_facts': self.learned_facts,
+                'individuals': self.individuals
             }
 
             # Add long-term memory if enabled
@@ -228,21 +237,23 @@ class MemoryManager:
                     }
 
     async def _cleanup_old_memories(self):
-        """Clean up old memories based on age and relevance"""
+        """Clean up old memories based on age and relevance - INFINITE RETENTION"""
         if not self.long_term_enabled:
             return
 
-        # Remove memories older than 30 days
-        cutoff_time = time.time() - (30 * 24 * 60 * 60)  # 30 days
+        # Infinite memory: Remove memories older than retention period (default: 10 years)
+        retention_days = getattr(settings, 'long_term_memory_retention_days', 3650)  # 10 years default
+        cutoff_time = time.time() - (retention_days * 24 * 60 * 60)
 
         self.long_term_memory = [
             memory for memory in self.long_term_memory
             if memory.timestamp > cutoff_time
         ]
 
-        # Limit long-term memory size (keep most recent 1000)
-        if len(self.long_term_memory) > 1000:
-            self.long_term_memory = self.long_term_memory[-1000:]
+        # Increased limit: keep most recent 50,000 memories (effectively infinite for personal use)
+        # At 10 interactions/day, this is ~13 years of memories
+        if len(self.long_term_memory) > 50000:
+            self.long_term_memory = self.long_term_memory[-50000:]
 
     async def get_context(self, include_long_term: bool = True) -> str:
         """Get memory context for LLM prompts"""
@@ -443,3 +454,147 @@ class MemoryManager:
             if settings.debug_mode:
                 print(f"Failed to import memory: {e}")
             return False
+    
+    #  NEW: Individual Tracking Methods
+    
+    def add_individual(self, name: str, **attributes):
+        """Track an individual with their attributes"""
+        name_lower = name.lower()
+        
+        if name_lower not in self.individuals:
+            self.individuals[name_lower] = {
+                'name': name,
+                'first_mentioned': time.time(),
+                'last_updated': time.time(),
+                'attributes': {}
+            }
+        
+        # Update attributes
+        self.individuals[name_lower]['attributes'].update(attributes)
+        self.individuals[name_lower]['last_updated'] = time.time()
+        
+        if settings.debug_mode:
+            print(f"[MEMORY] Tracked individual: {name} with {len(attributes)} attributes")
+    
+    def get_individual(self, name: str) -> Optional[Dict[str, Any]]:
+        """Get information about an individual"""
+        return self.individuals.get(name.lower())
+    
+    async def create_backup(self) -> str:
+        """Create a backup before destructive operations"""
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        backup_path = self.memory_file.parent / f"backup_{self.session_id}_{timestamp}.json"
+        
+        # Export current state
+        backup_data = {
+            'backup_timestamp': time.time(),
+            'session_id': self.session_id,
+            'short_term_memory': [m.to_dict() for m in self.short_term_memory],
+            'long_term_memory': [m.to_dict() for m in self.long_term_memory] if self.long_term_enabled else [],
+            'user_preferences': self.user_preferences,
+            'learned_facts': self.learned_facts,
+            'individuals': self.individuals
+        }
+        
+        with open(backup_path, 'w', encoding='utf-8') as f:
+            json.dump(backup_data, f, indent=2, ensure_ascii=False)
+        
+        return str(backup_path)
+    
+    # NEW: 3-Stage Authentication Methods
+    
+    async def forget_individual(self, name: str) -> str:
+        """Start 3-stage authentication to forget an individual"""
+        name_lower = name.lower()
+        
+        if name_lower not in self.individuals:
+            return f"❌ I don't have any memories of '{name}'. No action needed."
+        
+        # Start auth challenge
+        return self.auth_manager.start_forget_individual(name)
+    
+    async def complete_memory_wipe(self) -> str:
+        """Start 3-stage authentication for complete memory wipe"""
+        return self.auth_manager.start_complete_wipe()
+    
+    async def process_auth_response(self, user_input: str) -> str:
+        """Process user response to active authentication challenge"""
+        if not self.auth_manager.is_active():
+            return "No active authentication challenge."
+        
+        result = self.auth_manager.process_response(user_input)
+        
+        if result['status'] == 'completed':
+            # Auth successful - execute the operation
+            challenge_type = result['challenge_type']
+            
+            if challenge_type == ChallengeType.FORGET_INDIVIDUAL.value:
+                return await self._execute_forget_individual(result['target_data'])
+            elif challenge_type == ChallengeType.COMPLETE_WIPE.value:
+                return await self._execute_complete_wipe()
+        
+        elif result['status'] in ['cancelled', 'timeout', 'invalid_response']:
+            return result['message']
+        
+        else:  # stage_2 or stage_3
+            return result['message']
+        
+        return "Unknown authentication status"
+    
+    async def _execute_forget_individual(self, name: str) -> str:
+        """Execute forget individual after successful authentication"""
+        name_lower = name.lower()
+        
+        # Create backup first
+        backup_path = await self.create_backup()
+        
+        # Remove individual
+        if name_lower in self.individuals:
+            del self.individuals[name_lower]
+        
+        # Remove from preferences if mentioned
+        for category in list(self.user_preferences.keys()):
+            self.user_preferences[category] = [
+                pref for pref in self.user_preferences[category]
+                if name.lower() not in pref.lower()
+            ]
+        
+        # Remove from learned facts if mentioned
+        for fact_key in list(self.learned_facts.keys()):
+            if name.lower() in str(self.learned_facts[fact_key]).lower():
+                del self.learned_facts[fact_key]
+        
+        # Save changes
+        await self.save_session()
+        
+        return (
+            f"✅ Successfully forgot all information about '{name}'.\n"
+            f"Backup created at: {backup_path}\n"
+            f"All memories, facts, and preferences related to {name} have been erased."
+        )
+    
+    async def _execute_complete_wipe(self) -> str:
+        """Execute complete memory wipe after successful authentication"""
+        # Create backup first
+        backup_path = await self.create_backup()
+        
+        # Clear everything
+        self.short_term_memory.clear()
+        self.long_term_memory.clear()
+        self.user_preferences.clear()
+        self.learned_facts.clear()
+        self.individuals.clear()
+        
+        # Save empty state
+        await self.save_session()
+        
+        return (
+            "✅ COMPLETE MEMORY WIPE COMPLETED\n\n"
+            f"Backup created at: {backup_path}\n\n"
+            "All data has been erased:\n"
+            "• Conversation history: DELETED\n"
+            "• Individual memories: DELETED\n"
+            "• Learned facts: DELETED\n"
+            "• User preferences: DELETED\n\n"
+            "Pascal has started fresh with no memory of past conversations."
+        )
