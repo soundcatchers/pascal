@@ -133,6 +133,13 @@ class Pascal:
                 if not user_input:
                     continue
                 
+                # CRITICAL: Check for active authentication challenge
+                # If active, route input to auth system instead of normal processing
+                if self.memory_manager.auth_manager.is_active():
+                    response = await self.memory_manager.process_auth_response(user_input)
+                    self.console.print(f"\nPascal: {response}\n", style="bold yellow")
+                    continue
+                
                 # Process commands
                 should_continue = await self.process_command(user_input)
                 if not should_continue:
@@ -265,6 +272,46 @@ class Pascal:
                     self.console.print(f"'{query}' -> {route_type} ({context_desc}) - {expected}", style="dim")
                 except Exception as e:
                     self.console.print(f"'{query}' -> ERROR: {e}", style="red")
+        
+        # NEW: Memory management commands
+        elif command.startswith('forget '):
+            # Extract individual name
+            name = user_input[7:].strip()  # Remove "forget " prefix
+            if name:
+                response = await self.memory_manager.forget_individual(name)
+                self.console.print(response, style="yellow")
+            else:
+                self.console.print("❌ Please specify who to forget: 'forget [name]'", style="red")
+        
+        elif command == 'complete memory wipe' or command == 'memory wipe':
+            response = await self.memory_manager.complete_memory_wipe()
+            self.console.print(response, style="bold red")
+        
+        elif command.startswith('track '):
+            # Simple individual tracking: "track John age=25 location=London"
+            parts = user_input[6:].strip().split()
+            if len(parts) >= 1:
+                name = parts[0]
+                attributes = {}
+                for part in parts[1:]:
+                    if '=' in part:
+                        key, value = part.split('=', 1)
+                        attributes[key] = value
+                self.memory_manager.add_individual(name, **attributes)
+                self.console.print(f"✅ Tracked {name} with {len(attributes)} attributes", style="green")
+            else:
+                self.console.print("❌ Usage: track [name] [key=value] ...", style="red")
+        
+        elif command == 'memories' or command == 'individuals':
+            # List tracked individuals
+            if self.memory_manager.individuals:
+                self.console.print("\n📋 Tracked Individuals:", style="bold")
+                for name, data in self.memory_manager.individuals.items():
+                    attrs = data.get('attributes', {})
+                    attr_str = ', '.join([f"{k}={v}" for k, v in attrs.items()])
+                    self.console.print(f"  • {data['name']}: {attr_str}", style="dim")
+            else:
+                self.console.print("No individuals tracked yet.", style="dim")
         
         else:
             # Not a command, process as normal input
