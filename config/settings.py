@@ -61,10 +61,11 @@ class Settings:
         self.ollama_num_thread = 4  # Use all 4 Pi 5 cores
         self.ollama_flash_attention = False  # Disabled for compatibility
         
-        # Memory settings - ULTRA-MINIMAL for speed
-        self.short_term_memory_limit = 1  # Ultra-minimal memory for speed
-        self.long_term_memory_enabled = False  # Disabled for speed
-        self.memory_save_interval = 7200  # Save less frequently
+        # Memory settings - INFINITE LONG-TERM MEMORY (Friend with no amnesia!)
+        self.short_term_memory_limit = 100  # Last 100 interactions in working memory
+        self.long_term_memory_enabled = True  # Enable infinite long-term memory
+        self.memory_save_interval = 300  # Auto-save every 5 minutes
+        self.long_term_memory_retention_days = 3650  # 10 years (effectively infinite)
         
         # ULTRA-SPEED Model preferences
         self.preferred_offline_models = [
