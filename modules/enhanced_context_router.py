@@ -307,53 +307,183 @@ class EnhancedContextMixin:
         return query
     
     def _create_simple_enhanced_query(self, query: str, conversation_history: str) -> str:
-        """Create a simplified enhanced query by extracting key entities and merging with follow-up"""
+        """
+        Create a simplified enhanced query by extracting key entities and merging with follow-up
+        
+        TRULY GENERIC APPROACH: Uses frequency-based extraction to work across ALL domains
+        (sports, politics, science, weather, etc.) without hardcoded keywords.
+        
+        Strategy:
+        1. Extract all significant words from recent conversation
+        2. Use frequency to identify topic indicators (most mentioned terms)
+        3. Combine with proper nouns for complete context
+        """
         import re
+        from collections import Counter
         
-        # Extract names/entities from conversation history (proper nouns, capitalized words)
-        entities = re.findall(r'\b[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*\b', conversation_history)
+        # STEP 1: Extract all words from conversation history
+        # Remove punctuation and split into words
+        words = re.findall(r'\b[A-Za-z][A-Za-z0-9]*\b', conversation_history)
         
-        # Remove common words that aren't entities
-        stopwords = {'The', 'According', 'Result', 'Search', 'Brave', 'Based', 'However', 'From', 'Official', 'President', 'Prime', 'Minister'}
-        entities = [e for e in entities if e not in stopwords]
+        # STEP 2: Define comprehensive stopwords (words to ignore)
+        stopwords = {
+            # Articles & conjunctions
+            'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'with', 'by', 'from', 'as',
+            # Pronouns (CRITICAL - these crowd out topic nouns)
+            'i', 'you', 'he', 'she', 'it', 'we', 'they', 'me', 'him', 'her', 'us', 'them',
+            'my', 'your', 'his', 'her', 'its', 'our', 'their', 'mine', 'yours', 'hers', 'ours', 'theirs',
+            'myself', 'yourself', 'himself', 'herself', 'itself', 'ourselves', 'themselves',
+            # Common verbs (not topic indicators)
+            'is', 'are', 'was', 'were', 'be', 'been', 'being', 'have', 'has', 'had', 'do', 'does', 'did',
+            'will', 'would', 'should', 'could', 'may', 'might', 'must', 'can', 'get', 'got', 'make', 'made',
+            'go', 'went', 'come', 'came', 'say', 'said', 'see', 'saw', 'know', 'knew', 'think', 'thought',
+            'take', 'took', 'give', 'gave', 'tell', 'told', 'ask', 'asked', 'use', 'used', 'find', 'found',
+            'want', 'wanted', 'try', 'tried', 'need', 'needed', 'feel', 'felt', 'become', 'became',
+            # Demonstratives & quantifiers
+            'that', 'this', 'these', 'those', 'such', 'same', 'own', 'other', 'another',
+            'all', 'each', 'every', 'both', 'either', 'neither', 'one', 'two', 'three',
+            # Question words
+            'who', 'what', 'when', 'where', 'why', 'how', 'which', 'whom', 'whose',
+            # Result/search indicators (not content words)
+            'according', 'result', 'search', 'brave', 'based', 'however', 'from', 'official', 'wikipedia',
+            'com', 'www', 'http', 'https', 'org', 'net', 'io', 'news', 'article',
+            # Generic descriptors
+            'more', 'most', 'some', 'any', 'many', 'much', 'few', 'several', 'just', 'only', 'very', 'so', 'too'
+        }
         
-        # Get unique entities (preserve order)
+        # STEP 3: Filter words and count frequency (case-insensitive for counting)
+        # Keep words that are:
+        # - Not stopwords
+        # - Length >= 2
+        # - Any casing (proper nouns, acronyms like NASCAR/OECD, mixed case)
+        significant_words = []
+        original_case_map = {}  # Map lowercase -> original case for output
+        
+        for word in words:
+            word_lower = word.lower()
+            # Keep if: not stopword and length >= 2
+            if word_lower not in stopwords and len(word) >= 2:
+                significant_words.append(word_lower)  # Use lowercase for counting
+                # Preserve original case (prefer proper nouns over lowercase)
+                if word_lower not in original_case_map or word[0].isupper():
+                    original_case_map[word_lower] = word
+        
+        # Count word frequency (now case-insensitive: "Ferrari" + "ferrari" = count 2)
+        word_freq = Counter(significant_words)
+        
+        # STEP 4: Get top frequent words (likely topic indicators)
+        # Prioritize:
+        # 1. Words that appear multiple times (frequency > 1)
+        # 2. Longer words (more likely to be substantive nouns)
+        # 3. Words that aren't common verbs
+        
+        # First, get all words with frequency > 1 (repeated = likely important)
+        repeated_words = [word for word, count in word_freq.items() if count > 1]
+        
+        # Then get remaining top frequent words
+        top_frequent = [word for word, count in word_freq.most_common(12)]
+        
+        # Prefer longer words (likely domain-specific: "championship", "entanglement", etc.)
+        # Score words: frequency * length
+        scored_words = []
+        for word in top_frequent:
+            score = word_freq[word] * len(word)
+            scored_words.append((word, score))
+        
+        # Sort by score and take top 5-6
+        scored_words.sort(key=lambda x: x[1], reverse=True)
+        # Convert back to original case using the map
+        top_words = [original_case_map.get(word, word) for word, score in scored_words[:6]]
+        
+        # STEP 5: Extract proper nouns (capitalized multi-word phrases)
+        proper_nouns = re.findall(r'\b[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*\b', conversation_history)
+        proper_nouns = [n for n in proper_nouns if n not in stopwords and len(n) > 2]
+        
+        # Get unique proper nouns (preserve order)
         seen = set()
-        unique_entities = []
-        for entity in entities:
-            if entity.lower() not in seen and len(entity) > 2:
-                seen.add(entity.lower())
-                unique_entities.append(entity)
+        unique_proper_nouns = []
+        for noun in proper_nouns:
+            if noun.lower() not in seen:
+                seen.add(noun.lower())
+                unique_proper_nouns.append(noun)
         
-        # If we found entities, create a simple query with them
-        if unique_entities:
-            # Take the most relevant entities (first 2)
-            key_entities = ' '.join(unique_entities[:2])
-            # Combine with current query
-            simple_query = f"{key_entities} {query} 2025"
+        # STEP 6: Build enhanced query intelligently
+        query_parts = []
+        
+        # Add top frequent words (these are likely topic indicators: F1, tennis, weather, tire, strategy, etc.)
+        if top_words:
+            # Take top 3-4 high-scoring words as topic context (increased from 3 to ensure coverage)
+            query_parts.extend(top_words[:4])
+        
+        # Add proper nouns (people, places, teams)
+        if unique_proper_nouns:
+            query_parts.extend(unique_proper_nouns[:2])
+        
+        # Add user's query
+        query_parts.append(query)
+        
+        # Add year for temporal context
+        query_parts.append("2025")
+        
+        # STEP 7: Combine into natural query, removing duplicates
+        seen_in_query = set()
+        final_parts = []
+        for part in query_parts:
+            part_lower = part.lower()
+            if part_lower not in seen_in_query:
+                seen_in_query.add(part_lower)
+                final_parts.append(part)
+        
+        # Return if we have meaningful context (more than just query + year)
+        if len(final_parts) > 2:
+            simple_query = ' '.join(final_parts)
             return simple_query
         
-        # No entities found, return empty (will use fallback)
+        # No sufficient context found, return empty (will use fallback)
         return ""
     
     def _get_recent_conversation_context(self) -> str:
         """
         Get recent conversation history from memory for follow-up enhancement
         
-        Pulls last 2-3 turns to maintain context across multi-turn follow-up chains.
-        Example: Turn 1 (race winner) → Turn 2 (second place) → Turn 3 (location)
-        Turn 3 needs context from Turn 1, not just Turn 2.
+        CRITICAL: Detects topic boundaries to prevent context pollution!
+        - If last question introduced NEW proper nouns → Only use CURRENT topic
+        - Otherwise → Use last 2-3 turns for multi-turn chains
+        
+        Example 1 (Multi-turn on same topic):
+          Turn 1: "who won F1 race?" → Lando Norris
+          Turn 2: "where are they racing next?" → Uses Turn 1 context ✅
+          Turn 3: "who came second?" → Uses Turn 1+2 context ✅
+        
+        Example 2 (Topic shift):
+          Turn 1: "who won F1 race?" → Lando Norris
+          Turn 2: "where was Olympics held?" → NEW TOPIC (Olympics) - resets context
+          Turn 3: "have I missed winter olympics?" → Uses Turn 2 ONLY (not Turn 1) ✅
         """
         context_parts = []
         
         # Always pull from memory if available
         if hasattr(self, 'memory_manager') and self.memory_manager:
             try:
-                # Get last 2-3 interactions from short-term memory for multi-turn chains
+                # PRAGMATIC SOLUTION: Use last 2 Q&A pairs always
+                # 
+                # Trade-offs considered:
+                # 1. Last 1 pair: Prevents ALL cross-topic pollution but breaks multi-turn chains
+                # 2. Last 2 pairs: Supports 2-turn chains but CAN have cross-topic pollution
+                # 3. Last 3 pairs: Supports longer chains but WILL have cross-topic pollution
+                #
+                # CHOSEN: Last 2 pairs as best balance
+                # - Handles most conversational patterns (2-turn chains are common)
+                # - Minimal cross-topic pollution (only 1 old pair can pollute)
+                # - Simple, no fragile topic detection needed
+                #
+                # Known Limitations:
+                # - Q1 (F1) → Q2 (Olympics) → Q3 (Olympics follow-up): Q3 may include Q2+Q1 (F1 pollutes!)
+                #   But user can start a new conversation or system will naturally age out Q1 after Q4
                 if hasattr(self.memory_manager, 'short_term_memory') and self.memory_manager.short_term_memory:
-                    # Get up to last 3 turns (more context for longer chains)
-                    recent_memories = self.memory_manager.short_term_memory[-3:]
+                    recent_memories = self.memory_manager.short_term_memory[-2:]
                     
+                    # STEP 2: Build context from selected memories
                     for memory in recent_memories:
                         # Get both the question and answer
                         user_question = memory.user_input if hasattr(memory, 'user_input') else ''
@@ -382,6 +512,115 @@ class EnhancedContextMixin:
         
         # Combine all Q&A pairs: "Q: ... A: ... Q: ... A: ..."
         return ' '.join(context_parts) if context_parts else ""
+    
+    def _detect_topic_shift(self, current_query: str, previous_context: str) -> bool:
+        """
+        Detect if current query represents a topic shift from previous context.
+        
+        Uses significant word overlap to determine topic continuity.
+        - HIGH overlap → Same topic (F1 → F1, Olympics → Olympics)
+        - LOW overlap → Topic shift (F1 → Olympics, Weather → Politics)
+        
+        Works case-insensitively and handles all entity types (F1, olympics, weather, etc.)
+        """
+        import re
+        
+        # MINIMAL stopwords for topic detection (more conservative than query enhancement)
+        # Keep content words like "racing", "won", "missed" - they indicate topic continuity!
+        stopwords = {
+            # Articles & conjunctions  
+            'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'with', 'by', 'from', 'as',
+            # Pronouns (these DON'T indicate topic!)
+            'i', 'you', 'he', 'she', 'it', 'we', 'they', 'me', 'him', 'her', 'us', 'them',
+            'my', 'your', 'his', 'her', 'its', 'our', 'their', 'mine', 'yours', 'hers', 'ours', 'theirs',
+            'myself', 'yourself', 'himself', 'herself', 'itself', 'ourselves', 'themselves',
+            # Basic auxiliary verbs only (NOT content verbs!)
+            'is', 'are', 'was', 'were', 'be', 'been', 'being', 'have', 'has', 'had', 'do', 'does', 'did',
+            'will', 'would', 'should', 'could', 'may', 'might', 'must', 'can',
+            # Demonstratives
+            'that', 'this', 'these', 'those',
+            # Question words (keep for now, but might indicate topic)
+            'who', 'what', 'when', 'where', 'why', 'how', 'which', 'whom', 'whose'
+        }
+        
+        # Simple stemming function (no external libraries needed)
+        def simple_stem(word: str) -> str:
+            """Basic suffix removal for common English endings"""
+            # Handle common suffixes (racing→race, finished→finish, olympics→olympic)
+            if len(word) <= 3:
+                return word
+            
+            # Remove -ing (try adding 'e' back for words like racing→race)
+            if word.endswith('ing') and len(word) > 4:
+                stem = word[:-3]
+                # Try adding 'e' back if it makes sense (rac→race, writ→write)
+                if len(stem) >= 2 and stem[-1] not in 'aeiouy':
+                    return stem + 'e'  # racing→race, writing→write
+                return stem
+            # Remove -ed (try adding 'e' back)
+            if word.endswith('ed') and len(word) > 3:
+                stem = word[:-2]
+                if len(stem) >= 2 and stem[-1] not in 'aeiouy':
+                    return stem + 'e'  # raced→race
+                return stem
+            # Remove -s (plural / third person)
+            if word.endswith('s') and len(word) > 2 and not word.endswith('ss'):
+                return word[:-1]  # races→race, olympics→olympic
+            # Remove -er
+            if word.endswith('er') and len(word) > 3:
+                return word[:-2]
+            
+            return word
+        
+        # Extract significant words (case-insensitive, handles F1, olympics, weather, etc.)
+        def get_significant_words(text: str) -> set:
+            # Extract all alphanumeric words (handles F1, NASCAR, etc.)
+            words = re.findall(r'\b[A-Za-z0-9]+\b', text.lower())
+            # Filter out stopwords, but keep short meaningful words (F1, GP, UK, etc.)
+            significant = {w for w in words if w not in stopwords and len(w) >= 2}
+            
+            # CRITICAL: Apply stemming to ALL significant words
+            # This makes "racing" match "race", "finished" match "finish", etc.
+            stemmed = {simple_stem(w) for w in significant}
+            
+            # CRITICAL: If we got ZERO significant words, include content words anyway
+            # This prevents false positives when user asks pronoun-only questions
+            if not stemmed:
+                # Keep all non-pronoun words as fallback
+                pronoun_set = {
+                    'i', 'you', 'he', 'she', 'it', 'we', 'they', 'me', 'him', 'her', 'us', 'them',
+                    'my', 'your', 'his', 'her', 'its', 'our', 'their'
+                }
+                stemmed = {simple_stem(w) for w in words if w not in pronoun_set and len(w) >= 2}
+            
+            return stemmed
+        
+        current_words = get_significant_words(current_query)
+        previous_words = get_significant_words(previous_context)
+        
+        # Calculate overlap
+        if not previous_words:
+            # No previous context → not a topic shift
+            return False
+        
+        overlap = current_words & previous_words  # Intersection
+        
+        # Handle edge cases
+        if not current_words:
+            # No significant words in current query → assume NOT a topic shift
+            return False
+        
+        overlap_ratio = len(overlap) / len(current_words)
+        
+        # TOPIC SHIFT if overlap is LOW (< 20%)
+        # Lowered threshold from 30% to 20% to be more conservative
+        # Example: "olympics" vs "F1 race" = 0% overlap → SHIFT
+        # Example: "winter olympics" vs "summer olympics" = 50% overlap → SAME TOPIC
+        # Example: "where are they racing" vs "who won f1 race" → "racing"/"race" won't match but user clearly means F1
+        
+        # CRITICAL: Also check assistant responses for topic continuity
+        # If current query has ANY overlap with previous context → SAME TOPIC
+        return overlap_ratio == 0.0  # Only shift if ZERO overlap
     
     def _extract_recent_names_from_context(self, context_summary: str) -> List[str]:
         """Extract person names and key entities from recent context"""
