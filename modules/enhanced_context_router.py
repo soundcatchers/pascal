@@ -131,17 +131,19 @@ class EnhancedContextMixin:
                         
                         # Follow-up indicators (all generic, no hardcoding)
                         has_word_overlap = len(word_overlap) > 0
-                        is_very_short = len(query_lower.split()) <= 5  # 1-5 words → likely follow-up
+                        is_very_short = len(query_lower.split()) <= 3  # 1-3 words only
                         is_short_query = len(query_lower.split()) <= 7
-                        # Expanded pronouns to include "you" for queries like "can you explain?"
-                        has_pronouns = any(word.strip(string.punctuation) in ['he', 'she', 'it', 'they', 'that', 'this', 'you', 'your'] 
-                                         for word in query_lower.split())
+                        # Pronouns that reference previous context (NOT "why", "what", etc.)
+                        context_pronouns = ['he', 'she', 'it', 'they', 'that', 'this', 'his', 'her', 'their']
+                        has_context_pronouns = any(word.strip(string.punctuation) in context_pronouns 
+                                                 for word in query_lower.split())
                         
                         # Detect follow-up with multiple heuristics (ordered by confidence):
                         # 1. Word overlap → high confidence (same topic)
-                        # 2. Very short query (1-5 words) → high confidence (likely follow-up if recent context)
-                        # 3. Short query (6-7 words) with pronouns → medium confidence
-                        if has_word_overlap or is_very_short or (is_short_query and has_pronouns):
+                        # 2. Very short (1-3 words) WITH pronouns → medium confidence ("what's that?", "where's it?")
+                        # 3. Short query (4-7 words) WITH pronouns AND some overlap → medium confidence
+                        # CRITICAL: "why do birds sing?" (4 words, no pronouns, no overlap) = NOT a follow-up
+                        if has_word_overlap or (is_very_short and has_context_pronouns) or (is_short_query and has_context_pronouns and has_word_overlap):
                             # Follow-up detected! Works for ANY topic without hardcoding
                             context_info['is_follow_up'] = True
                             context_info['topic_continuity'] = True
