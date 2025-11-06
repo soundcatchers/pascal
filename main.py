@@ -59,8 +59,8 @@ class Pascal:
             self.personality_manager = PersonalityManager()
             self.memory_manager = MemoryManager()
             
-            # Load default personality
-            await self.personality_manager.load_personality("default")
+            # Load default personality (Pascal)
+            await self.personality_manager.load_personality("pascal")
             await self.memory_manager.load_session()
             
             # FIXED: Initialize enhanced intelligent router
@@ -112,6 +112,84 @@ class Pascal:
         health += 10  # Router always available
         return health
     
+    async def check_personality_switch(self, user_input: str) -> bool:
+        """
+        Check if user is trying to switch personalities
+        Pattern: "[Name] are you out there" (voice-safe with flexible matching)
+        
+        Matches:
+        - "Jarvis are you out there"
+        - "Jarvis, are you out there?"
+        - "Hey Jarvis are you out there"
+        - "Dr. Jarvis are you out there"
+        - "Jarvis are you out there..."
+        
+        Returns True if personality switch was attempted (success or failure)
+        """
+        import re
+        
+        # Voice-safe pattern: flexible matching for speech-to-text
+        # Allows: optional prefix (hey,/hello,), name (multi-word ok), optional comma, "are you out there", ANY trailing words/punctuation
+        # Pattern explanation:
+        # - (?:hey|hello)[,\s]+ : Optional "hey"/"hello" with comma/spaces after
+        # - ([a-zA-Z][a-zA-Z\s.]*?) : Capture name (starts with letter, can have spaces/dots)
+        # - \s*,?\s+ : Optional comma/spaces before "are"
+        # - are\s+you\s+out\s+there : Required phrase
+        # - .*$ : ANY trailing text (please, right now, etc.)
+        pattern = r'(?:(?:hey|hello)[,\s]+)?([a-zA-Z][a-zA-Z\s.]*?)\s*,?\s+are\s+you\s+out\s+there.*$'
+        match = re.match(pattern, user_input.strip(), re.IGNORECASE)
+        
+        if not match:
+            return False
+        
+        # Extract personality name (clean up spaces, dots, etc.)
+        raw_name = match.group(1).strip()
+        
+        # Remove honorifics and clean name
+        honorifics = ['dr', 'mr', 'mrs', 'ms', 'miss', 'sir', 'madam']
+        stopwords = ['hey', 'hello', 'are', 'you', 'the', 'a', 'an']  # Prevent "are" from being captured as name
+        name_parts = raw_name.lower().split()
+        
+        # Filter out honorifics, stopwords, and dots
+        clean_parts = [part.rstrip('.') for part in name_parts 
+                      if part.rstrip('.').lower() not in honorifics 
+                      and part.rstrip('.').lower() not in stopwords]
+        
+        # Validate we have a real name (not empty or just stopwords)
+        if not clean_parts:
+            if settings.debug_mode:
+                self.console.print(f"[DEBUG] No valid personality name found in: {user_input}", style="dim")
+            return False
+        
+        # Join remaining parts (handles multi-word names like "iron man" or single names like "jarvis")
+        requested_personality = '_'.join(clean_parts) if len(clean_parts) > 1 else clean_parts[0]
+        
+        # Get current personality name (or "pascal" as default)
+        current_personality_name = self.personality_manager.current_personality or "pascal"
+        
+        # Try to load the requested personality
+        success = await self.personality_manager.load_personality(requested_personality)
+        
+        if success:
+            # Successfully switched! Get greeting from new personality
+            greeting = await self.personality_manager.get_greeting()
+            self.console.print(f"\n{requested_personality.upper()}: {greeting}\n", style="bold cyan")
+            
+            # Update router with new personality
+            self.router.personality_manager = self.personality_manager
+            
+            if settings.debug_mode:
+                self.console.print(f"[DEBUG] Switched from {current_personality_name} to {requested_personality}", style="dim")
+        else:
+            # Failed to load personality - respond with fallback
+            fallback_message = f"{requested_personality.capitalize()} is not here right now."
+            self.console.print(f"\n{current_personality_name.upper()}: {fallback_message}\n", style="bold yellow")
+            
+            if settings.debug_mode:
+                self.console.print(f"[DEBUG] Failed to load personality: {requested_personality}", style="dim")
+        
+        return True
+    
     async def chat_loop(self):
         """FIXED: Enhanced conversational chat interaction loop"""
         self.session_stats['start_time'] = time.time()
@@ -139,6 +217,11 @@ class Pascal:
                     response = await self.memory_manager.process_auth_response(user_input)
                     self.console.print(f"\nPascal: {response}\n", style="bold yellow")
                     continue
+                
+                # Check for personality switching: "[Name] are you out there"
+                personality_switch = await self.check_personality_switch(user_input)
+                if personality_switch:
+                    continue  # Already handled, skip to next input
                 
                 # Process commands
                 should_continue = await self.process_command(user_input)
