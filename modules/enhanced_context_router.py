@@ -109,9 +109,12 @@ class EnhancedContextMixin:
                         # Works for quantum physics, finance, medicine, F1, politics, ANY domain
                         
                         # Extract content words (exclude stopwords, strip punctuation)
+                        # Include common question verbs to prevent false follow-up detection
                         stopwords = {'a', 'an', 'the', 'is', 'are', 'was', 'were', 'be', 'been', 'being',
                                     'in', 'on', 'at', 'to', 'for', 'of', 'with', 'by', 'from', 'about',
-                                    'who', 'what', 'where', 'when', 'why', 'how', 'which', 'this', 'that'}
+                                    'who', 'what', 'where', 'when', 'why', 'how', 'which', 'this', 'that',
+                                    'explain', 'tell', 'describe', 'show', 'give', 'please', 'can', 'could',
+                                    'would', 'should', 'will', 'do', 'does', 'did', 'make', 'get', 'know'}
                         
                         # Strip punctuation from words so "details?" matches "details"
                         import string
@@ -130,7 +133,15 @@ class EnhancedContextMixin:
                         word_overlap = query_words & context_words
                         
                         # Follow-up indicators (all generic, no hardcoding)
-                        has_word_overlap = len(word_overlap) > 0
+                        # STRONGER overlap requirement: need 2+ words OR 1 substantive word (6+ chars)
+                        strong_overlap = [w for w in word_overlap if len(w) >= 6]  # Substantive words only
+                        has_word_overlap = len(word_overlap) >= 2 or len(strong_overlap) >= 1
+                        
+                        if settings.debug_mode and word_overlap:
+                            print(f"[ENHANCED_CONTEXT] 📊 Word overlap: {word_overlap} (need 2+ OR 1 substantive 6+char)")
+                            print(f"[ENHANCED_CONTEXT] 📊 Strong overlap (6+ chars): {strong_overlap}")
+                            print(f"[ENHANCED_CONTEXT] 📊 Has word overlap: {has_word_overlap}")
+                        
                         is_very_short = len(query_lower.split()) <= 3  # 1-3 words only
                         is_short_query = len(query_lower.split()) <= 7
                         # Pronouns that reference previous context (NOT "why", "what", etc.)
@@ -139,10 +150,10 @@ class EnhancedContextMixin:
                                                  for word in query_lower.split())
                         
                         # Detect follow-up with multiple heuristics (ordered by confidence):
-                        # 1. Word overlap → high confidence (same topic)
+                        # 1. Strong word overlap (2+ words OR 1 substantive 6+ char word) → high confidence
                         # 2. Very short (1-3 words) WITH pronouns → medium confidence ("what's that?", "where's it?")
                         # 3. Short query (4-7 words) WITH pronouns AND some overlap → medium confidence
-                        # CRITICAL: "why do birds sing?" (4 words, no pronouns, no overlap) = NOT a follow-up
+                        # CRITICAL: "explain quantum physics" vs "explain paper plane" = NO overlap, not follow-up
                         if has_word_overlap or (is_very_short and has_context_pronouns) or (is_short_query and has_context_pronouns and has_word_overlap):
                             # Follow-up detected! Works for ANY topic without hardcoding
                             context_info['is_follow_up'] = True
