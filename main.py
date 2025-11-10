@@ -1,12 +1,13 @@
 """
-Pascal AI Assistant - FIXED Main Entry Point (v4.0)
-Features: Simplified Nemotron + Groq with fast routing + Enhanced Conversational Context
+Pascal AI Assistant - FIXED Main Entry Point (v4.1)
+Features: Simplified Nemotron + Groq with fast routing + Enhanced Conversational Context + Voice Input
 """
 
 import asyncio
 import signal
 import sys
-import time  # FIXED: Added missing import
+import time
+import argparse
 from pathlib import Path
 from rich.console import Console
 from rich.panel import Panel
@@ -22,17 +23,31 @@ from modules.enhanced_context_router import EnhancedIntelligentRouter
 from modules.personality import PersonalityManager
 from modules.memory import MemoryManager
 
+# Voice input (optional)
+try:
+    from modules.speech_input import SpeechInputManager
+    VOICE_AVAILABLE = True
+except ImportError:
+    VOICE_AVAILABLE = False
+
 class Pascal:
-    """FIXED Pascal AI Assistant with enhanced conversational context"""
+    """FIXED Pascal AI Assistant with enhanced conversational context + Voice Input"""
     
-    def __init__(self):
+    def __init__(self, voice_mode: bool = False, list_audio_devices: bool = False):
         self.console = Console()
         self.running = False
+        self.voice_mode = voice_mode
+        self.list_audio_devices = list_audio_devices
         
         # Core components
         self.router = None
         self.personality_manager = None
         self.memory_manager = None
+        self.speech_manager = None
+        
+        # Voice input state
+        self.current_voice_input = ""
+        self.voice_is_final = False
         
         # Performance tracking
         self.session_stats = {
@@ -44,14 +59,16 @@ class Pascal:
             'greeting_queries': 0,
             'forced_offline_queries': 0,
             'forced_online_queries': 0,
+            'voice_queries': 0,
             'start_time': None,
         }
     
     async def initialize(self):
-        """FIXED: Initialize Pascal's enhanced conversational components"""
+        """FIXED: Initialize Pascal's enhanced conversational components + Voice Input"""
         try:
+            voice_status = " + Voice Input" if self.voice_mode else ""
             self.console.print(Panel.fit(
-                Text("⚡ Pascal AI Assistant v4.0 - Enhanced Conversational Edition", style="bold cyan"),
+                Text(f"⚡ Pascal AI Assistant v4.1 - Enhanced Conversational Edition{voice_status}", style="bold cyan"),
                 border_style="cyan"
             ))
             
@@ -73,6 +90,33 @@ class Pascal:
             # FIXED: Eager initialization at startup (not on first query)
             await self.router._check_llm_availability()
             self.router._initialized = True  # Mark as initialized to prevent re-init on first query
+            
+            # Initialize voice input if enabled
+            if self.voice_mode or self.list_audio_devices:
+                if not VOICE_AVAILABLE:
+                    self.console.print("❌ Voice input not available. Install with:", style="red")
+                    self.console.print("   pip install vosk pyaudio", style="yellow")
+                    if self.voice_mode:
+                        return False
+                else:
+                    self.speech_manager = SpeechInputManager()
+                    
+                    if self.list_audio_devices:
+                        self.speech_manager.initialize()
+                        self.speech_manager.list_devices()
+                        return False
+                    
+                    if self.speech_manager.initialize():
+                        device_info = self.speech_manager.get_device_info()
+                        if device_info['available']:
+                            marker = "🎙️  ReSpeaker" if device_info.get('is_respeaker') else "🎤"
+                            self.console.print(f"{marker} Voice input ready: {device_info['name']}", style="green")
+                        else:
+                            self.console.print("⚠️  Voice input initialized but no device detected", style="yellow")
+                    else:
+                        self.console.print("❌ Failed to initialize voice input", style="red")
+                        if self.voice_mode:
+                            return False
             
             # Verify at least one system is available
             if not (self.router.offline_available or self.router.online_available):
@@ -190,12 +234,26 @@ class Pascal:
         
         return True
     
+    def _on_voice_input(self, text: str, is_final: bool):
+        """Callback for voice input from speech recognition"""
+        if is_final:
+            self.current_voice_input = text
+            self.voice_is_final = True
+            print(f"\r🎤 You (voice): {text}")
+        else:
+            print(f"\r🎤 Listening: {text}...", end="", flush=True)
+    
     async def chat_loop(self):
-        """FIXED: Enhanced conversational chat interaction loop"""
+        """FIXED: Enhanced conversational chat interaction loop + Voice Input"""
         self.session_stats['start_time'] = time.time()
         
-        self.console.print("\n💬 Chat with Pascal Enhanced Conversational Edition\n", style="cyan")
+        mode_str = "Voice + Text" if self.voice_mode else "Text"
+        self.console.print(f"\n💬 Chat with Pascal Enhanced Conversational Edition ({mode_str} Mode)\n", style="cyan")
         self.console.print("Type 'help' for commands. Now with enhanced context awareness!\n", style="dim")
+        
+        if self.voice_mode:
+            self.console.print("🎙️  Voice mode active - speak naturally or type text", style="green")
+            self.console.print("💡 Say 'exit' or 'quit' to stop\n", style="dim")
         
         if self.router:
             if self.router.offline_available and self.router.online_available:
@@ -203,10 +261,25 @@ class Pascal:
             elif self.router.online_available:
                 self.console.print("💡 Online AI ready for current information and follow-ups!\n", style="green")
         
+        if self.voice_mode and self.speech_manager:
+            self.speech_manager.start_listening(self._on_voice_input)
+        
         while self.running:
             try:
-                # Get user input
-                user_input = input("You: ").strip()
+                if self.voice_mode and self.voice_is_final:
+                    user_input = self.current_voice_input
+                    self.voice_is_final = False
+                    self.current_voice_input = ""
+                    self.session_stats['voice_queries'] += 1
+                else:
+                    try:
+                        user_input_raw = await asyncio.get_event_loop().run_in_executor(
+                            None, input, "You: " if not self.voice_mode else ""
+                        )
+                        user_input = user_input_raw.strip()
+                    except EOFError:
+                        await asyncio.sleep(0.1)
+                        continue
                 
                 if not user_input:
                     continue
@@ -505,10 +578,15 @@ Offline: {self.session_stats['offline_queries']} | Online: {self.session_stats['
         }
     
     async def shutdown(self):
-        """Enhanced graceful shutdown with proper cleanup"""
+        """Enhanced graceful shutdown with proper cleanup + Voice Input"""
         self.console.print("\n🔄 Shutting down Pascal Enhanced Conversational Edition...", style="yellow")
         
         try:
+            # Stop voice input if active
+            if self.speech_manager:
+                self.speech_manager.stop_listening()
+                self.speech_manager.close()
+            
             # Save memory
             if self.memory_manager:
                 await self.memory_manager.save_session()
@@ -578,8 +656,14 @@ Offline: {self.session_stats['offline_queries']} | Online: {self.session_stats['
         await self.shutdown()
 
 async def main():
-    """Main entry point for Pascal Enhanced Conversational Edition"""
-    pascal = Pascal()
+    """Main entry point for Pascal Enhanced Conversational Edition + Voice Input"""
+    parser = argparse.ArgumentParser(description='Pascal AI Assistant - Your intelligent voice & text assistant')
+    parser.add_argument('--voice', action='store_true', help='Enable voice input mode (requires Vosk + microphone)')
+    parser.add_argument('--list-devices', action='store_true', help='List available audio input devices and exit')
+    
+    args = parser.parse_args()
+    
+    pascal = Pascal(voice_mode=args.voice, list_audio_devices=args.list_devices)
     await pascal.run()
 
 if __name__ == "__main__":
