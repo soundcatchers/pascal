@@ -33,11 +33,12 @@ except ImportError:
 class Pascal:
     """FIXED Pascal AI Assistant with enhanced conversational context + Voice Input"""
     
-    def __init__(self, voice_mode: bool = False, list_audio_devices: bool = False):
+    def __init__(self, voice_mode: bool = False, list_audio_devices: bool = False, debug_audio: bool = False):
         self.console = Console()
         self.running = False
         self.voice_mode = voice_mode
         self.list_audio_devices = list_audio_devices
+        self.debug_audio = debug_audio
         
         # Core components
         self.router = None
@@ -99,7 +100,7 @@ class Pascal:
                     if self.voice_mode:
                         return False
                 else:
-                    self.speech_manager = SpeechInputManager()
+                    self.speech_manager = SpeechInputManager(debug_audio=self.debug_audio)
                     
                     if self.list_audio_devices:
                         self.speech_manager.initialize()
@@ -660,10 +661,11 @@ async def main():
     parser = argparse.ArgumentParser(description='Pascal AI Assistant - Your intelligent voice & text assistant')
     parser.add_argument('--voice', action='store_true', help='Enable voice input mode (requires Vosk + microphone)')
     parser.add_argument('--list-devices', action='store_true', help='List available audio input devices and exit')
+    parser.add_argument('--debug-audio', action='store_true', help='Show ALSA debug messages (for troubleshooting audio issues)')
     
     args = parser.parse_args()
     
-    pascal = Pascal(voice_mode=args.voice, list_audio_devices=args.list_devices)
+    pascal = Pascal(voice_mode=args.voice, list_audio_devices=args.list_devices, debug_audio=args.debug_audio)
     await pascal.run()
 
 if __name__ == "__main__":
