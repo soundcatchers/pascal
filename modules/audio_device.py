@@ -4,8 +4,48 @@ Handles PyAudio setup, device detection, and audio stream management for Pascal 
 """
 
 import pyaudio
+import os
+import sys
+from contextlib import contextmanager
 from typing import Optional, Dict, List, Tuple
 from dataclasses import dataclass
+
+try:
+    from ctypes import CFUNCTYPE, c_char_p, c_int, cdll
+    ERROR_HANDLER_FUNC = CFUNCTYPE(None, c_char_p, c_int, c_char_p, c_int, c_char_p)
+    
+    def py_error_handler(filename, line, function, err, fmt):
+        """No-op error handler for ALSA"""
+        pass
+    
+    c_error_handler = ERROR_HANDLER_FUNC(py_error_handler)
+    
+    try:
+        asound = cdll.LoadLibrary('libasound.so.2')
+        asound.snd_lib_error_set_handler(c_error_handler)
+        ALSA_HANDLER_AVAILABLE = True
+    except Exception:
+        ALSA_HANDLER_AVAILABLE = False
+except Exception:
+    ALSA_HANDLER_AVAILABLE = False
+
+@contextmanager
+def suppress_alsa_errors(debug_audio: bool = False):
+    """Suppress ALSA error messages during PyAudio operations
+    
+    Args:
+        debug_audio: If True, allow ALSA errors to be displayed (for troubleshooting)
+    """
+    if debug_audio or not ALSA_HANDLER_AVAILABLE:
+        yield
+        return
+    
+    try:
+        asound = cdll.LoadLibrary('libasound.so.2')
+        asound.snd_lib_error_set_handler(c_error_handler)
+        yield
+    except:
+        yield
 
 @dataclass
 class AudioDeviceInfo:
@@ -19,16 +59,18 @@ class AudioDeviceInfo:
 class AudioDeviceManager:
     """Manages audio device detection and configuration for voice input"""
     
-    def __init__(self):
+    def __init__(self, debug_audio: bool = False):
         self.pyaudio_instance: Optional[pyaudio.PyAudio] = None
         self.respeaker_device: Optional[AudioDeviceInfo] = None
         self.default_device: Optional[AudioDeviceInfo] = None
+        self.debug_audio = debug_audio or os.environ.get('PASCAL_DEBUG_AUDIO', '0') == '1'
         
     def initialize(self) -> bool:
-        """Initialize PyAudio and detect devices"""
+        """Initialize PyAudio and detect devices (with ALSA error suppression)"""
         try:
-            self.pyaudio_instance = pyaudio.PyAudio()
-            self._detect_devices()
+            with suppress_alsa_errors(self.debug_audio):
+                self.pyaudio_instance = pyaudio.PyAudio()
+                self._detect_devices()
             return True
         except Exception as e:
             print(f"[AUDIO] Failed to initialize PyAudio: {e}")
@@ -156,7 +198,7 @@ class AudioDeviceManager:
             }
     
     def open_stream(self, callback=None) -> Optional[pyaudio.Stream]:
-        """Open an audio input stream with recommended settings"""
+        """Open an audio input stream with recommended settings (with ALSA error suppression)"""
         device = self.get_input_device()
         
         if not device or not self.pyaudio_instance:
@@ -166,15 +208,16 @@ class AudioDeviceManager:
         settings = self.get_recommended_settings()
         
         try:
-            stream = self.pyaudio_instance.open(
-                format=settings['format'],
-                channels=settings['channels'],
-                rate=settings['rate'],
-                input=True,
-                input_device_index=device.index,
-                frames_per_buffer=settings['chunk'],
-                stream_callback=callback
-            )
+            with suppress_alsa_errors(self.debug_audio):
+                stream = self.pyaudio_instance.open(
+                    format=settings['format'],
+                    channels=settings['channels'],
+                    rate=settings['rate'],
+                    input=True,
+                    input_device_index=device.index,
+                    frames_per_buffer=settings['chunk'],
+                    stream_callback=callback
+                )
             
             print(f"[AUDIO] ✅ Stream opened: {device.name} @ {settings['rate']}Hz, {settings['channels']}ch")
             return stream
