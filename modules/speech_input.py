@@ -21,8 +21,8 @@ except ImportError:
 class SpeechInputManager:
     """Manages continuous speech recognition using Vosk"""
     
-    def __init__(self, model_path: Optional[str] = None):
-        self.audio_manager = AudioDeviceManager()
+    def __init__(self, model_path: Optional[str] = None, debug_audio: bool = False):
+        self.audio_manager = AudioDeviceManager(debug_audio=debug_audio)
         self.model_path = model_path or self._find_model_path()
         self.model: Optional[Model] = None
         self.recognizer: Optional[KaldiRecognizer] = None
