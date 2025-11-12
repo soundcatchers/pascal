@@ -96,6 +96,11 @@ echo "   'quit' or 'exit' - Stop Pascal"
 echo "   'help' - Show available commands"
 echo "   'status' - Show system status"
 echo ""
+echo "🎙️  Voice Mode (Pi 5 only):"
+echo "   ./run.sh --voice         - Enable voice input"
+echo "   ./run.sh --list-devices  - List audio devices"
+echo "   ./run.sh --debug-audio   - Show ALSA debug output"
+echo ""
 echo "🔧 Troubleshooting:"
 echo "   If Pascal doesn't work, run: python complete_diagnostic.py"
 echo ""
@@ -107,9 +112,48 @@ if [ ! -f ".env" ]; then
     echo ""
 fi
 
-# Start Pascal
+# Check for voice mode dependencies if --voice flag is present
+if [[ "$*" == *"--voice"* ]]; then
+    print_status "Checking voice input dependencies..."
+    
+    if ! python -c "import vosk" 2>/dev/null; then
+        print_error "Vosk not installed - required for voice input"
+        echo ""
+        echo "Install voice dependencies:"
+        echo "  pip install vosk==0.3.45 PyAudio==0.2.14"
+        echo ""
+        echo "Download Vosk model:"
+        echo "  ./setup_vosk.sh"
+        echo ""
+        exit 1
+    fi
+    
+    if ! python -c "import pyaudio" 2>/dev/null; then
+        print_error "PyAudio not installed - required for voice input"
+        echo ""
+        echo "Install PyAudio:"
+        echo "  sudo apt-get install portaudio19-dev"
+        echo "  pip install PyAudio==0.2.14"
+        echo ""
+        exit 1
+    fi
+    
+    # Check for Vosk model
+    if [ ! -d "config/vosk_models/vosk-model-small-en-us-0.15" ]; then
+        print_error "Vosk model not found"
+        echo ""
+        echo "Download the model with:"
+        echo "  ./setup_vosk.sh"
+        echo ""
+        exit 1
+    fi
+    
+    print_success "Voice input dependencies OK"
+fi
+
+# Start Pascal with all command-line arguments
 print_status "Starting Pascal..."
-python main.py
+python main.py "$@"
 
 # Cleanup message
 echo ""
