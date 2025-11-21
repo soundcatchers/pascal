@@ -267,21 +267,30 @@ class Pascal:
         
         while self.running:
             try:
+                user_input = ""
+                
+                # Handle voice input
                 if self.voice_mode and self.voice_is_final:
                     user_input = self.current_voice_input
                     self.voice_is_final = False
                     self.current_voice_input = ""
                     self.session_stats['voice_queries'] += 1
+                elif self.voice_mode:
+                    # In voice mode, poll for voice input (non-blocking)
+                    await asyncio.sleep(0.1)
+                    continue
                 else:
+                    # Text-only mode: wait for keyboard input
                     try:
                         user_input_raw = await asyncio.get_event_loop().run_in_executor(
-                            None, input, "You: " if not self.voice_mode else ""
+                            None, input, "You: "
                         )
                         user_input = user_input_raw.strip()
                     except EOFError:
                         await asyncio.sleep(0.1)
                         continue
                 
+                # Skip if no input
                 if not user_input:
                     continue
                 
