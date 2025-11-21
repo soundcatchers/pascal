@@ -95,11 +95,14 @@ class EnhancedContextMixin:
         else:
             # TRULY GENERIC follow-up detection - works for ANY domain, any query type
             # Run for ALL queries when recent memory exists (not just standalone patterns)
-            has_recent_memory = hasattr(self, 'memory_manager') and self.memory_manager
+            has_recent_memory = (hasattr(self, 'memory_manager') and 
+                               self.memory_manager is not None and
+                               hasattr(self.memory_manager, 'short_term_memory') and
+                               self.memory_manager.short_term_memory is not None)
             if has_recent_memory:
                 try:
                     # Get recent conversation context from memory
-                    if hasattr(self.memory_manager, 'short_term_memory') and self.memory_manager.short_term_memory:
+                    if len(self.memory_manager.short_term_memory) > 0:
                         last_memory = self.memory_manager.short_term_memory[-1]
                         recent_query = last_memory.user_input if hasattr(last_memory, 'user_input') else ''
                         recent_response = last_memory.assistant_response if hasattr(last_memory, 'assistant_response') else ''
@@ -109,24 +112,29 @@ class EnhancedContextMixin:
                         # Works for quantum physics, finance, medicine, F1, politics, ANY domain
                         
                         # Extract content words (exclude stopwords, strip punctuation)
-                        # Include common question verbs to prevent false follow-up detection
+                        # EXPANDED STOPWORDS: Common words that appear everywhere but don't indicate follow-ups
                         stopwords = {'a', 'an', 'the', 'is', 'are', 'was', 'were', 'be', 'been', 'being',
                                     'in', 'on', 'at', 'to', 'for', 'of', 'with', 'by', 'from', 'about',
                                     'who', 'what', 'where', 'when', 'why', 'how', 'which', 'this', 'that',
                                     'explain', 'tell', 'describe', 'show', 'give', 'please', 'can', 'could',
-                                    'would', 'should', 'will', 'do', 'does', 'did', 'make', 'get', 'know'}
+                                    'would', 'should', 'will', 'do', 'does', 'did', 'make', 'get', 'know',
+                                    'you', 'your', 'yours', 'me', 'my', 'mine', 'we', 'our', 'ours',
+                                    'like', 'going', 'go', 'one', 'two', 'out', 'there', 'here',
+                                    'today', 'tomorrow', 'yesterday', 'now', 'then', 'just', 'very',
+                                    'hey', 'hi', 'hello', 'thanks', 'thank'}
                         
                         # Strip punctuation from words so "details?" matches "details"
+                        # STRICTER: Require 4+ chars instead of 2+ to avoid noise like "no", "hi", "ok"
                         import string
                         query_words = set(
                             word.strip(string.punctuation) 
                             for word in query_lower.split() 
-                            if word.strip(string.punctuation) not in stopwords and len(word.strip(string.punctuation)) > 2
+                            if word.strip(string.punctuation) not in stopwords and len(word.strip(string.punctuation)) > 3
                         )
                         context_words = set(
                             word.strip(string.punctuation) 
                             for word in recent_text.split() 
-                            if word.strip(string.punctuation) not in stopwords and len(word.strip(string.punctuation)) > 2
+                            if word.strip(string.punctuation) not in stopwords and len(word.strip(string.punctuation)) > 3
                         )
                         
                         # Check for word overlap - if they share content words, likely related
@@ -319,22 +327,34 @@ class EnhancedContextMixin:
     
     def _create_simple_enhanced_query(self, query: str, conversation_history: str) -> str:
         """
-        Create a simplified enhanced query by extracting key entities and merging with follow-up
+        Create a simplified enhanced query by extracting key entities from the MOST RECENT user question
         
-        TRULY GENERIC APPROACH: Uses frequency-based extraction to work across ALL domains
-        (sports, politics, science, weather, etc.) without hardcoded keywords.
+        FIXED: Previously pulled from entire conversation including assistant responses.
+        NOW: Only extracts from the last user question to avoid context pollution.
         
         Strategy:
-        1. Extract all significant words from recent conversation
-        2. Use frequency to identify topic indicators (most mentioned terms)
-        3. Combine with proper nouns for complete context
+        1. Extract ONLY the last user query from conversation history
+        2. Find significant topic words (4+ chars, not stopwords)
+        3. Combine 2-3 key words with current follow-up
         """
         import re
         from collections import Counter
         
-        # STEP 1: Extract all words from conversation history
-        # Remove punctuation and split into words
-        words = re.findall(r'\b[A-Za-z][A-Za-z0-9]*\b', conversation_history)
+        # STEP 1: Extract ONLY the most recent user query (not assistant responses!)
+        # Parse conversation_history to find last "Q:" line
+        user_query_text = ""
+        lines = conversation_history.split('\n')
+        for line in reversed(lines):
+            if line.strip().startswith('Q:') or line.strip().startswith('User:'):
+                user_query_text = line.split(':', 1)[1].strip() if ':' in line else ""
+                break
+        
+        # Fallback: If no Q: found, use whole history (but this means formatting changed)
+        if not user_query_text:
+            user_query_text = conversation_history
+        
+        # STEP 2: Extract words from ONLY the last user query
+        words = re.findall(r'\b[A-Za-z][A-Za-z0-9]*\b', user_query_text)
         
         # STEP 2: Define comprehensive stopwords (words to ignore)
         stopwords = {
@@ -401,40 +421,38 @@ class EnhancedContextMixin:
             score = word_freq[word] * len(word)
             scored_words.append((word, score))
         
-        # Sort by score and take top 5-6
+        # Sort by score and take top 2-3 ONLY (less is more for search!)
         scored_words.sort(key=lambda x: x[1], reverse=True)
         # Convert back to original case using the map
-        top_words = [original_case_map.get(word, word) for word, score in scored_words[:6]]
+        top_words = [original_case_map.get(word, word) for word, score in scored_words[:2]]
         
-        # STEP 5: Extract proper nouns (capitalized multi-word phrases)
-        proper_nouns = re.findall(r'\b[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*\b', conversation_history)
+        # STEP 5: Extract proper nouns ONLY from user's query (not assistant response!)
+        proper_nouns = re.findall(r'\b[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*\b', user_query_text)
         proper_nouns = [n for n in proper_nouns if n not in stopwords and len(n) > 2]
         
-        # Get unique proper nouns (preserve order)
+        # Get unique proper nouns (preserve order), limit to 1
         seen = set()
         unique_proper_nouns = []
         for noun in proper_nouns:
             if noun.lower() not in seen:
                 seen.add(noun.lower())
                 unique_proper_nouns.append(noun)
+                if len(unique_proper_nouns) >= 1:  # Only take 1 proper noun
+                    break
         
-        # STEP 6: Build enhanced query intelligently
+        # STEP 6: Build MINIMAL enhanced query (2-3 context words + current query)
         query_parts = []
         
-        # Add top frequent words (these are likely topic indicators: F1, tennis, weather, tire, strategy, etc.)
+        # Add top 2 frequent words (topic context)
         if top_words:
-            # Take top 3-4 high-scoring words as topic context (increased from 3 to ensure coverage)
-            query_parts.extend(top_words[:4])
+            query_parts.extend(top_words[:2])
         
-        # Add proper nouns (people, places, teams)
+        # Add 1 proper noun if found
         if unique_proper_nouns:
-            query_parts.extend(unique_proper_nouns[:2])
+            query_parts.append(unique_proper_nouns[0])
         
-        # Add user's query
+        # Add user's current query
         query_parts.append(query)
-        
-        # Add year for temporal context
-        query_parts.append("2025")
         
         # STEP 7: Combine into natural query, removing duplicates
         seen_in_query = set()
@@ -473,8 +491,11 @@ class EnhancedContextMixin:
         """
         context_parts = []
         
-        # Always pull from memory if available
-        if hasattr(self, 'memory_manager') and self.memory_manager:
+        # Always pull from memory if available (with None checks)
+        if (hasattr(self, 'memory_manager') and 
+            self.memory_manager is not None and
+            hasattr(self.memory_manager, 'short_term_memory') and
+            self.memory_manager.short_term_memory is not None):
             try:
                 # PRAGMATIC SOLUTION: Use last 2 Q&A pairs always
                 # 
@@ -491,7 +512,7 @@ class EnhancedContextMixin:
                 # Known Limitations:
                 # - Q1 (F1) → Q2 (Olympics) → Q3 (Olympics follow-up): Q3 may include Q2+Q1 (F1 pollutes!)
                 #   But user can start a new conversation or system will naturally age out Q1 after Q4
-                if hasattr(self.memory_manager, 'short_term_memory') and self.memory_manager.short_term_memory:
+                if len(self.memory_manager.short_term_memory) > 0:
                     recent_memories = self.memory_manager.short_term_memory[-2:]
                     
                     # STEP 2: Build context from selected memories
@@ -638,10 +659,13 @@ class EnhancedContextMixin:
         names = []
         
         # Always try to get from memory first for better accuracy
-        if hasattr(self, 'memory_manager') and self.memory_manager:
+        if (hasattr(self, 'memory_manager') and 
+            self.memory_manager is not None and
+            hasattr(self.memory_manager, 'short_term_memory') and
+            self.memory_manager.short_term_memory is not None):
             try:
                 # Get last few interactions from short-term memory
-                if hasattr(self.memory_manager, 'short_term_memory') and self.memory_manager.short_term_memory:
+                if len(self.memory_manager.short_term_memory) > 0:
                     recent_memories = self.memory_manager.short_term_memory[-2:]  # Last 2 interactions
                     for memory in recent_memories:
                         # Extract from assistant responses
