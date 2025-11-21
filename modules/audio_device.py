@@ -44,8 +44,8 @@ def suppress_alsa_errors(debug_audio: bool = False):
         asound = cdll.LoadLibrary('libasound.so.2')
         asound.snd_lib_error_set_handler(c_error_handler)
         yield
-    except:
-        yield
+    except Exception:
+        pass
 
 @dataclass
 class AudioDeviceInfo:
@@ -77,22 +77,34 @@ class AudioDeviceManager:
             return False
     
     def _detect_devices(self):
-        """Detect all available audio input devices"""
+        """Detect all available audio input devices across ALL host APIs"""
         if not self.pyaudio_instance:
             return
         
         try:
-            host_api_info = self.pyaudio_instance.get_host_api_info_by_index(0)
-            num_devices = host_api_info.get('deviceCount', 0)
+            num_devices = self.pyaudio_instance.get_device_count()
+            
+            if self.debug_audio:
+                print(f"[AUDIO_DEBUG] Scanning {num_devices} total devices across all host APIs...")
             
             for i in range(num_devices):
                 try:
-                    device_info = self.pyaudio_instance.get_device_info_by_host_api_device_index(0, i)
+                    device_info = self.pyaudio_instance.get_device_info_by_index(i)
                     
                     if device_info.get('maxInputChannels', 0) > 0:
                         device_name = device_info.get('name', '')
                         channels = device_info.get('maxInputChannels', 0)
                         sample_rate = int(device_info.get('defaultSampleRate', 16000))
+                        
+                        if self.debug_audio:
+                            print(f"[AUDIO_DEBUG] Device {i}: {device_name} (channels: {channels})")
+                        
+                        # Skip virtual/software devices that won't work reliably
+                        device_lower = device_name.lower()
+                        if device_lower in ['pulse', 'default', 'jack', 'pipewire']:
+                            if self.debug_audio:
+                                print(f"[AUDIO_DEBUG] Skipping virtual device: {device_name}")
+                            continue
                         
                         is_respeaker = self._is_respeaker_device(device_name)
                         
@@ -108,14 +120,19 @@ class AudioDeviceManager:
                             self.respeaker_device = device
                             print(f"[AUDIO] ✅ Found ReSpeaker: {device_name} (index: {i}, channels: {channels})")
                         
+                        # Set first REAL (non-virtual) device as default
                         if self.default_device is None:
                             self.default_device = device
                             
                 except Exception as e:
+                    if self.debug_audio:
+                        print(f"[AUDIO_DEBUG] Error reading device {i}: {e}")
                     continue
             
             if self.respeaker_device is None and self.default_device:
                 print(f"[AUDIO] ⚠️  ReSpeaker not found, using default: {self.default_device.name}")
+            elif self.respeaker_device is None and self.default_device is None:
+                print(f"[AUDIO] ❌ No usable audio input devices found (only virtual devices detected)")
                 
         except Exception as e:
             print(f"[AUDIO] Error detecting devices: {e}")
@@ -139,19 +156,18 @@ class AudioDeviceManager:
         return self.default_device
     
     def list_devices(self) -> List[AudioDeviceInfo]:
-        """List all available input devices"""
+        """List all available input devices across ALL host APIs"""
         devices = []
         
         if not self.pyaudio_instance:
             return devices
         
         try:
-            host_api_info = self.pyaudio_instance.get_host_api_info_by_index(0)
-            num_devices = host_api_info.get('deviceCount', 0)
+            num_devices = self.pyaudio_instance.get_device_count()
             
             for i in range(num_devices):
                 try:
-                    device_info = self.pyaudio_instance.get_device_info_by_host_api_device_index(0, i)
+                    device_info = self.pyaudio_instance.get_device_info_by_index(i)
                     
                     if device_info.get('maxInputChannels', 0) > 0:
                         device = AudioDeviceInfo(
@@ -206,6 +222,7 @@ class AudioDeviceManager:
             return None
         
         settings = self.get_recommended_settings()
+        stream = None
         
         try:
             with suppress_alsa_errors(self.debug_audio):
@@ -219,11 +236,24 @@ class AudioDeviceManager:
                     stream_callback=callback
                 )
             
-            print(f"[AUDIO] ✅ Stream opened: {device.name} @ {settings['rate']}Hz, {settings['channels']}ch")
-            return stream
+            if stream is not None:
+                print(f"[AUDIO] ✅ Stream opened: {device.name} @ {settings['rate']}Hz, {settings['channels']}ch")
+                return stream
+            else:
+                raise Exception("PyAudio stream creation failed (returned None)")
             
         except Exception as e:
-            print(f"[AUDIO] Failed to open stream: {e}")
+            error_msg = str(e)
+            
+            if "REPLIT" in os.environ or not os.path.exists("/dev/snd"):
+                print(f"[AUDIO] ❌ No physical audio hardware detected")
+                print(f"[AUDIO] 💡 Voice mode requires real microphone hardware (ReSpeaker on Raspberry Pi 5)")
+                print(f"[AUDIO] 💡 This feature will work when you run on your Pi 5 with ReSpeaker")
+            else:
+                print(f"[AUDIO] ❌ Failed to open stream: {error_msg}")
+                print(f"[AUDIO] 💡 Try: Device '{device.name}' may be in use by another app")
+                print(f"[AUDIO] 💡 Try: Check 'lsof /dev/snd/*' to see what's using the device")
+            
             return None
     
     def close(self):
