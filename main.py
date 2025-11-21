@@ -160,28 +160,22 @@ class Pascal:
     async def check_personality_switch(self, user_input: str) -> bool:
         """
         Check if user is trying to switch personalities
-        Pattern: "[Name] are you out there" (voice-safe with flexible matching)
+        Pattern: "[Name] (are) you out there" (voice-safe with flexible matching)
         
         Matches:
         - "Jarvis are you out there"
-        - "Jarvis, are you out there?"
+        - "Jarvis you out there" (missing "are" - common with voice)
         - "Hey Jarvis are you out there"
-        - "Dr. Jarvis are you out there"
-        - "Jarvis are you out there..."
+        - "Rick you out there"
         
         Returns True if personality switch was attempted (success or failure)
         """
         import re
         
-        # Voice-safe pattern: flexible matching for speech-to-text
-        # Allows: optional prefix (hey,/hello,), name (multi-word ok), optional comma, "are you out there", ANY trailing words/punctuation
-        # Pattern explanation:
-        # - (?:hey|hello)[,\s]+ : Optional "hey"/"hello" with comma/spaces after
-        # - ([a-zA-Z][a-zA-Z\s.]*?) : Capture name (starts with letter, can have spaces/dots)
-        # - \s*,?\s+ : Optional comma/spaces before "are"
-        # - are\s+you\s+out\s+there : Required phrase
-        # - .*$ : ANY trailing text (please, right now, etc.)
-        pattern = r'(?:(?:hey|hello)[,\s]+)?([a-zA-Z][a-zA-Z\s.]*?)\s*,?\s+are\s+you\s+out\s+there.*$'
+        # ULTRA-FLEXIBLE voice-safe pattern: "are" is now optional
+        # Pattern: [optional hey/hello] [NAME] [optional "are"] you out there
+        # This catches voice recognition errors where "are" gets dropped
+        pattern = r'(?:(?:hey|hello)[,\s]+)?([a-zA-Z][a-zA-Z\s.]*?)\s*,?\s+(?:are\s+)?you\s+out\s+there.*$'
         match = re.match(pattern, user_input.strip(), re.IGNORECASE)
         
         if not match:
