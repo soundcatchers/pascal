@@ -97,14 +97,7 @@ class AudioDeviceManager:
                         sample_rate = int(device_info.get('defaultSampleRate', 16000))
                         
                         if self.debug_audio:
-                            print(f"[AUDIO_DEBUG] Device {i}: {device_name} (channels: {channels})")
-                        
-                        # Skip virtual/software devices that won't work reliably
-                        device_lower = device_name.lower()
-                        if device_lower in ['pulse', 'default', 'jack', 'pipewire']:
-                            if self.debug_audio:
-                                print(f"[AUDIO_DEBUG] Skipping virtual device: {device_name}")
-                            continue
+                            print(f"[AUDIO_DEBUG] Device {i}: {device_name} (channels: {channels}, rate: {sample_rate})")
                         
                         is_respeaker = self._is_respeaker_device(device_name)
                         
