@@ -81,6 +81,18 @@ class Pascal:
             await self.personality_manager.load_personality("pascal")
             await self.memory_manager.load_session()
             
+            # CRITICAL: Clear short-term memory on startup (new session = fresh context)
+            # Old memories in short-term cause pollution: "weather tomorrow" → "day after" → pulls CHEESE conversation!
+            # Move any existing short-term to long-term (preserve history), then start fresh
+            if hasattr(self.memory_manager, 'short_term_memory') and self.memory_manager.short_term_memory:
+                # Archive old short-term to long-term before clearing
+                for interaction in self.memory_manager.short_term_memory:
+                    self.memory_manager.long_term_memory.append(interaction)
+                self.memory_manager.short_term_memory.clear()
+                await self.memory_manager.save_session()
+                if settings.debug_mode:
+                    self.console.print(f"[DEBUG] Archived old session memories, starting fresh", style="dim")
+            
             # FIXED: Initialize enhanced intelligent router
             self.router = EnhancedIntelligentRouter.create(self.personality_manager, self.memory_manager)
             
