@@ -217,6 +217,31 @@ class Pascal:
             # Update router with new personality
             self.router.personality_manager = self.personality_manager
             
+            # CRITICAL: Clear short-term memory to prevent context pollution across personalities
+            # But PRESERVE the conversation history by moving it to long-term memory first!
+            if hasattr(self.memory_manager, 'short_term_memory') and self.memory_manager.short_term_memory is not None:
+                # Move ALL short-term interactions to long-term memory (preserve history)
+                if self.memory_manager.short_term_memory:
+                    if settings.debug_mode:
+                        self.console.print(f"[DEBUG] Moving {len(self.memory_manager.short_term_memory)} interactions to long-term memory", style="dim")
+                    
+                    # Archive current conversation before switching personalities
+                    for interaction in self.memory_manager.short_term_memory:
+                        self.memory_manager.long_term_memory.append(interaction)
+                    
+                    # Now clear short-term (context reset for new personality)
+                    self.memory_manager.short_term_memory.clear()
+                    
+                    # Save to disk immediately to preserve this conversation
+                    await self.memory_manager.save_session()
+                    
+                    if settings.debug_mode:
+                        self.console.print(f"[DEBUG] Cleared conversation context for personality switch (history preserved)", style="dim")
+            
+            # Also clear router's context tracking
+            if hasattr(self.router, 'clear_context'):
+                self.router.clear_context()
+            
             if settings.debug_mode:
                 self.console.print(f"[DEBUG] Switched from {current_personality_name} to {requested_personality}", style="dim")
         else:
