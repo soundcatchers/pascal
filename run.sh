@@ -138,14 +138,23 @@ if [[ "$*" == *"--voice"* ]]; then
         exit 1
     fi
     
-    # Check for Vosk model
-    if [ ! -d "config/vosk_models/vosk-model-small-en-us-0.15" ]; then
+    # Check for Vosk model (prefer 0.22, fallback to 0.15)
+    if [ ! -d "config/vosk_models/vosk-model-en-us-0.22" ] && [ ! -d "config/vosk_models/vosk-model-small-en-us-0.15" ]; then
         print_error "Vosk model not found"
         echo ""
-        echo "Download the model with:"
+        echo "Download the new 0.22 model (recommended - 20% more accurate):"
         echo "  ./setup_vosk.sh"
         echo ""
         exit 1
+    fi
+    
+    # Warn if using old model
+    if [ ! -d "config/vosk_models/vosk-model-en-us-0.22" ] && [ -d "config/vosk_models/vosk-model-small-en-us-0.15" ]; then
+        print_warning "Using old 0.15 model (lower accuracy)"
+        echo "Upgrade to 0.22 for 20% better accuracy:"
+        echo "  rm -rf config/vosk_models/vosk-model-small-en-us-0.15"
+        echo "  ./setup_vosk.sh"
+        echo ""
     fi
     
     print_success "Voice input dependencies OK"
