@@ -17,7 +17,7 @@ Pascal now supports **offline, real-time voice input** using:
 - 🎙️  ReSpeaker auto-detection
 - 🔊 Voice activity detection
 - 💬 Hybrid mode (voice + text input)
-- 🪶 Lightweight (~50MB model, <500MB RAM)
+- 🎯 High accuracy (~85% with 0.22 model, ~2GB RAM)
 
 ---
 
@@ -49,16 +49,28 @@ pip install pixel-ring==0.1.1
 
 ### Step 3: Download Vosk Model
 
+**Recommended: vosk-model-en-us-0.22** (1.8GB, 85% accuracy, 20% better than 0.15)
+
 ```bash
-# Run the setup script (easiest method)
+# Run the setup script (easiest method - automatically gets 0.22)
 ./setup_vosk.sh
 
 # Or manually:
+wget https://alphacephei.com/vosk/models/vosk-model-en-us-0.22.zip
+unzip vosk-model-en-us-0.22.zip
+mkdir -p config/vosk_models
+mv vosk-model-en-us-0.22 config/vosk_models/
+rm vosk-model-en-us-0.22.zip
+```
+
+**Note:** Download size is ~1.8GB. On a typical broadband connection this takes 2-5 minutes.
+
+**Alternative (Low Storage):** If you have limited storage (<2GB free), you can use the smaller 0.15 model (50MB, ~75% accuracy):
+```bash
 wget https://alphacephei.com/vosk/models/vosk-model-small-en-us-0.15.zip
 unzip vosk-model-small-en-us-0.15.zip
 mkdir -p config/vosk_models
 mv vosk-model-small-en-us-0.15 config/vosk_models/
-rm vosk-model-small-en-us-0.15.zip
 ```
 
 ### Step 4: Connect ReSpeaker Mic
