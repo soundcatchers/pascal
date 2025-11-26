@@ -38,10 +38,12 @@ class SpeechInputManager:
     def _find_model_path(self) -> Optional[str]:
         """Find Vosk model in common locations"""
         possible_paths = [
-            'config/vosk_models/vosk-model-small-en-us-0.15',
+            'config/vosk_models/vosk-model-en-us-0.22',  # Primary: 1.8GB model (85% accuracy)
+            'config/vosk_models/vosk-model-small-en-us-0.15',  # Fallback: old 50MB model
+            'vosk-model-en-us-0.22',
             'vosk-model-small-en-us-0.15',
-            '/usr/share/vosk/models/vosk-model-small-en-us-0.15',
-            os.path.expanduser('~/vosk-model-small-en-us-0.15'),
+            '/usr/share/vosk/models/vosk-model-en-us-0.22',
+            os.path.expanduser('~/vosk-model-en-us-0.22'),
         ]
         
         for path in possible_paths:
@@ -73,10 +75,10 @@ class SpeechInputManager:
             print("[STT] ❌ Vosk model not found!")
             print("[STT] 💡 Download with: ./setup_vosk.sh")
             print("[STT] 💡 Or manually:")
-            print("[STT]    wget https://alphacephei.com/vosk/models/vosk-model-small-en-us-0.15.zip")
-            print("[STT]    unzip vosk-model-small-en-us-0.15.zip")
+            print("[STT]    wget https://alphacephei.com/vosk/models/vosk-model-en-us-0.22.zip")
+            print("[STT]    unzip vosk-model-en-us-0.22.zip")
             print("[STT]    mkdir -p config/vosk_models")
-            print("[STT]    mv vosk-model-small-en-us-0.15 config/vosk_models/")
+            print("[STT]    mv vosk-model-en-us-0.22 config/vosk_models/")
             return False
         
         if not os.path.exists(self.model_path):
