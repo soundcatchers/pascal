@@ -4,12 +4,17 @@
 
 set -e
 
-MODEL_NAME="vosk-model-small-en-us-0.15"
+MODEL_NAME="vosk-model-en-us-0.22"
 MODEL_URL="https://alphacephei.com/vosk/models/${MODEL_NAME}.zip"
 MODEL_DIR="config/vosk_models"
 
 echo "🎙️  Pascal Voice Input - Vosk Model Setup"
 echo "=========================================="
+echo ""
+echo "📊 Vosk Model: vosk-model-en-us-0.22"
+echo "   Size: ~1.8GB (20% more accurate than 0.15)"
+echo "   Accuracy: ~85% (vs ~75% for small model)"
+echo "   RAM Usage: ~2GB (Pi 5 with 16GB handles easily)"
 echo ""
 
 # Create model directory if it doesn't exist
@@ -25,7 +30,7 @@ if [ -d "$MODEL_DIR/$MODEL_NAME" ]; then
 fi
 
 echo "📥 Downloading Vosk model..."
-echo "Model: $MODEL_NAME (~50MB)"
+echo "Model: $MODEL_NAME (~1.8GB - this may take a few minutes)"
 echo "URL: $MODEL_URL"
 echo ""
 
