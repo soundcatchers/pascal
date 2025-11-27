@@ -22,13 +22,13 @@ except ImportError:
     print("[POST] ⚠️  SymSpell not installed. Spell check disabled.")
     print("[POST] 💡 Install with: pip install symspellpy")
 
-RECASEPUNC_AVAILABLE = False
-CasePuncPredictor = None
+PUNCTUATION_AVAILABLE = False
+PunctuationModel = None
 
 try:
-    from recasepunc import CasePuncPredictor as _CasePuncPredictor
-    CasePuncPredictor = _CasePuncPredictor
-    RECASEPUNC_AVAILABLE = True
+    from deepmultilingualpunctuation import PunctuationModel as _PunctuationModel
+    PunctuationModel = _PunctuationModel
+    PUNCTUATION_AVAILABLE = True
 except ImportError:
     pass
 
@@ -56,12 +56,12 @@ class VoskPostProcessor:
         """
         self.enable_spell_check = enable_spell_check and SYMSPELL_AVAILABLE
         self.enable_confidence_filter = enable_confidence_filter
-        self.enable_punctuation = enable_punctuation and RECASEPUNC_AVAILABLE
+        self.enable_punctuation = enable_punctuation and PUNCTUATION_AVAILABLE
         self.confidence_threshold = confidence_threshold
         self.spell_check_max_distance = spell_check_max_distance
         
         self.spell_checker: Optional[SymSpell] = None
-        self.punctuator: Optional[CasePuncPredictor] = None
+        self.punctuator = None  # PunctuationModel instance
         
         if self.enable_spell_check:
             self._init_spell_checker(spell_check_max_distance)
@@ -106,49 +106,23 @@ class VoskPostProcessor:
         return None
     
     def _init_punctuator(self):
-        """Initialize Recasepunc punctuation/case restoration"""
-        if not RECASEPUNC_AVAILABLE:
-            print("[POST] ℹ️  Punctuation disabled (recasepunc package not installed)")
+        """Initialize deepmultilingualpunctuation for punctuation/case restoration"""
+        if not PUNCTUATION_AVAILABLE:
+            print("[POST] ℹ️  Punctuation disabled (deepmultilingualpunctuation not installed)")
+            print("[POST] 💡 Install with: pip install deepmultilingualpunctuation")
             print("[POST] 💡 Spell check still provides +10-20% accuracy improvement!")
             self.enable_punctuation = False
             return
             
         try:
-            checkpoint_path = self._find_checkpoint()
-            if checkpoint_path:
-                self.punctuator = CasePuncPredictor(checkpoint_path, lang="en")
-                print(f"[POST] ✅ Punctuator initialized: {checkpoint_path}")
-            else:
-                print("[POST] ⚠️  Recasepunc checkpoint not found")
-                print("[POST] 💡 Run: ./setup_vosk_postprocessing.sh")
-                print("[POST] 💡 Spell check still provides +10-20% accuracy improvement!")
-                self.enable_punctuation = False
+            print("[POST] Loading punctuation model (first run downloads ~1.5GB)...")
+            self.punctuator = PunctuationModel()
+            print("[POST] ✅ Punctuator initialized (deepmultilingualpunctuation)")
                 
-        except TypeError as e:
-            print(f"[POST] ⚠️  Recasepunc API mismatch: {e}")
-            print("[POST] 💡 Spell check still provides +10-20% accuracy improvement!")
-            self.enable_punctuation = False
         except Exception as e:
             print(f"[POST] ⚠️  Punctuation disabled: {e}")
             print("[POST] 💡 Spell check still provides +10-20% accuracy improvement!")
             self.enable_punctuation = False
-    
-    def _find_checkpoint(self) -> Optional[str]:
-        """Find Recasepunc checkpoint in common locations"""
-        possible_paths = [
-            'config/vosk-recasepunc-en-0.22/checkpoint',
-            'config/vosk-recasepunc-en-0.22',
-            'config/recasepunc/checkpoint',
-            'vosk-recasepunc-en-0.22/checkpoint',
-            'recasepunc/checkpoint',
-            '/usr/share/recasepunc/checkpoint',
-        ]
-        
-        for path in possible_paths:
-            if os.path.exists(path):
-                return path
-        
-        return None
     
     def correct_word(self, word: str) -> str:
         """Apply spell check to a single word"""
@@ -226,7 +200,7 @@ class VoskPostProcessor:
     
     def add_punctuation(self, text: str) -> str:
         """
-        Add punctuation and proper casing
+        Add punctuation and proper casing using deepmultilingualpunctuation
         
         Args:
             text: Lowercase text without punctuation
@@ -238,17 +212,8 @@ class VoskPostProcessor:
             return text
         
         try:
-            result = self.punctuator.predict(text, apply_sbd=True)
+            result = self.punctuator.restore_punctuation(text)
             return result
-        except TypeError as e:
-            try:
-                result = self.punctuator.predict([text])
-                return result[0] if isinstance(result, list) else result
-            except Exception:
-                print(f"[POST] ⚠️  Punctuation API error: {e}")
-                print(f"[POST] 💡 Disabling punctuation for this session")
-                self.enable_punctuation = False
-                return text
         except Exception as e:
             print(f"[POST] ⚠️  Punctuation failed: {e}")
             return text
@@ -288,7 +253,7 @@ class VoskPostProcessor:
             },
             "punctuation": {
                 "enabled": self.enable_punctuation,
-                "available": RECASEPUNC_AVAILABLE,
+                "available": PUNCTUATION_AVAILABLE,
                 "initialized": self.punctuator is not None
             }
         }
