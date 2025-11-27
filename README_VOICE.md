@@ -384,7 +384,11 @@ Pascal includes powerful post-processing features to improve Vosk accuracy by **
 |---------|---------|-----------------|-------------------|
 | **Spell Check** | Corrects misrecognized words (+10-20% accuracy) | +20-30ms | ✅ Yes |
 | **Confidence Filtering** | Only fixes low-confidence words (smarter) | +10ms | ✅ Yes |
-| **Punctuation & Case** | Natural output for LLM processing | +50-100ms | ✅ Yes |
+| **Punctuation & Case** | Natural output for LLM processing (optional) | +50-100ms | ✅ Yes |
+
+**Note:** Spell check alone provides the majority of accuracy improvement (+10-20%). Punctuation is a nice-to-have feature that improves output readability but is **optional** and may have Python compatibility issues.
+
+**Important:** The `max_edit_distance` setting (default: 3) controls how different a word can be before correction. Higher values catch more errors but may make incorrect corrections. Set to 2 for conservative corrections.
 
 ### **Why Use Post-Processing?**
 
@@ -406,13 +410,14 @@ Pascal receives: "When is it built in Brighton?"
 #### **Step 1: Run Setup Script** (On Raspberry Pi 5)
 
 ```bash
+cd pascal
 ./setup_vosk_postprocessing.sh
 ```
 
 This script will:
-- Download SymSpell dictionary (~3MB)
-- Download Recasepunc checkpoint (~250MB)
-- Install Python packages (symspellpy, recasepunc)
+- Install Python package: symspellpy
+- Download SymSpell dictionary (~1.3MB)
+- Download Vosk Recasepunc model (~50MB) - optional
 
 #### **Step 2: Verify Installation**
 
@@ -591,8 +596,15 @@ mv frequency_dictionary_en_82_765.txt config/
 
 **Solution:**
 ```bash
-pip install symspellpy recasepunc
+pip install symspellpy
 ```
+
+**Punctuation package:**
+```bash
+pip install deepmultilingualpunctuation
+```
+
+Note: The punctuation model (~1.5GB) downloads automatically on first use. This replaces the old recasepunc package which had Python 3.11 compatibility issues.
 
 #### **Post-Processing Too Slow**
 
