@@ -47,8 +47,8 @@ wheel>=0.41.0
 # vosk==0.3.45          # Offline speech recognition
 # PyAudio==0.2.14       # Audio input/output
 # pixel-ring==0.1.1     # ReSpeaker LED control (optional)
-# symspellpy==6.7.7     # Spell checking for post-processing
-# recasepunc>=0.1.0     # Punctuation and case restoration
+symspellpy>=6.7.0                    # Spell checking for post-processing
+deepmultilingualpunctuation>=1.0.0   # Punctuation and case restoration (Python 3.11 compatible)
 
 # FIXED VERSIONS - Tested combinations that work together:
 # - aiohttp 3.9.5 + Python 3.9+ on ARM64
