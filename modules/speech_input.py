@@ -18,10 +18,17 @@ except ImportError:
     VOSK_AVAILABLE = False
     print("[STT] ⚠️  Vosk not installed. Install with: pip install vosk")
 
+try:
+    from modules.vosk_postprocessor import VoskPostProcessor
+    POSTPROCESSOR_AVAILABLE = True
+except ImportError:
+    POSTPROCESSOR_AVAILABLE = False
+    print("[STT] ⚠️  Post-processor not available (missing dependencies)")
+
 class SpeechInputManager:
     """Manages continuous speech recognition using Vosk"""
     
-    def __init__(self, model_path: Optional[str] = None, debug_audio: bool = False):
+    def __init__(self, model_path: Optional[str] = None, debug_audio: bool = False, enable_postprocessing: bool = True):
         self.audio_manager = AudioDeviceManager(debug_audio=debug_audio)
         self.model_path = model_path or self._find_model_path()
         self.model: Optional[Model] = None
@@ -34,6 +41,9 @@ class SpeechInputManager:
         
         self.listen_thread: Optional[threading.Thread] = None
         self.process_thread: Optional[threading.Thread] = None
+        
+        self.enable_postprocessing = enable_postprocessing and POSTPROCESSOR_AVAILABLE
+        self.postprocessor: Optional[VoskPostProcessor] = None
         
     def _find_model_path(self) -> Optional[str]:
         """Find Vosk model in common locations"""
@@ -97,11 +107,52 @@ class SpeechInputManager:
             self.recognizer.SetWords(True)
             
             print(f"[STT] ✅ Vosk initialized (sample rate: {sample_rate}Hz)")
+            
+            if self.enable_postprocessing:
+                self._init_postprocessor()
+            
             return True
             
         except Exception as e:
             print(f"[STT] ❌ Failed to load Vosk model: {e}")
             return False
+    
+    def _init_postprocessor(self):
+        """Initialize post-processor with settings"""
+        try:
+            from config.settings import settings
+            config = settings.get_voice_postprocessing_config()
+            
+            self.postprocessor = VoskPostProcessor(
+                enable_spell_check=config['spell_check'],
+                enable_confidence_filter=config['confidence_filter'],
+                enable_punctuation=config['punctuation'],
+                confidence_threshold=config['confidence_threshold'],
+                spell_check_max_distance=config['spell_check_max_distance']
+            )
+            
+            status = self.postprocessor.get_status()
+            print(f"[STT] Post-processing status:")
+            
+            if status['spell_check']['enabled']:
+                if status['spell_check']['initialized']:
+                    print(f"[STT]   ✅ Spell check (confidence < {config['confidence_threshold']})")
+                else:
+                    print(f"[STT]   ⚠️  Spell check enabled but not initialized")
+            
+            if status['confidence_filter']['enabled']:
+                print(f"[STT]   ✅ Confidence filtering (threshold: {config['confidence_threshold']})")
+            
+            if status['punctuation']['enabled']:
+                if status['punctuation']['initialized']:
+                    print(f"[STT]   ✅ Punctuation & case restoration")
+                else:
+                    print(f"[STT]   ⚠️  Punctuation enabled but not initialized")
+            
+        except Exception as e:
+            print(f"[STT] ⚠️  Post-processor initialization failed: {e}")
+            self.enable_postprocessing = False
+            self.postprocessor = None
     
     def start_listening(self, callback: Callable[[str, bool], None]):
         """Start continuous speech recognition
@@ -156,14 +207,23 @@ class SpeechInputManager:
                 data = self.audio_queue.get(timeout=1)
                 
                 if self.recognizer.AcceptWaveform(data):
-                    result = json.loads(self.recognizer.Result())
-                    text = result.get('text', '').strip()
+                    result_json = self.recognizer.Result()
+                    
+                    if self.enable_postprocessing and self.postprocessor:
+                        text = self.postprocessor.process(result_json).strip()
+                    else:
+                        result = json.loads(result_json)
+                        text = result.get('text', '').strip()
                     
                     if text and self.result_callback:
                         self.result_callback(text, is_final=True)
                 else:
-                    partial = json.loads(self.recognizer.PartialResult())
+                    partial_json = self.recognizer.PartialResult()
+                    partial = json.loads(partial_json)
                     text = partial.get('partial', '').strip()
+                    
+                    if self.enable_postprocessing and self.postprocessor and text:
+                        text = self.postprocessor.process_simple(text).strip()
                     
                     if text and self.result_callback:
                         self.result_callback(text, is_final=False)
