@@ -109,6 +109,13 @@ class Settings:
         self.skip_context_for_short_queries = True
         self.short_query_threshold = 8  # Words
         
+        # Voice Input Post-Processing Settings
+        self.voice_enable_spell_check = os.getenv("VOICE_ENABLE_SPELL_CHECK", "true").lower() == "true"
+        self.voice_enable_confidence_filter = os.getenv("VOICE_ENABLE_CONFIDENCE_FILTER", "true").lower() == "true"
+        self.voice_enable_punctuation = os.getenv("VOICE_ENABLE_PUNCTUATION", "true").lower() == "true"
+        self.voice_confidence_threshold = float(os.getenv("VOICE_CONFIDENCE_THRESHOLD", "0.80"))
+        self.voice_spell_check_max_distance = int(os.getenv("VOICE_SPELL_CHECK_MAX_DISTANCE", "2"))
+        
         if self.debug_mode:
             print(f"[SETTINGS] Pascal v{self.version} - ULTRA-SPEED OPTIMIZED")
             print(f"[SETTINGS] Hardware: {self.pi_model} ({self.available_ram_gb}GB RAM, {self.cpu_cores} cores)")
@@ -337,6 +344,16 @@ class Settings:
             'streaming_enabled': self.streaming_enabled,
             'target_response_time': self.target_response_time,
             'optimization_level': 'ultra_speed_pi5' if self.pi_model == 'Pi 5' else 'ultra_speed_pi4'
+        }
+    
+    def get_voice_postprocessing_config(self) -> Dict[str, Any]:
+        """Get voice post-processing configuration"""
+        return {
+            'spell_check': self.voice_enable_spell_check,
+            'confidence_filter': self.voice_enable_confidence_filter,
+            'punctuation': self.voice_enable_punctuation,
+            'confidence_threshold': self.voice_confidence_threshold,
+            'spell_check_max_distance': self.voice_spell_check_max_distance
         }
     
     def get_config_summary(self) -> Dict[str, Any]:
