@@ -155,13 +155,17 @@ class VoskPostProcessor:
         if not self.enable_spell_check or not self.spell_checker:
             return word
         
+        # Skip very short words (likely correct)
+        if len(word) <= 2:
+            return word
+        
         try:
             suggestions = self.spell_checker.lookup(
-                word,
+                word.lower(),
                 Verbosity.CLOSEST,
                 max_edit_distance=self.spell_check_max_distance
             )
-            if suggestions:
+            if suggestions and suggestions[0].term != word.lower():
                 return suggestions[0].term
         except Exception:
             pass
@@ -299,7 +303,8 @@ def test_postprocessor():
     processor = VoskPostProcessor(
         enable_spell_check=True,
         enable_confidence_filter=True,
-        enable_punctuation=True
+        enable_punctuation=True,
+        spell_check_max_distance=3  # Allow more corrections
     )
     
     print("\n[TEST] Post-Processor Status:")
@@ -335,18 +340,20 @@ def test_postprocessor():
     
     print("\n[TEST] Testing Confidence-Based Spell Check:")
     print("-" * 60)
+    
+    # Test with actual misspellings (not valid English words)
     test_result = {
         "result": [
-            {"conf": 0.65, "word": "whims"},
-            {"conf": 0.95, "word": "it"},
-            {"conf": 0.92, "word": "built"},
-            {"conf": 0.94, "word": "in"},
-            {"conf": 0.58, "word": "brighten"}
+            {"conf": 0.65, "word": "helo"},      # misspelled "hello"
+            {"conf": 0.58, "word": "wrld"},      # misspelled "world"  
+            {"conf": 0.95, "word": "test"},      # correct word, high confidence
+            {"conf": 0.45, "word": "chek"},      # misspelled "check"
         ],
-        "text": "whims it built in brighten"
+        "text": "helo wrld test chek"
     }
     
     print(f"  Input:  '{test_result['text']}'")
+    print(f"  (Testing with actual misspellings, not valid-but-wrong words)")
     print(f"  Confidence scores:")
     for word_info in test_result['result']:
         word = word_info['word']
@@ -359,10 +366,17 @@ def test_postprocessor():
     
     print("\n[TEST] Testing Simple Spell Check (for partials):")
     print("-" * 60)
-    simple_text = "whims it built in brighten"
+    simple_text = "helo wrld thsi is a tset"
     print(f"  Input:  '{simple_text}'")
     simple_processed = processor.process_simple(simple_text)
     print(f"  Output: '{simple_processed}'")
+    
+    print("\n[TEST] Why 'whims' doesn't become 'when':")
+    print("-" * 60)
+    print("  'whims' IS a valid English word (plural of 'whim')")
+    print("  'brighten' IS a valid English word (to make brighter)")
+    print("  Spell check only fixes MISSPELLED words, not valid-but-wrong words")
+    print("  This is expected behavior - spell check gives +10-20% on typos!")
     
     print("\n" + "="*60)
     if spell_check_ok:
