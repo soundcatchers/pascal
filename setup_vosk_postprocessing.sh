@@ -36,11 +36,9 @@ if [ -z "$VIRTUAL_ENV" ]; then
 fi
 
 echo "Installing Python packages..."
-pip install symspellpy
+pip install symspellpy deepmultilingualpunctuation
 
-# Note: recasepunc has issues with newer Python/torch
-# We'll use Vosk's recasepunc model instead which works better
-echo "📝 Note: Using Vosk recasepunc model for better compatibility"
+echo "📝 Note: First run will download punctuation model (~1.5GB)"
 echo ""
 
 #######################################
@@ -77,77 +75,6 @@ fi
 
 echo ""
 
-#######################################
-# Vosk Recasepunc Model Setup
-#######################################
-
-RECASEPUNC_DIR="config/vosk-recasepunc-en-0.22"
-CHECKPOINT_DIR="$RECASEPUNC_DIR/checkpoint"
-MODEL_URL="https://alphacephei.com/vosk/models/vosk-recasepunc-en-0.22.zip"
-MODEL_ZIP="config/vosk-recasepunc-en-0.22.zip"
-
-echo "📥 Step 3: Vosk Recasepunc Model"
-echo "--------------------------------"
-
-if [ -d "$CHECKPOINT_DIR" ]; then
-    echo "✅ Recasepunc model already exists: $CHECKPOINT_DIR"
-else
-    echo "Downloading Vosk Recasepunc model (~50MB)..."
-    echo "URL: $MODEL_URL"
-    echo ""
-    
-    # Download model
-    if command -v wget > /dev/null; then
-        wget -O "$MODEL_ZIP" "$MODEL_URL"
-    elif command -v curl > /dev/null; then
-        curl -L -o "$MODEL_ZIP" "$MODEL_URL"
-    else
-        echo "❌ Error: Neither wget nor curl is available"
-        exit 1
-    fi
-    
-    # Check if download succeeded
-    if [ ! -f "$MODEL_ZIP" ]; then
-        echo "❌ Download failed"
-        exit 1
-    fi
-    
-    # Verify download size (should be ~50MB)
-    DOWNLOAD_SIZE=$(stat -c%s "$MODEL_ZIP" 2>/dev/null || stat -f%z "$MODEL_ZIP" 2>/dev/null || echo "0")
-    MIN_SIZE=$((40 * 1024 * 1024))  # 40MB minimum
-    
-    if [ "$DOWNLOAD_SIZE" -lt "$MIN_SIZE" ]; then
-        echo "⚠️  Warning: Download is smaller than expected (${DOWNLOAD_SIZE} bytes)"
-        rm -f "$MODEL_ZIP"
-        echo "❌ Download appears incomplete. Please try again."
-        exit 1
-    fi
-    
-    # Extract model
-    if command -v unzip > /dev/null; then
-        echo "📦 Extracting model..."
-        unzip -q "$MODEL_ZIP" -d config/
-        rm "$MODEL_ZIP"
-        
-        # Verify extraction
-        if [ -d "$CHECKPOINT_DIR" ]; then
-            echo "✅ Model extracted successfully"
-        else
-            # Model might be in a different structure - check and fix
-            if [ -d "$RECASEPUNC_DIR" ]; then
-                echo "✅ Model directory exists: $RECASEPUNC_DIR"
-            else
-                echo "❌ Extraction failed - checkpoint directory not found"
-                exit 1
-            fi
-        fi
-    else
-        echo "❌ Error: unzip is not available"
-        echo "Install unzip: sudo apt-get install unzip"
-        exit 1
-    fi
-fi
-
 echo ""
 
 #######################################
@@ -158,9 +85,10 @@ echo "✅ Setup Complete!"
 echo "=================="
 echo ""
 echo "Installed components:"
-echo "  ✓ Python package: symspellpy"
+echo "  ✓ Python packages: symspellpy, deepmultilingualpunctuation"
 echo "  ✓ SymSpell dictionary: $DICT_FILE"
-echo "  ✓ Vosk Recasepunc model: $RECASEPUNC_DIR"
+echo ""
+echo "📝 Note: Punctuation model (~1.5GB) downloads on first use"
 echo ""
 echo "Configuration (in config/settings.py or .env):"
 echo "  VOICE_ENABLE_SPELL_CHECK=true"
