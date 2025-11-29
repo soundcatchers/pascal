@@ -114,7 +114,12 @@ class Settings:
         self.voice_enable_confidence_filter = os.getenv("VOICE_ENABLE_CONFIDENCE_FILTER", "true").lower() == "true"
         self.voice_enable_punctuation = os.getenv("VOICE_ENABLE_PUNCTUATION", "true").lower() == "true"
         self.voice_confidence_threshold = float(os.getenv("VOICE_CONFIDENCE_THRESHOLD", "0.80"))
-        self.voice_spell_check_max_distance = int(os.getenv("VOICE_SPELL_CHECK_MAX_DISTANCE", "2"))
+        self.voice_spell_check_max_distance = int(os.getenv("VOICE_SPELL_CHECK_MAX_DISTANCE", "3"))
+        
+        # Voice AI Correction Settings (context-aware fixing of valid-but-wrong words)
+        self.voice_enable_ai_correction = os.getenv("VOICE_ENABLE_AI_CORRECTION", "true").lower() == "true"
+        self.voice_ai_correction_model = os.getenv("VOICE_AI_CORRECTION_MODEL", "gemma2:2b")
+        self.voice_ai_correction_timeout = float(os.getenv("VOICE_AI_CORRECTION_TIMEOUT", "2.0"))
         
         if self.debug_mode:
             print(f"[SETTINGS] Pascal v{self.version} - ULTRA-SPEED OPTIMIZED")
@@ -353,7 +358,10 @@ class Settings:
             'confidence_filter': self.voice_enable_confidence_filter,
             'punctuation': self.voice_enable_punctuation,
             'confidence_threshold': self.voice_confidence_threshold,
-            'spell_check_max_distance': self.voice_spell_check_max_distance
+            'spell_check_max_distance': self.voice_spell_check_max_distance,
+            'ai_correction': self.voice_enable_ai_correction,
+            'ai_correction_model': self.voice_ai_correction_model,
+            'ai_correction_timeout': self.voice_ai_correction_timeout
         }
     
     def get_config_summary(self) -> Dict[str, Any]:
