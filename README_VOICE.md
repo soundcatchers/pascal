@@ -494,6 +494,87 @@ VOICE_ENABLE_PUNCTUATION=false
 Expected improvement: **None (raw Vosk output)**  
 Processing overhead: **0ms**
 
+---
+
+## 🤖 AI Context Correction (Advanced)
+
+**NEW FEATURE:** Uses a small, fast local LLM to fix valid-but-wrong words that spell check can't handle.
+
+### **What It Fixes**
+
+Spell check only fixes **misspelled** words. But Vosk sometimes recognizes **valid English words** that sound similar:
+
+| Vosk Output | Problem | AI Correction |
+|-------------|---------|---------------|
+| "whims can i come over" | "whims" is valid, won't be spell-checked | "when can i come over" |
+| "brighten is a country" | "brighten" is valid, won't be spell-checked | "Britain is a country" |
+| "i want to by a car" | "by" is valid, won't be spell-checked | "i want to buy a car" |
+
+### **How It Works**
+
+```
+Voice → Vosk → Spell Check → Punctuation → AI Correction → Pascal
+                                                ↓
+                                    Ollama (Gemma2:2b)
+                                    ~300-500ms, 100% offline
+```
+
+### **Requirements**
+
+1. **Ollama** must be installed and running
+2. **Gemma2:2b model** (~1.6GB download)
+
+```bash
+# Install model (one-time)
+ollama pull gemma2:2b
+
+# Verify
+ollama list
+```
+
+### **Configuration**
+
+In **config/settings.py** or **.env**:
+
+```bash
+# AI Context Correction Settings
+VOICE_ENABLE_AI_CORRECTION=true
+VOICE_AI_CORRECTION_MODEL=gemma2:2b
+VOICE_AI_CORRECTION_TIMEOUT=2.0
+```
+
+### **Performance**
+
+| Model | Speed | Memory | Accuracy |
+|-------|-------|--------|----------|
+| **gemma2:2b** (recommended) | ~300-500ms | +1.6GB | Good |
+| phi3:mini | ~400-600ms | +2.2GB | Good |
+| llama3.2:1b | ~250-400ms | +1.3GB | OK |
+
+### **Test AI Corrector**
+
+```bash
+python modules/voice_ai_corrector.py
+```
+
+Expected output:
+```
+[TEST] Input:    'whims can i come over'
+[TEST] Expected: 'when can i come over'
+[TEST] Output:   'when can i come over' (0.35s)
+[TEST] ✅ Corrected!
+```
+
+### **Disable AI Correction**
+
+If you prefer spell-check-only operation:
+
+```bash
+VOICE_ENABLE_AI_CORRECTION=false
+```
+
+---
+
 ### **Usage**
 
 Post-processing is **automatic** when enabled. Just use voice input normally:
