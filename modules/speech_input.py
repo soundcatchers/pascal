@@ -25,6 +25,12 @@ except ImportError:
     POSTPROCESSOR_AVAILABLE = False
     print("[STT] ⚠️  Post-processor not available (missing dependencies)")
 
+try:
+    from modules.voice_ai_corrector import VoiceAICorrector
+    AI_CORRECTOR_AVAILABLE = True
+except ImportError:
+    AI_CORRECTOR_AVAILABLE = False
+
 class SpeechInputManager:
     """Manages continuous speech recognition using Vosk"""
     
@@ -44,6 +50,9 @@ class SpeechInputManager:
         
         self.enable_postprocessing = enable_postprocessing and POSTPROCESSOR_AVAILABLE
         self.postprocessor: Optional[VoskPostProcessor] = None
+        
+        self.enable_ai_correction = AI_CORRECTOR_AVAILABLE
+        self.ai_corrector = None
         
     def _find_model_path(self) -> Optional[str]:
         """Find Vosk model in common locations"""
@@ -111,6 +120,9 @@ class SpeechInputManager:
             if self.enable_postprocessing:
                 self._init_postprocessor()
             
+            if self.enable_ai_correction:
+                self._init_ai_corrector()
+            
             return True
             
         except Exception as e:
@@ -153,6 +165,40 @@ class SpeechInputManager:
             print(f"[STT] ⚠️  Post-processor initialization failed: {e}")
             self.enable_postprocessing = False
             self.postprocessor = None
+    
+    def _init_ai_corrector(self):
+        """Initialize AI corrector for context-aware word fixing"""
+        try:
+            from config.settings import settings
+            config = settings.get_voice_postprocessing_config()
+            
+            if not config.get('ai_correction', False):
+                self.enable_ai_correction = False
+                return
+            
+            self.ai_corrector = VoiceAICorrector(
+                enabled=True,
+                model=config.get('ai_correction_model', 'gemma2:2b'),
+                timeout=config.get('ai_correction_timeout', 2.0)
+            )
+            
+            print(f"[STT]   ✅ AI correction ({config.get('ai_correction_model', 'gemma2:2b')})")
+            
+        except Exception as e:
+            print(f"[STT] ⚠️  AI corrector initialization failed: {e}")
+            self.enable_ai_correction = False
+            self.ai_corrector = None
+    
+    def _apply_ai_correction(self, text: str) -> str:
+        """Apply AI correction synchronously"""
+        if not self.enable_ai_correction or not self.ai_corrector or not text:
+            return text
+        
+        try:
+            return self.ai_corrector.correct_sync(text)
+        except Exception as e:
+            print(f"[STT] ⚠️  AI correction failed: {e}")
+            return text
     
     def start_listening(self, callback: Callable[[str, bool], None]):
         """Start continuous speech recognition
@@ -214,6 +260,9 @@ class SpeechInputManager:
                     else:
                         result = json.loads(result_json)
                         text = result.get('text', '').strip()
+                    
+                    if text:
+                        text = self._apply_ai_correction(text)
                     
                     if text and self.result_callback:
                         self.result_callback(text, is_final=True)
@@ -306,6 +355,14 @@ class SpeechInputManager:
         
         self.model = None
         self.recognizer = None
+        
+        if self.ai_corrector:
+            import asyncio
+            try:
+                asyncio.run(self.ai_corrector.close())
+            except Exception:
+                pass
+            self.ai_corrector = None
         
         if self.audio_manager:
             self.audio_manager.close()
