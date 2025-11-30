@@ -45,10 +45,11 @@ class VoiceAICorrector:
         self._session: Optional[aiohttp.ClientSession] = None
         self._warmed_up = False
     
-    async def _get_session(self) -> aiohttp.ClientSession:
+    async def _get_session(self, override_timeout: float = None) -> aiohttp.ClientSession:
         """Get or create aiohttp session"""
         if self._session is None or self._session.closed:
-            timeout = aiohttp.ClientTimeout(total=self.timeout)
+            # Use 10s timeout for session - individual calls can override
+            timeout = aiohttp.ClientTimeout(total=override_timeout or 10.0)
             self._session = aiohttp.ClientSession(timeout=timeout)
         return self._session
     
@@ -84,21 +85,20 @@ class VoiceAICorrector:
             return False
         
         try:
-            print(f"[AI] Warming up {self.model} (first call loads model into memory)...")
+            print(f"[AI] Warming up {self.model} (loading model into memory)...")
             start = time.time()
             
             payload = {
                 "model": self.model,
-                "prompt": "Hi",
+                "prompt": "test",
                 "stream": False,
                 "options": {
                     "num_predict": 1
                 }
             }
             
-            timeout = aiohttp.ClientTimeout(total=30)
-            session = await self._get_session()
-            
+            # Use longer timeout for warmup (model loading can take 20-30s)
+            timeout = aiohttp.ClientTimeout(total=60)
             async with aiohttp.ClientSession(timeout=timeout) as warmup_session:
                 async with warmup_session.post(
                     f"{self.ollama_host}/api/generate",
@@ -109,6 +109,10 @@ class VoiceAICorrector:
                         print(f"[AI] ✅ Model warmed up in {elapsed:.1f}s")
                         self._warmed_up = True
                         return True
+                    else:
+                        print(f"[AI] ⚠️ Warmup returned status {response.status}")
+        except asyncio.TimeoutError:
+            print(f"[AI] ⚠️ Warmup timed out (model may still be loading)")
         except Exception as e:
             print(f"[AI] ⚠️ Warmup failed: {e}")
         
@@ -179,11 +183,9 @@ class VoiceAICorrector:
         return text
     
     def _build_prompt(self, text: str) -> str:
-        """Build the correction prompt"""
-        return f"""Fix any misheard words in this voice transcription. Only correct obvious errors where a similar-sounding word was recognized instead of the intended word. Keep the meaning and structure intact.
-
-Input: {text}
-Output:"""
+        """Build the correction prompt - ultra minimal for speed"""
+        return f"""Fix misheard words: {text}
+Corrected:"""
     
     def _parse_response(self, response: str, original: str) -> str:
         """Parse and validate the AI response"""
@@ -209,15 +211,14 @@ Output:"""
     def correct_sync(self, text: str) -> str:
         """Synchronous wrapper for correct()"""
         try:
-            loop = asyncio.get_event_loop()
-            if loop.is_running():
-                import concurrent.futures
-                with concurrent.futures.ThreadPoolExecutor() as executor:
-                    future = executor.submit(asyncio.run, self.correct(text))
-                    return future.result(timeout=self.timeout + 0.5)
-            else:
-                return loop.run_until_complete(self.correct(text))
-        except Exception:
+            import concurrent.futures
+            with concurrent.futures.ThreadPoolExecutor() as executor:
+                future = executor.submit(asyncio.run, self.correct(text))
+                return future.result(timeout=self.timeout + 1.0)
+        except concurrent.futures.TimeoutError:
+            print(f"[AI] ⚠️ Sync timeout ({self.timeout}s)")
+            return text
+        except Exception as e:
             return text
     
     async def close(self):
