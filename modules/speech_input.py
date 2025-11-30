@@ -217,10 +217,16 @@ class SpeechInputManager:
         if not self.enable_ai_correction or not self.ai_corrector or not text:
             return text
         
+        if len(text.split()) < 3:
+            return text
+        
         try:
-            return self.ai_corrector.correct_sync(text)
+            corrected = self.ai_corrector.correct_sync(text)
+            if corrected and corrected != text:
+                print(f"[AI] ✅ '{text}' → '{corrected}'")
+            return corrected if corrected else text
         except Exception as e:
-            print(f"[STT] ⚠️  AI correction failed: {e}")
+            print(f"[AI] ⚠️ Error: {e}")
             return text
     
     def start_listening(self, callback: Callable[[str, bool], None]):
