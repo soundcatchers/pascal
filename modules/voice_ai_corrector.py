@@ -26,7 +26,7 @@ class VoiceAICorrector:
         enabled: bool = True,
         ollama_host: str = "http://localhost:11434",
         model: str = "gemma2:2b",
-        timeout: float = 2.0
+        timeout: float = 5.0
     ):
         """
         Initialize AI corrector
@@ -35,7 +35,7 @@ class VoiceAICorrector:
             enabled: Enable AI correction
             ollama_host: Ollama server URL
             model: Model to use (gemma2:2b recommended for speed)
-            timeout: Request timeout in seconds
+            timeout: Request timeout in seconds (5s default for Pi 5)
         """
         self.enabled = enabled
         self.ollama_host = ollama_host.rstrip('/')
@@ -43,6 +43,7 @@ class VoiceAICorrector:
         self.timeout = timeout
         self._available: Optional[bool] = None
         self._session: Optional[aiohttp.ClientSession] = None
+        self._warmed_up = False
     
     async def _get_session(self) -> aiohttp.ClientSession:
         """Get or create aiohttp session"""
@@ -69,6 +70,48 @@ class VoiceAICorrector:
             pass
         
         self._available = False
+        return False
+    
+    async def warmup(self) -> bool:
+        """Pre-load the model to avoid cold start delays"""
+        if self._warmed_up:
+            return True
+        
+        if not self._available:
+            await self.check_available()
+        
+        if not self._available:
+            return False
+        
+        try:
+            print(f"[AI] Warming up {self.model} (first call loads model into memory)...")
+            start = time.time()
+            
+            payload = {
+                "model": self.model,
+                "prompt": "Hi",
+                "stream": False,
+                "options": {
+                    "num_predict": 1
+                }
+            }
+            
+            timeout = aiohttp.ClientTimeout(total=30)
+            session = await self._get_session()
+            
+            async with aiohttp.ClientSession(timeout=timeout) as warmup_session:
+                async with warmup_session.post(
+                    f"{self.ollama_host}/api/generate",
+                    json=payload
+                ) as response:
+                    if response.status == 200:
+                        elapsed = time.time() - start
+                        print(f"[AI] ✅ Model warmed up in {elapsed:.1f}s")
+                        self._warmed_up = True
+                        return True
+        except Exception as e:
+            print(f"[AI] ⚠️ Warmup failed: {e}")
+        
         return False
     
     async def correct(self, text: str) -> str:
@@ -203,7 +246,7 @@ async def test_ai_corrector():
     corrector = VoiceAICorrector(
         enabled=True,
         model="gemma2:2b",
-        timeout=3.0
+        timeout=5.0
     )
     
     print("\n[TEST] Checking Ollama availability...")
@@ -219,6 +262,9 @@ async def test_ai_corrector():
         return False
     
     print(f"  ✅ Ollama available with {corrector.model}")
+    
+    print("\n[TEST] Warming up model (loads into memory)...")
+    await corrector.warmup()
     
     print("\n[TEST] Testing context-aware corrections:")
     print("-" * 60)
