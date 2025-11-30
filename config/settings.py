@@ -119,7 +119,7 @@ class Settings:
         # Voice AI Correction Settings (context-aware fixing of valid-but-wrong words)
         self.voice_enable_ai_correction = os.getenv("VOICE_ENABLE_AI_CORRECTION", "true").lower() == "true"
         self.voice_ai_correction_model = os.getenv("VOICE_AI_CORRECTION_MODEL", "gemma2:2b")
-        self.voice_ai_correction_timeout = float(os.getenv("VOICE_AI_CORRECTION_TIMEOUT", "2.0"))
+        self.voice_ai_correction_timeout = float(os.getenv("VOICE_AI_CORRECTION_TIMEOUT", "5.0"))
         
         if self.debug_mode:
             print(f"[SETTINGS] Pascal v{self.version} - ULTRA-SPEED OPTIMIZED")
