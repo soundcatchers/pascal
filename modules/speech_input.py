@@ -176,18 +176,41 @@ class SpeechInputManager:
                 self.enable_ai_correction = False
                 return
             
+            model = config.get('ai_correction_model', 'gemma2:2b')
+            timeout = config.get('ai_correction_timeout', 5.0)
+            
             self.ai_corrector = VoiceAICorrector(
                 enabled=True,
-                model=config.get('ai_correction_model', 'gemma2:2b'),
-                timeout=config.get('ai_correction_timeout', 2.0)
+                model=model,
+                timeout=timeout
             )
             
-            print(f"[STT]   ✅ AI correction ({config.get('ai_correction_model', 'gemma2:2b')})")
+            import asyncio
+            try:
+                loop = asyncio.get_event_loop()
+                if loop.is_running():
+                    asyncio.ensure_future(self._warmup_ai_corrector())
+                else:
+                    loop.run_until_complete(self._warmup_ai_corrector())
+            except RuntimeError:
+                asyncio.run(self._warmup_ai_corrector())
             
         except Exception as e:
             print(f"[STT] ⚠️  AI corrector initialization failed: {e}")
             self.enable_ai_correction = False
             self.ai_corrector = None
+    
+    async def _warmup_ai_corrector(self):
+        """Warm up the AI corrector model"""
+        if self.ai_corrector:
+            available = await self.ai_corrector.check_available()
+            if available:
+                await self.ai_corrector.warmup()
+                print(f"[STT]   ✅ AI correction ready ({self.ai_corrector.model})")
+            else:
+                print(f"[STT]   ⚠️  AI correction model not available")
+                print(f"[STT]   💡 Install with: ollama pull {self.ai_corrector.model}")
+                self.enable_ai_correction = False
     
     def _apply_ai_correction(self, text: str) -> str:
         """Apply AI correction synchronously"""
