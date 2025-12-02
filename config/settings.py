@@ -116,8 +116,11 @@ class Settings:
         self.voice_confidence_threshold = float(os.getenv("VOICE_CONFIDENCE_THRESHOLD", "0.80"))
         self.voice_spell_check_max_distance = int(os.getenv("VOICE_SPELL_CHECK_MAX_DISTANCE", "3"))
         
-        # Voice AI Correction Settings (context-aware fixing of valid-but-wrong words)
-        self.voice_enable_ai_correction = os.getenv("VOICE_ENABLE_AI_CORRECTION", "true").lower() == "true"
+        # Homophone Fixer Settings (instant, rule-based - RECOMMENDED)
+        self.voice_enable_homophone_fixer = os.getenv("VOICE_ENABLE_HOMOPHONE_FIXER", "true").lower() == "true"
+        
+        # Voice AI Correction Settings (DISABLED by default - too slow for real-time)
+        self.voice_enable_ai_correction = os.getenv("VOICE_ENABLE_AI_CORRECTION", "false").lower() == "true"
         self.voice_ai_correction_model = os.getenv("VOICE_AI_CORRECTION_MODEL", "gemma2:2b")
         self.voice_ai_correction_timeout = float(os.getenv("VOICE_AI_CORRECTION_TIMEOUT", "5.0"))
         
@@ -359,6 +362,7 @@ class Settings:
             'punctuation': self.voice_enable_punctuation,
             'confidence_threshold': self.voice_confidence_threshold,
             'spell_check_max_distance': self.voice_spell_check_max_distance,
+            'homophone_fixer': self.voice_enable_homophone_fixer,
             'ai_correction': self.voice_enable_ai_correction,
             'ai_correction_model': self.voice_ai_correction_model,
             'ai_correction_timeout': self.voice_ai_correction_timeout
