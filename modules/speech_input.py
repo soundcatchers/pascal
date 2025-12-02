@@ -31,6 +31,12 @@ try:
 except ImportError:
     AI_CORRECTOR_AVAILABLE = False
 
+try:
+    from modules.homophone_fixer import HomophoneFixer
+    HOMOPHONE_FIXER_AVAILABLE = True
+except ImportError:
+    HOMOPHONE_FIXER_AVAILABLE = False
+
 class SpeechInputManager:
     """Manages continuous speech recognition using Vosk"""
     
@@ -51,8 +57,11 @@ class SpeechInputManager:
         self.enable_postprocessing = enable_postprocessing and POSTPROCESSOR_AVAILABLE
         self.postprocessor: Optional[VoskPostProcessor] = None
         
-        self.enable_ai_correction = AI_CORRECTOR_AVAILABLE
+        self.enable_ai_correction = False
         self.ai_corrector = None
+        
+        self.enable_homophone_fixer = HOMOPHONE_FIXER_AVAILABLE
+        self.homophone_fixer = None
         
     def _find_model_path(self) -> Optional[str]:
         """Find Vosk model in common locations"""
@@ -120,6 +129,9 @@ class SpeechInputManager:
             if self.enable_postprocessing:
                 self._init_postprocessor()
             
+            if self.enable_homophone_fixer:
+                self._init_homophone_fixer()
+            
             if self.enable_ai_correction:
                 self._init_ai_corrector()
             
@@ -165,6 +177,37 @@ class SpeechInputManager:
             print(f"[STT] ⚠️  Post-processor initialization failed: {e}")
             self.enable_postprocessing = False
             self.postprocessor = None
+    
+    def _init_homophone_fixer(self):
+        """Initialize the fast rule-based homophone fixer"""
+        try:
+            from config.settings import settings
+            config = settings.get_voice_postprocessing_config()
+            
+            if not config.get('homophone_fixer', True):
+                self.enable_homophone_fixer = False
+                return
+            
+            self.homophone_fixer = HomophoneFixer(enabled=True)
+            print(f"[STT]   ✅ Homophone fixer (instant, rule-based)")
+            
+        except Exception as e:
+            print(f"[STT] ⚠️  Homophone fixer initialization failed: {e}")
+            self.enable_homophone_fixer = False
+            self.homophone_fixer = None
+    
+    def _apply_homophone_fix(self, text: str) -> str:
+        """Apply homophone fixes - instant, no AI"""
+        if not self.enable_homophone_fixer or not self.homophone_fixer or not text:
+            return text
+        
+        try:
+            fixed = self.homophone_fixer.fix(text)
+            if fixed != text:
+                print(f"[FIX] '{text}' → '{fixed}'")
+            return fixed
+        except Exception as e:
+            return text
     
     def _init_ai_corrector(self):
         """Initialize AI corrector for context-aware word fixing"""
@@ -291,7 +334,9 @@ class SpeechInputManager:
                         text = result.get('text', '').strip()
                     
                     if text:
-                        text = self._apply_ai_correction(text)
+                        text = self._apply_homophone_fix(text)
+                        if self.enable_ai_correction:
+                            text = self._apply_ai_correction(text)
                     
                     if text and self.result_callback:
                         self.result_callback(text, is_final=True)
