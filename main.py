@@ -1,6 +1,8 @@
 """
-Pascal AI Assistant - FIXED Main Entry Point (v4.1)
+Pascal AI Assistant - Main Entry Point (v4.3)
 Features: Simplified Nemotron + Groq with fast routing + Enhanced Conversational Context + Voice Input
+Voice-safe exit commands: quit, stop, goodbye, done, etc.
+Fixes: Noise word filtering (the, a, i), reliable exit via _stop_requested flag
 """
 
 import asyncio
@@ -8,7 +10,7 @@ import signal
 import sys
 import time
 import argparse
-from pathlib import Pathit
+from pathlib import Path
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
@@ -438,11 +440,15 @@ class Pascal:
         command = user_input.lower().strip()
         
         if command in ['quit', 'exit', 'bye']:
+            self.console.print("\n👋 Goodbye! Shutting down Pascal...", style="cyan")
+            if self.speech_manager:
+                self.speech_manager.stop_listening()
             return False
         
         if self.exit_detector and self.exit_detector.is_exit_command(command):
-            if settings.debug_mode:
-                self.console.print(f"[DEBUG] Voice-safe exit detected: '{command}'", style="dim")
+            self.console.print(f"\n👋 Exit command detected: '{command}'. Shutting down Pascal...", style="cyan")
+            if self.speech_manager:
+                self.speech_manager.stop_listening()
             return False
         
         elif command in ['help', 'status']:
