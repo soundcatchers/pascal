@@ -40,6 +40,10 @@ except ImportError:
 class SpeechInputManager:
     """Manages continuous speech recognition using Vosk"""
     
+    NOISE_WORDS = {'the', 'a', 'an', 'i', 'uh', 'um', 'eh', 'ah', 'oh', 'huh', 'hmm', 'and', 'but', 'or', 'it', 'is', 'to', 'in', 'of'}
+    MIN_WORD_COUNT = 1
+    MIN_CHAR_COUNT = 3
+    
     def __init__(self, model_path: Optional[str] = None, debug_audio: bool = False, enable_postprocessing: bool = True):
         self.audio_manager = AudioDeviceManager(debug_audio=debug_audio)
         self.model_path = model_path or self._find_model_path()
@@ -48,6 +52,7 @@ class SpeechInputManager:
         self.stream = None
         
         self.is_listening = False
+        self._stop_requested = False
         self.audio_queue = queue.Queue()
         self.result_callback: Optional[Callable[[str, bool], None]] = None
         
@@ -209,6 +214,22 @@ class SpeechInputManager:
         except Exception as e:
             return text
     
+    def _is_noise(self, text: str) -> bool:
+        """Filter out noise words from Vosk (common false positives during silence)"""
+        if not text:
+            return True
+        
+        text_lower = text.lower().strip()
+        words = text_lower.split()
+        
+        if len(words) == 1 and words[0] in self.NOISE_WORDS:
+            return True
+        
+        if len(text_lower) < self.MIN_CHAR_COUNT:
+            return True
+        
+        return False
+    
     def _init_ai_corrector(self):
         """Initialize AI corrector for context-aware word fixing"""
         try:
@@ -289,6 +310,7 @@ class SpeechInputManager:
         
         self.result_callback = callback
         self.is_listening = True
+        self._stop_requested = False
         
         self.stream = self.audio_manager.open_stream()
         if not self.stream:
@@ -309,20 +331,24 @@ class SpeechInputManager:
         settings = self.audio_manager.get_recommended_settings()
         chunk_size = settings['chunk']
         
-        while self.is_listening and self.stream:
+        while self.is_listening and self.stream and not self._stop_requested:
             try:
                 data = self.stream.read(chunk_size, exception_on_overflow=False)
-                self.audio_queue.put(data)
+                if not self._stop_requested:
+                    self.audio_queue.put(data)
             except Exception as e:
-                if self.is_listening:
+                if self.is_listening and not self._stop_requested:
                     print(f"[STT] Audio read error: {e}")
                 break
     
     def _process_loop(self):
         """Process audio data with Vosk (runs in separate thread)"""
-        while self.is_listening:
+        while self.is_listening and not self._stop_requested:
             try:
-                data = self.audio_queue.get(timeout=1)
+                data = self.audio_queue.get(timeout=0.5)
+                
+                if self._stop_requested:
+                    break
                 
                 if self.recognizer.AcceptWaveform(data):
                     result_json = self.recognizer.Result()
@@ -333,28 +359,34 @@ class SpeechInputManager:
                         result = json.loads(result_json)
                         text = result.get('text', '').strip()
                     
+                    if self._is_noise(text):
+                        continue
+                    
                     if text:
                         text = self._apply_homophone_fix(text)
                         if self.enable_ai_correction:
                             text = self._apply_ai_correction(text)
                     
-                    if text and self.result_callback:
+                    if text and self.result_callback and not self._stop_requested:
                         self.result_callback(text, is_final=True)
                 else:
                     partial_json = self.recognizer.PartialResult()
                     partial = json.loads(partial_json)
                     text = partial.get('partial', '').strip()
                     
+                    if self._is_noise(text):
+                        continue
+                    
                     if self.enable_postprocessing and self.postprocessor and text:
                         text = self.postprocessor.process_simple(text).strip()
                     
-                    if text and self.result_callback:
+                    if text and self.result_callback and not self._stop_requested:
                         self.result_callback(text, is_final=False)
                         
             except queue.Empty:
                 continue
             except Exception as e:
-                if self.is_listening:
+                if self.is_listening and not self._stop_requested:
                     print(f"[STT] Processing error: {e}")
                 break
     
@@ -364,6 +396,7 @@ class SpeechInputManager:
             return
         
         print("[STT] 🔇 Stopping listening...")
+        self._stop_requested = True
         self.is_listening = False
         
         if self.stream:
@@ -371,15 +404,15 @@ class SpeechInputManager:
                 self.stream.stop_stream()
                 self.stream.close()
             except Exception as e:
-                print(f"[STT] Error closing stream: {e}")
+                pass
             finally:
                 self.stream = None
         
         if self.listen_thread and self.listen_thread.is_alive():
-            self.listen_thread.join(timeout=2)
+            self.listen_thread.join(timeout=1)
         
         if self.process_thread and self.process_thread.is_alive():
-            self.process_thread.join(timeout=2)
+            self.process_thread.join(timeout=1)
         
         while not self.audio_queue.empty():
             try:
