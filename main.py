@@ -8,7 +8,7 @@ import signal
 import sys
 import time
 import argparse
-from pathlib import Path
+from pathlib import Pathit
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
@@ -30,6 +30,13 @@ try:
 except ImportError:
     VOICE_AVAILABLE = False
 
+# Homophone fixer for voice-safe exit commands
+try:
+    from modules.homophone_fixer import HomophoneFixer
+    HOMOPHONE_FIXER_AVAILABLE = True
+except ImportError:
+    HOMOPHONE_FIXER_AVAILABLE = False
+
 class Pascal:
     """FIXED Pascal AI Assistant with enhanced conversational context + Voice Input"""
     
@@ -45,6 +52,9 @@ class Pascal:
         self.personality_manager = None
         self.memory_manager = None
         self.speech_manager = None
+        
+        # Voice-safe exit command detection
+        self.exit_detector = HomophoneFixer() if HOMOPHONE_FIXER_AVAILABLE else None
         
         # Voice input state
         self.current_voice_input = ""
@@ -424,10 +434,15 @@ class Pascal:
                     traceback.print_exc()
     
     async def process_command(self, user_input: str) -> bool:
-        """FIXED: Process special commands"""
+        """FIXED: Process special commands with voice-safe exit detection"""
         command = user_input.lower().strip()
         
         if command in ['quit', 'exit', 'bye']:
+            return False
+        
+        if self.exit_detector and self.exit_detector.is_exit_command(command):
+            if settings.debug_mode:
+                self.console.print(f"[DEBUG] Voice-safe exit detected: '{command}'", style="dim")
             return False
         
         elif command in ['help', 'status']:
@@ -600,7 +615,7 @@ class Pascal:
   • test - Test routing for different query types
   • clear - Clear conversation history and context
   • debug - Toggle debug mode
-  • quit/exit - Stop Pascal"""
+  • quit/exit/stop/goodbye/done - Stop Pascal (voice-safe variants supported)"""
         
         self.console.print(Panel(perf_text, title="Enhanced Conversational Features", border_style="green"))
         
