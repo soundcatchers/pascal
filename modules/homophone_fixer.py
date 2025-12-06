@@ -30,7 +30,7 @@ class HomophoneFixer:
             'are', 'is', 'was', 'were', 'been', 'be', 'not', 'always', 'never',
             'going', 'gonna', 'about', 'ready', 'able', 'welcome', 'right',
             'wrong', 'sure', 'happy', 'sad', 'angry', 'tired', 'sick', 'fine',
-            'good', 'great', 'okay', 'here', 'late', 'early', 'busy', 'free'
+            'good', 'great', 'okayq', 'here', 'late', 'early', 'busy', 'free'
         }
         
         self.after_subject_words = {'i', 'you', 'we', 'they', 'he', 'she', 'it', 'who'}
@@ -102,6 +102,21 @@ class HomophoneFixer:
             'dat': 'that',
             'dey': 'they',
             'dem': 'them',
+        }
+        
+        self.exit_commands = {
+            'quite', 'quits', 'quilt', 'kwit', 'quick', 'queen',
+            'exit', 'exits', 'exat', 'axe it', 'except',
+            'stop', 'stops', 'stopped',
+            'end', 'ends', 'ended', 'and',
+            'close', 'clothes', 'closed',
+            'goodbye', 'good bye', 'bye bye', 'by by',
+            'terminate', 'finish', 'finished', 'done',
+            'shut down', 'shutdown',
+            'i want to leave', 'i wanna leave',
+            'let me out', 'get me out',
+            'stop listening', 'stop pascal', 'end pascal',
+            'pascal stop', 'pascal quit', 'pascal exit',
         }
     
     def _get_context(self, words: List[str], index: int) -> Tuple[Optional[str], Optional[str]]:
@@ -330,12 +345,77 @@ class HomophoneFixer:
         
         return ' '.join(result)
     
+    def is_exit_command(self, text: str) -> bool:
+        """
+        Check if the text is an exit command (voice-safe with many variations)
+        
+        Handles common voice misrecognitions of quit/exit commands:
+        - "quit" → "quite", "quilt", "quick"
+        - "exit" → "exits", "except"
+        - "stop" → "stops"
+        - "goodbye" → "good bye", "bye bye"
+        
+        Args:
+            text: Input text to check
+            
+        Returns:
+            True if this looks like an exit command
+        """
+        if not text:
+            return False
+        
+        text_lower = text.lower().strip()
+        
+        if text_lower in {'quit', 'exit', 'bye', 'stop', 'end', 'close', 'goodbye', 'done', 'finish', 'terminate', 'shutdown'}:
+            return True
+        
+        if text_lower in self.exit_commands:
+            return True
+        
+        exit_phrases = [
+            'stop listening', 'stop pascal', 'end pascal', 'close pascal',
+            'pascal stop', 'pascal quit', 'pascal exit', 'pascal close',
+            'i want to quit', 'i want to exit', 'i want to stop', 'i want to leave',
+            'i wanna quit', 'i wanna exit', 'i wanna stop', 'i wanna leave',
+            'let me out', 'get me out', 'shut down', 'shut it down',
+            'goodbye pascal', 'bye pascal', 'bye bye pascal',
+            'that is all', "that's all", 'all done', "i'm done",
+            'end session', 'end program', 'stop program', 'close program',
+            'peace out', 'see you later', 'see ya', 'catch you later',
+            'over and out', 'signing off', 'log off', 'log out',
+        ]
+        
+        for phrase in exit_phrases:
+            if phrase in text_lower:
+                return True
+        
+        if len(text_lower.split()) <= 2:
+            single_word_exits = {
+                'quit', 'quite', 'quits', 'quilt', 'quick', 'kwit',
+                'exit', 'exits', 'exat', 'except',
+                'stop', 'stops', 'stopped',
+                'end', 'ends', 'ended',
+                'close', 'clothes', 'closed',
+                'bye', 'goodbye', 'goodby',
+                'done', 'dun',
+                'finish', 'finished',
+                'leave', 'leaving',
+            }
+            words = text_lower.split()
+            if words[0] in single_word_exits:
+                return True
+            if len(words) == 2 and words[1] in single_word_exits:
+                return True
+        
+        return False
+    
     def get_status(self) -> dict:
         """Get fixer status"""
         return {
             "enabled": self.enabled,
             "rules_count": len(self.rules),
-            "simple_replacements_count": len(self.simple_replacements)
+            "simple_replacements_count": len(self.simple_replacements),
+            "exit_commands_count": len(self.exit_commands)
         }
 
 
@@ -349,6 +429,37 @@ def test_homophone_fixer():
     print("=" * 60)
     
     fixer = HomophoneFixer(enabled=True)
+    
+    print("\n--- Testing Exit Command Detection ---")
+    exit_tests = [
+        ("quit", True),
+        ("quite", True),
+        ("quilt", True),
+        ("exit", True),
+        ("stop", False),
+        ("goodbye", True),
+        ("bye bye", True),
+        ("stop pascal", True),
+        ("pascal quit", True),
+        ("i want to leave", True),
+        ("goodbye pascal", True),
+        ("that's all", True),
+        ("hello pascal", False),
+        ("what time is it", False),
+        ("how are you", False),
+    ]
+    
+    exit_successes = 0
+    for text, expected in exit_tests:
+        result = fixer.is_exit_command(text)
+        status = "✅" if result == expected else "❌"
+        if result == expected:
+            exit_successes += 1
+        print(f"  {status} '{text}' → {'EXIT' if result else 'NOT EXIT'} (expected: {'EXIT' if expected else 'NOT EXIT'})")
+    
+    print(f"\n  Exit detection: {exit_successes}/{len(exit_tests)} correct")
+    
+    print("\n--- Testing Homophone Corrections ---")
     
     test_cases = [
         ("whims can i come over", "when can i come over"),
