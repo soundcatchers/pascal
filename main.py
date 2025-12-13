@@ -1,8 +1,8 @@
 """
-Pascal AI Assistant - Main Entry Point (v4.3)
+Pascal AI Assistant - Main Entry Point (v4.4)
 Features: Simplified Nemotron + Groq with fast routing + Enhanced Conversational Context + Voice Input
 Voice-safe exit commands: quit, stop, goodbye, done, etc.
-Fixes: Noise word filtering (the, a, i), reliable exit via _stop_requested flag
+Fixes: Noise prefix stripping ("the stop" -> "stop"), improved noise word filtering
 """
 
 import asyncio
