@@ -39,21 +39,30 @@ try:
 except ImportError:
     HOMOPHONE_FIXER_AVAILABLE = False
 
+# LED controller for ReSpeaker visual feedback (optional)
+try:
+    from modules.led_controller import get_led_controller, LEDController
+    LED_AVAILABLE = True
+except ImportError:
+    LED_AVAILABLE = False
+
 class Pascal:
     """FIXED Pascal AI Assistant with enhanced conversational context + Voice Input"""
     
-    def __init__(self, voice_mode: bool = False, list_audio_devices: bool = False, debug_audio: bool = False):
+    def __init__(self, voice_mode: bool = False, list_audio_devices: bool = False, debug_audio: bool = False, enable_leds: bool = True):
         self.console = Console()
         self.running = False
         self.voice_mode = voice_mode
         self.list_audio_devices = list_audio_devices
         self.debug_audio = debug_audio
+        self.enable_leds = enable_leds
         
         # Core components
         self.router = None
         self.personality_manager = None
         self.memory_manager = None
         self.speech_manager = None
+        self.led_controller = None
         
         # Voice-safe exit command detection
         self.exit_detector = HomophoneFixer() if HOMOPHONE_FIXER_AVAILABLE else None
@@ -116,6 +125,12 @@ class Pascal:
             await self.router._check_llm_availability()
             self.router._initialized = True  # Mark as initialized to prevent re-init on first query
             
+            # Initialize LED controller for ReSpeaker visual feedback
+            if self.enable_leds and LED_AVAILABLE:
+                self.led_controller = get_led_controller(enabled=True, brightness=50)
+                if self.led_controller.is_available():
+                    self.led_controller.idle()
+            
             # Initialize voice input if enabled
             if self.voice_mode or self.list_audio_devices:
                 if not VOICE_AVAILABLE:
@@ -124,7 +139,7 @@ class Pascal:
                     if self.voice_mode:
                         return False
                 else:
-                    self.speech_manager = SpeechInputManager(debug_audio=self.debug_audio)
+                    self.speech_manager = SpeechInputManager(debug_audio=self.debug_audio, led_controller=self.led_controller)
                     
                     if self.list_audio_devices:
                         self.speech_manager.initialize()
@@ -378,20 +393,36 @@ class Pascal:
                 if any(pattern in user_input.lower() for pattern in greeting_patterns):
                     self.session_stats['greeting_queries'] += 1
                 
+                # LED: Show thinking state while processing
+                if self.led_controller:
+                    self.led_controller.thinking()
+                
                 # Stream Pascal's response using enhanced router
                 self.console.print("Pascal: ", style="bold magenta", end="")
                 
                 try:
                     response_text = ""
                     response_start = time.time()
+                    first_chunk = True
                     
                     # Use enhanced streaming response
                     async for chunk in self.router.get_enhanced_streaming_response(user_input, session_id=self.memory_manager.session_id):
+                        # LED: Switch to speaking on first chunk
+                        if first_chunk and self.led_controller:
+                            self.led_controller.speaking()
+                            first_chunk = False
                         print(chunk, end="", flush=True)
                         response_text += chunk
                     
                     response_time = time.time() - response_start
                     print()  # New line after streaming
+                    
+                    # LED: Return to listening (voice mode) or idle
+                    if self.led_controller:
+                        if self.voice_mode:
+                            self.led_controller.listening()
+                        else:
+                            self.led_controller.idle()
                     
                     # Update stats based on routing decision
                     if self.router.last_decision:
@@ -429,10 +460,19 @@ class Pascal:
                         self.console.print(f"[DEBUG] Route: {route_type}, Time: {response_time:.3f}s, Confidence: {decision.confidence:.2f}{extra_str}", style="dim")
                 
                 except Exception as e:
+                    # LED: Show error state briefly
+                    if self.led_controller:
+                        self.led_controller.error()
                     self.console.print(f"\nSorry, I encountered an error: {e}", style="red")
                     if settings.debug_mode:
                         import traceback
                         traceback.print_exc()
+                    # LED: Resume appropriate state after error
+                    if self.led_controller:
+                        if self.voice_mode:
+                            self.led_controller.listening()
+                        else:
+                            self.led_controller.idle()
                 
                 print()  # Add spacing
                 
@@ -456,6 +496,8 @@ class Pascal:
             self.console.print(f"\n{farewell}", style="cyan")
             if self.speech_manager:
                 self.speech_manager.stop_listening()
+            if self.led_controller:
+                self.led_controller.shutdown()
             return False
         
         elif command in ['help', 'status']:
@@ -730,10 +772,11 @@ async def main():
     parser.add_argument('--voice', action='store_true', help='Enable voice input mode (requires Vosk + microphone)')
     parser.add_argument('--list-devices', action='store_true', help='List available audio input devices and exit')
     parser.add_argument('--debug-audio', action='store_true', help='Show ALSA debug messages (for troubleshooting audio issues)')
+    parser.add_argument('--no-leds', action='store_true', help='Disable ReSpeaker LED feedback')
     
     args = parser.parse_args()
     
-    pascal = Pascal(voice_mode=args.voice, list_audio_devices=args.list_devices, debug_audio=args.debug_audio)
+    pascal = Pascal(voice_mode=args.voice, list_audio_devices=args.list_devices, debug_audio=args.debug_audio, enable_leds=not args.no_leds)
     await pascal.run()
 
 if __name__ == "__main__":
