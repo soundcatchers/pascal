@@ -40,6 +40,12 @@ try:
 except ImportError:
     HOMOPHONE_FIXER_AVAILABLE = False
 
+try:
+    from modules.led_controller import get_led_controller, LEDController
+    LED_AVAILABLE = True
+except ImportError:
+    LED_AVAILABLE = False
+
 class SpeechInputManager:
     """Manages continuous speech recognition using Vosk"""
     
@@ -47,7 +53,7 @@ class SpeechInputManager:
     MIN_WORD_COUNT = 1
     MIN_CHAR_COUNT = 3
     
-    def __init__(self, model_path: Optional[str] = None, debug_audio: bool = False, enable_postprocessing: bool = True):
+    def __init__(self, model_path: Optional[str] = None, debug_audio: bool = False, enable_postprocessing: bool = True, led_controller: Optional['LEDController'] = None):
         self.audio_manager = AudioDeviceManager(debug_audio=debug_audio)
         self.model_path = model_path or self._find_model_path()
         self.model: Optional[Model] = None
@@ -70,6 +76,8 @@ class SpeechInputManager:
         
         self.enable_homophone_fixer = HOMOPHONE_FIXER_AVAILABLE
         self.homophone_fixer = None
+        
+        self.led_controller = led_controller
         
     def _find_model_path(self) -> Optional[str]:
         """Find Vosk model in common locations"""
@@ -341,6 +349,9 @@ class SpeechInputManager:
         self.listen_thread.start()
         self.process_thread.start()
         
+        if self.led_controller:
+            self.led_controller.listening()
+        
         print("[STT] 🎙️  Listening started (continuous mode)...")
     
     def _listen_loop(self):
@@ -440,6 +451,9 @@ class SpeechInputManager:
                 self.audio_queue.get_nowait()
             except queue.Empty:
                 break
+        
+        if self.led_controller:
+            self.led_controller.idle()
         
         print("[STT] ✅ Listening stopped")
     
