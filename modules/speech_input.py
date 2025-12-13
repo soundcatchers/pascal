@@ -219,16 +219,31 @@ class SpeechInputManager:
         if not text:
             return True
         
-        text_lower = text.lower().strip()
-        words = text_lower.split()
+        import re
+        text_clean = re.sub(r'[^\w\s]', '', text.lower()).strip()
+        words = text_clean.split()
+        
+        if len(words) == 0:
+            return True
         
         if len(words) == 1 and words[0] in self.NOISE_WORDS:
             return True
         
-        if len(text_lower) < self.MIN_CHAR_COUNT:
+        if len(text_clean) < self.MIN_CHAR_COUNT:
             return True
         
         return False
+    
+    def _strip_noise_prefix(self, text: str) -> str:
+        """Strip leading noise words like 'the' that Vosk adds from background noise"""
+        if not text:
+            return text
+        
+        words = text.split()
+        if len(words) >= 2 and words[0].lower().strip('.,!?') in self.NOISE_WORDS:
+            return ' '.join(words[1:])
+        
+        return text
     
     def _init_ai_corrector(self):
         """Initialize AI corrector for context-aware word fixing"""
@@ -359,6 +374,8 @@ class SpeechInputManager:
                         result = json.loads(result_json)
                         text = result.get('text', '').strip()
                     
+                    text = self._strip_noise_prefix(text)
+                    
                     if self._is_noise(text):
                         continue
                     
@@ -373,6 +390,8 @@ class SpeechInputManager:
                     partial_json = self.recognizer.PartialResult()
                     partial = json.loads(partial_json)
                     text = partial.get('partial', '').strip()
+                    
+                    text = self._strip_noise_prefix(text)
                     
                     if self._is_noise(text):
                         continue
