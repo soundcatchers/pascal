@@ -1,8 +1,8 @@
 """
-Pascal AI Assistant - Main Entry Point (v4.4)
+Pascal AI Assistant - Main Entry Point (v4.6)
 Features: Simplified Nemotron + Groq with fast routing + Enhanced Conversational Context + Voice Input
 Voice-safe exit commands: quit, stop, goodbye, done, etc.
-Fixes: Noise prefix stripping ("the stop" -> "stop"), improved noise word filtering
+Fixes: Force exit with sys.exit(0), personality-based farewell messages
 """
 
 import asyncio
@@ -287,6 +287,17 @@ class Pascal:
         else:
             print(f"\r🎤 Listening: {text}...", end="", flush=True)
     
+    def _get_personality_farewell(self) -> str:
+        """Get personality-appropriate farewell message"""
+        name = self.personality_manager.current_personality if self.personality_manager else "pascal"
+        farewells = {
+            'pascal': "👋 Until next time! Take care, and don't hesitate to call if you need me!",
+            'jarvis': "👋 Very good, sir. I shall be here when you require my services again.",
+            'rick': "👋 Finally! *burp* Later, loser. Try not to break reality while I'm gone.",
+            'default': "👋 Goodbye! Have a great day!"
+        }
+        return farewells.get(name, farewells['default'])
+    
     async def chat_loop(self):
         """FIXED: Enhanced conversational chat interaction loop + Voice Input"""
         self.session_stats['start_time'] = time.time()
@@ -438,15 +449,11 @@ class Pascal:
     async def process_command(self, user_input: str) -> bool:
         """FIXED: Process special commands with voice-safe exit detection"""
         command = user_input.lower().strip()
+        command_clean = command.rstrip('.,!?;:')
         
-        if command in ['quit', 'exit', 'bye']:
-            self.console.print("\n👋 Goodbye! Shutting down Pascal...", style="cyan")
-            if self.speech_manager:
-                self.speech_manager.stop_listening()
-            return False
-        
-        if self.exit_detector and self.exit_detector.is_exit_command(command):
-            self.console.print(f"\n👋 Exit command detected: '{command}'. Shutting down Pascal...", style="cyan")
+        if command_clean in ['quit', 'exit', 'bye', 'stop', 'goodbye', 'done'] or (self.exit_detector and self.exit_detector.is_exit_command(command_clean)):
+            farewell = self._get_personality_farewell()
+            self.console.print(f"\n{farewell}", style="cyan")
             if self.speech_manager:
                 self.speech_manager.stop_listening()
             return False
@@ -688,7 +695,6 @@ Offline: {self.session_stats['offline_queries']} | Online: {self.session_stats['
                 self.console.print(summary_table)
             
             self.running = False
-            self.console.print("👋 Thank you for using Pascal Enhanced Conversational Edition!", style="cyan")
             
         except Exception as e:
             self.console.print(f"Error during shutdown: {e}", style="red")
@@ -714,8 +720,9 @@ Offline: {self.session_stats['offline_queries']} | Online: {self.session_stats['
         # Start enhanced chat loop
         await self.chat_loop()
         
-        # Shutdown
+        # Shutdown and force exit
         await self.shutdown()
+        sys.exit(0)
 
 async def main():
     """Main entry point for Pascal Enhanced Conversational Edition + Voice Input"""
