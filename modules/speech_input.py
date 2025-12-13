@@ -6,10 +6,13 @@ Handles continuous speech recognition with Vosk for offline, real-time transcrip
 import os
 import json
 import queue
+import re
 import threading
 from typing import Optional, Callable
 from pathlib import Path
 from modules.audio_device import AudioDeviceManager
+
+PUNCTUATION_PATTERN = re.compile(r'[^\w\s]')
 
 try:
     from vosk import Model, KaldiRecognizer
@@ -219,11 +222,10 @@ class SpeechInputManager:
         if not text:
             return True
         
-        import re
-        text_clean = re.sub(r'[^\w\s]', '', text.lower()).strip()
+        text_clean = PUNCTUATION_PATTERN.sub('', text.lower()).strip()
         words = text_clean.split()
         
-        if len(words) == 0:
+        if not words:
             return True
         
         if len(words) == 1 and words[0] in self.NOISE_WORDS:
