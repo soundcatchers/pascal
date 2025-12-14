@@ -428,24 +428,37 @@ class SpeechInputManager:
             return
         
         print("[STT] 🔇 Stopping listening...")
+        
+        # Signal threads to stop FIRST
         self._stop_requested = True
         self.is_listening = False
         
+        # Give threads time to see the stop flag and exit their loops
+        import time
+        time.sleep(0.1)
+        
+        # Wait for threads to finish BEFORE closing stream
+        # This prevents ALSA crashes from closing stream while threads are using it
+        if self.listen_thread and self.listen_thread.is_alive():
+            self.listen_thread.join(timeout=2)
+        
+        if self.process_thread and self.process_thread.is_alive():
+            self.process_thread.join(timeout=2)
+        
+        # NOW safe to close the stream (threads are done)
         if self.stream:
             try:
                 self.stream.stop_stream()
+            except Exception:
+                pass
+            try:
                 self.stream.close()
-            except Exception as e:
+            except Exception:
                 pass
             finally:
                 self.stream = None
         
-        if self.listen_thread and self.listen_thread.is_alive():
-            self.listen_thread.join(timeout=1)
-        
-        if self.process_thread and self.process_thread.is_alive():
-            self.process_thread.join(timeout=1)
-        
+        # Clear any remaining audio data
         while not self.audio_queue.empty():
             try:
                 self.audio_queue.get_nowait()
