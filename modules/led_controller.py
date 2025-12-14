@@ -135,13 +135,21 @@ class LEDController:
         
         try:
             with self._lock:
-                pixel_ring.mono(100, 100, 255)
-                time.sleep(0.3)
-                pixel_ring.off()
+                try:
+                    pixel_ring.mono(100, 100, 255)
+                    time.sleep(0.3)
+                    pixel_ring.off()
+                except Exception:
+                    # Device might already be disconnected, just try to turn off
+                    try:
+                        pixel_ring.off()
+                    except Exception:
+                        pass
             self.current_state = "off"
+            self.available = False  # Mark as unavailable after shutdown
             print("[LED] ✅ LEDs shut down")
         except Exception:
-            pass
+            pass  # Silently handle any remaining errors
     
     def off(self):
         """Turn off LEDs immediately"""
