@@ -693,6 +693,13 @@ Offline: {self.session_stats['offline_queries']} | Online: {self.session_stats['
         self.console.print("\n🔄 Shutting down Pascal Enhanced Conversational Edition...", style="yellow")
         
         try:
+            # LED shutdown first (visual feedback that we're closing)
+            if self.led_controller:
+                try:
+                    self.led_controller.shutdown()
+                except Exception:
+                    pass  # Ignore LED errors during shutdown
+            
             # Stop voice input if active
             if self.speech_manager:
                 self.speech_manager.stop_listening()
