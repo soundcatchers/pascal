@@ -972,12 +972,22 @@ class EnhancedContextMixin:
                 self._optimize_offline_for_query(decision.analysis)
             
             response_buffer = ""
+            chunk_count = 0
             if hasattr(self, 'offline_llm') and self.offline_llm:
                 async for chunk in self.offline_llm.generate_response_stream(
                     query, personality_context, prompt
                 ):
+                    chunk_count += 1
                     response_buffer += chunk
                     yield chunk
+            else:
+                if settings.debug_mode:
+                    print(f"[ENHANCED_CONTEXT] ⚠️  offline_llm not available!")
+                yield "Offline model not available."
+            
+            # Debug: show if no chunks were received
+            if chunk_count == 0 and settings.debug_mode:
+                print(f"[ENHANCED_CONTEXT] ⚠️  No response chunks received from Ollama")
             
             # Store response
             try:
@@ -1049,28 +1059,24 @@ class EnhancedIntelligentRouter:
             
             async def close(self):
                 """Enhanced close method to properly cleanup aiohttp sessions"""
+                import asyncio
                 try:
                     # Close online LLM sessions
                     if hasattr(self, 'online_llm') and self.online_llm:
                         if hasattr(self.online_llm, 'close'):
                             await self.online_llm.close()
-                        # Close any aiohttp sessions in online_llm
-                        if hasattr(self.online_llm, '_session') and self.online_llm._session:
-                            await self.online_llm._session.close()
                     
                     # Close skills manager sessions
                     if hasattr(self, 'skills_manager') and self.skills_manager:
                         if hasattr(self.skills_manager, 'close'):
                             await self.skills_manager.close()
-                        # Close any aiohttp sessions in skills_manager
-                        for skill_name in ['weather', 'news', 'google']:
-                            skill = getattr(self.skills_manager, f'{skill_name}_skill', None)
-                            if skill and hasattr(skill, '_session') and skill._session:
-                                await skill._session.close()
                     
                     # Save performance data
                     if hasattr(self, 'performance_tracker'):
                         self.performance_tracker.save_performance_data()
+                    
+                    # Allow time for connections to close gracefully
+                    await asyncio.sleep(0.25)
                         
                 except Exception as e:
                     if settings.debug_mode:
