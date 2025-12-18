@@ -298,9 +298,10 @@ class Pascal:
         if is_final:
             self.current_voice_input = text
             self.voice_is_final = True
-            print(f"\r🎤 You (voice): {text}")
+            print(f"\r\033[K🎤 You (voice): {text}")
         else:
-            print(f"\r🎤 Listening: {text}...", end="", flush=True)
+            display_text = text[:70] + "..." if len(text) > 70 else text
+            print(f"\r\033[K🎤 Listening: {display_text}", end="", flush=True)
     
     def _get_personality_farewell(self) -> str:
         """Get personality-appropriate farewell message"""
