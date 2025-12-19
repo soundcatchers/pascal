@@ -315,11 +315,27 @@ class EnhancedContextMixin:
             simple_query = self._create_simple_enhanced_query(query, recent_context)
             
             # Use simple query if it's cleaner and shorter (better for search)
-            if simple_query and len(simple_query) < 100:
+            if simple_query and len(simple_query) < 150:
                 return simple_query
             else:
-                # Fallback: Use full context
-                enhanced_query = f"{recent_context} Follow-up: {query}"
+                # Fallback: Use truncated context to avoid 422 errors from Brave API
+                # Extract just the last Q from context (not the full Q&A pairs)
+                last_q = ""
+                for part in recent_context.split('Q:'):
+                    if part.strip():
+                        q_part = part.split('A:')[0].strip() if 'A:' in part else part.strip()
+                        if q_part:
+                            last_q = q_part[:80]  # Max 80 chars from last question
+                
+                if last_q:
+                    enhanced_query = f"{last_q} {query}"
+                else:
+                    enhanced_query = query
+                
+                # Hard limit: Never exceed 200 chars for search queries
+                if len(enhanced_query) > 200:
+                    enhanced_query = enhanced_query[:200]
+                
                 return enhanced_query
         
         # Fallback: No context available, return original query
