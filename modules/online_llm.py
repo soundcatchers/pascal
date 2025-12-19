@@ -329,11 +329,35 @@ class OnlineLLM:
         # E.g., "Donald Trump who is his vice president? 2025"
         has_name = bool(re.search(r'\b[A-Z][a-z]+\s+[A-Z][a-z]+\b', query))  # Proper noun (name)
         has_question = any(word in query_lower for word in ['who', 'what', 'where', 'when', 'how', 'which'])
-        has_year = bool(re.search(r'\b202[0-9]\b', query))  # 2020-2029
         
-        if has_name and has_question and has_year:
+        # Detect years - both numeric (2025) and spelled out (twenty twenty five)
+        has_year = bool(re.search(r'\b202[0-9]\b', query))  # 2020-2029
+        spelled_years = ['twenty twenty four', 'twenty twenty five', 'twenty twenty six', 
+                         'two thousand twenty four', 'two thousand twenty five', 'two thousand twenty six']
+        has_spelled_year = any(year in query_lower for year in spelled_years)
+        
+        if has_name and has_question and (has_year or has_spelled_year):
             if settings.debug_mode:
                 print(f"[BRAVE] Name + question + year - forcing search")
+            return True
+        
+        # CRITICAL: Award/winner queries with years need search
+        # E.g., "who won twenty twenty five sports personality of the year"
+        award_patterns = [
+            r'who\s+won\s+.*(?:twenty\s+twenty|2024|2025)',  # Who won ... year
+            r'(?:sports\s+personality|ballon\s+d\'?or|oscar|grammy|bafta|emmy|nobel)',  # Award names
+            r'(?:world\s+champion|champion(?:ship)?)\s+.*(?:twenty\s+twenty|2024|2025)',
+        ]
+        for pattern in award_patterns:
+            if re.search(pattern, query_lower):
+                if settings.debug_mode:
+                    print(f"[BRAVE] Award/winner query detected - forcing search")
+                return True
+        
+        # Spelled-out years with question words likely need current info
+        if has_spelled_year and has_question:
+            if settings.debug_mode:
+                print(f"[BRAVE] Spelled year + question - forcing search")
             return True
         
         # High-confidence search patterns (includes sports which will use GENERAL search)
@@ -795,6 +819,9 @@ Current year: {datetime_info['current_year']}
         """Close the aiohttp session"""
         if self.session:
             await self.session.close()
+            # Allow time for connections to close gracefully
+            import asyncio
+            await asyncio.sleep(0.1)
             self.session = None
         self.available = False
         
