@@ -74,6 +74,9 @@ class MemoryManager:
         
         # Authentication manager for sensitive operations
         self.auth_manager = AuthChallengeManager()
+        
+        # User's name (for better personalization)
+        self._user_name: Optional[str] = None
 
     async def load_session(self, session_id: str = None) -> bool:
         """Load memory from file"""
@@ -107,6 +110,7 @@ class MemoryManager:
             self.user_preferences = data.get('user_preferences', {})
             self.learned_facts = data.get('learned_facts', {})
             self.individuals = data.get('individuals', {})
+            self._user_name = data.get('user_name', None)
 
             # Clean old memories if needed
             await self._cleanup_old_memories()
@@ -136,7 +140,8 @@ class MemoryManager:
                 ],
                 'user_preferences': self.user_preferences,
                 'learned_facts': self.learned_facts,
-                'individuals': self.individuals
+                'individuals': self.individuals,
+                'user_name': self._user_name
             }
 
             # Add long-term memory if enabled
@@ -479,6 +484,105 @@ class MemoryManager:
     def get_individual(self, name: str) -> Optional[Dict[str, Any]]:
         """Get information about an individual"""
         return self.individuals.get(name.lower())
+    
+    # User Name Methods
+    
+    def set_user_name(self, name: str):
+        """Set the user's name for personalized responses"""
+        self._user_name = name.strip().title()
+        if settings.debug_mode:
+            print(f"[MEMORY] User name set to: {self._user_name}")
+    
+    def get_user_name(self) -> Optional[str]:
+        """Get the user's name if known"""
+        return self._user_name
+    
+    def detect_name_introduction(self, user_input: str) -> Optional[str]:
+        """
+        Detect if user is introducing themselves and extract their name.
+        Returns the name if detected, None otherwise.
+        
+        Only triggers on explicit name introductions:
+        - "my name is X"
+        - "call me X" (when X appears to be a name, not a verb)
+        - "I'm X" only when followed by punctuation/end (not "I'm going")
+        """
+        import re
+        
+        text = user_input.strip()
+        text_lower = text.lower()
+        
+        # HIGH-CONFIDENCE patterns (explicit name introduction)
+        # These are very unlikely to be false positives
+        high_confidence_patterns = [
+            r"my name(?:'s| is) (\w+)",
+            r"(?:please |you can )?call me (\w+)(?:\s*[,.]|$)",
+            r"the name(?:'s| is) (\w+)",
+            r"i go by (\w+)",
+        ]
+        
+        # MEDIUM-CONFIDENCE patterns (need extra validation)
+        # "I'm X" can be "I'm Andy" but also "I'm going"
+        medium_confidence_patterns = [
+            r"^i'?m (\w+)[.!,]?$",  # Must be entire message or with punctuation
+            r"^i am (\w+)[.!,]?$",
+        ]
+        
+        # Extensive list of words that are NOT names
+        not_names = {
+            # Common verbs that follow "I'm" or "call me"
+            'going', 'doing', 'trying', 'looking', 'asking', 'wondering',
+            'thinking', 'coming', 'leaving', 'working', 'waiting', 'running',
+            'getting', 'making', 'taking', 'having', 'being', 'seeing',
+            'saying', 'telling', 'calling', 'feeling', 'wanting', 'needing',
+            'starting', 'finishing', 'playing', 'reading', 'writing',
+            # Adjectives/states
+            'here', 'there', 'good', 'fine', 'great', 'okay', 'ok', 'well',
+            'back', 'sorry', 'happy', 'sad', 'tired', 'busy', 'ready', 'done',
+            'sure', 'certain', 'afraid', 'excited', 'bored', 'confused',
+            'curious', 'interested', 'impressed', 'amazed', 'surprised',
+            # Common words
+            'not', 'just', 'also', 'really', 'very', 'so', 'too', 'still',
+            'a', 'an', 'the', 'user', 'human', 'person', 'someone', 'nobody',
+            'maybe', 'probably', 'definitely', 'absolutely', 'actually',
+            # Phrases that sound like names but aren't
+            'late', 'early', 'home', 'away', 'alone', 'lost', 'stuck',
+        }
+        
+        # Check high-confidence patterns first
+        for pattern in high_confidence_patterns:
+            match = re.search(pattern, text_lower)
+            if match:
+                potential_name = match.group(1).strip()
+                if len(potential_name) >= 2 and potential_name.lower() not in not_names:
+                    # Extra validation: check if it looks like a name
+                    # (capitalized in original text, or short enough to be a name)
+                    original_word = self._find_original_case(text, potential_name)
+                    if original_word and (original_word[0].isupper() or len(potential_name) <= 8):
+                        return potential_name.title()
+        
+        # Check medium-confidence patterns (stricter validation)
+        for pattern in medium_confidence_patterns:
+            match = re.search(pattern, text_lower)
+            if match:
+                potential_name = match.group(1).strip()
+                # For these patterns, require: not in not_names AND capitalized in original
+                if len(potential_name) >= 2 and potential_name.lower() not in not_names:
+                    original_word = self._find_original_case(text, potential_name)
+                    # Must be capitalized in original text (strong signal it's a name)
+                    if original_word and original_word[0].isupper():
+                        return potential_name.title()
+        
+        return None
+    
+    def _find_original_case(self, original_text: str, word_lower: str) -> Optional[str]:
+        """Find the original case of a word in the text"""
+        import re
+        pattern = re.compile(re.escape(word_lower), re.IGNORECASE)
+        match = pattern.search(original_text)
+        if match:
+            return match.group(0)
+        return None
     
     async def create_backup(self) -> str:
         """Create a backup before destructive operations"""
