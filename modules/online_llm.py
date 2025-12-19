@@ -618,6 +618,11 @@ class OnlineLLM:
             # Build enhanced prompt
             messages = []
             
+            # Get user name if available
+            user_name = None
+            if hasattr(self, 'memory_manager') and self.memory_manager:
+                user_name = self.memory_manager.get_user_name()
+            
             # System message with current info and conversation context
             system_content = f"""You are Pascal, a helpful AI assistant with access to real-time information.
 
@@ -627,6 +632,10 @@ Current time: {datetime_info['current_time']}
 Current year: {datetime_info['current_year']}
 
 {personality_context[:200] if personality_context else ''}"""
+
+            # Add user name instruction if known
+            if user_name:
+                system_content += f"\n\nIMPORTANT: The user's name is {user_name}. Address them by name naturally in your responses. Do NOT call them 'user' or 'Morty' - use their actual name: {user_name}."
 
             # Add conversation context early for follow-up resolution (max 2048 chars)
             if memory_context:
