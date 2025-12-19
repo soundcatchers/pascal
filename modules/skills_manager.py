@@ -639,6 +639,8 @@ class EnhancedSkillsManager:
         if self.session:
             try:
                 await self.session.close()
+                # Allow time for connections to close gracefully
+                await asyncio.sleep(0.1)
             except Exception:
                 pass
             self.session = None
