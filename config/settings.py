@@ -124,6 +124,14 @@ class Settings:
         self.voice_ai_correction_model = os.getenv("VOICE_AI_CORRECTION_MODEL", "gemma2:2b")
         self.voice_ai_correction_timeout = float(os.getenv("VOICE_AI_CORRECTION_TIMEOUT", "5.0"))
         
+        # TTS (Text-to-Speech) Settings - Piper TTS
+        self.tts_enabled = os.getenv("TTS_ENABLED", "true").lower() == "true"
+        self.tts_voices_dir = str(self.config_dir / "tts_voices")
+        self.tts_default_voice = os.getenv("TTS_DEFAULT_VOICE", "default")
+        self.tts_speed = float(os.getenv("TTS_SPEED", "1.0"))
+        self.tts_interruptible = os.getenv("TTS_INTERRUPTIBLE", "true").lower() == "true"
+        self.tts_led_feedback = os.getenv("TTS_LED_FEEDBACK", "true").lower() == "true"
+        
         if self.debug_mode:
             print(f"[SETTINGS] Pascal v{self.version} - ULTRA-SPEED OPTIMIZED")
             print(f"[SETTINGS] Hardware: {self.pi_model} ({self.available_ram_gb}GB RAM, {self.cpu_cores} cores)")
