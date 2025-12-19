@@ -362,7 +362,7 @@ class LightningOfflineLLM:
                 target_time = self.profiles[profile]['target_time']
                 print(f"[OLLAMA] ⚡ Profile: {profile} - Target: <{target_time}s")
     
-    async def generate_response(self, query: str, personality_context: str, memory_context: str) -> str:
+    async def generate_response(self, query: str, personality_context: str, memory_context: str, user_name: str = None) -> str:
         """Generate response with proper error handling"""
         if not self.available or not self.model_loaded:
             return "Offline model unavailable. Please check Ollama service."
@@ -370,7 +370,7 @@ class LightningOfflineLLM:
         start_time = time.time()
         
         try:
-            prompt = self._build_prompt(query, personality_context, memory_context)
+            prompt = self._build_prompt(query, personality_context, memory_context, user_name)
             profile = self.profiles[self.current_profile]
             
             options = {
@@ -432,14 +432,14 @@ class LightningOfflineLLM:
             elapsed = time.time() - start_time
             self._update_stats(elapsed, False)
     
-    async def generate_response_stream(self, query: str, personality_context: str, memory_context: str) -> AsyncGenerator[str, None]:
+    async def generate_response_stream(self, query: str, personality_context: str, memory_context: str, user_name: str = None) -> AsyncGenerator[str, None]:
         """Generate streaming response"""
         if not self.available or not self.model_loaded:
             yield "Offline model unavailable."
             return
         
         try:
-            prompt = self._build_prompt(query, personality_context, memory_context)
+            prompt = self._build_prompt(query, personality_context, memory_context, user_name)
             profile = self.profiles[self.current_profile]
             
             options = {
@@ -486,12 +486,16 @@ class LightningOfflineLLM:
         except Exception as e:
             yield f"Error: {str(e)[:50]}"
     
-    def _build_prompt(self, query: str, personality_context: str, memory_context: str) -> str:
+    def _build_prompt(self, query: str, personality_context: str, memory_context: str, user_name: str = None) -> str:
         """Build optimized prompt"""
-        if len(query.split()) <= 8:
-            return f"User: {query}\nAssistant:"
-        
         prompt_parts = []
+        
+        # Add user name instruction if known
+        if user_name:
+            prompt_parts.append(f"[User's name is {user_name}. Address them by name, not 'user'.]")
+        
+        if len(query.split()) <= 8 and not user_name:
+            return f"User: {query}\nAssistant:"
         
         if personality_context and len(personality_context) < 500:
             prompt_parts.append(personality_context[:300])
