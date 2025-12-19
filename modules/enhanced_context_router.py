@@ -859,6 +859,14 @@ class EnhancedContextMixin:
     async def get_enhanced_streaming_response(self, query: str, session_id: Optional[str] = None) -> AsyncGenerator[str, None]:
         """Enhanced streaming response with better context handling and search query enhancement"""
         
+        # Detect and store user's name if introduced
+        if hasattr(self, 'memory_manager') and self.memory_manager:
+            detected_name = self.memory_manager.detect_name_introduction(query)
+            if detected_name:
+                self.memory_manager.set_user_name(detected_name)
+                if settings.debug_mode:
+                    print(f"[ENHANCED_CONTEXT] 👤 User introduced themselves as: {detected_name}")
+        
         # Use enhanced decision making that can override base router
         decision, context_info = await self.make_enhanced_intelligent_decision(query, session_id)
         
@@ -993,9 +1001,14 @@ class EnhancedContextMixin:
             
             response_buffer = ""
             chunk_count = 0
+            # Get user name for personalization
+            user_name = None
+            if hasattr(self, 'memory_manager') and self.memory_manager:
+                user_name = self.memory_manager.get_user_name()
+            
             if hasattr(self, 'offline_llm') and self.offline_llm:
                 async for chunk in self.offline_llm.generate_response_stream(
-                    query, personality_context, prompt
+                    query, personality_context, prompt, user_name
                 ):
                     chunk_count += 1
                     response_buffer += chunk
@@ -1076,6 +1089,10 @@ class EnhancedIntelligentRouter:
                 IntelligentRouter.__init__(self, personality_manager, memory_manager)
                 # Then initialize the mixin without calling super()
                 EnhancedContextMixin.__init__(self)
+                
+                # Set memory_manager reference on online_llm for user name access
+                if hasattr(self, 'online_llm') and self.online_llm:
+                    self.online_llm.memory_manager = memory_manager
             
             async def close(self):
                 """Enhanced close method to properly cleanup aiohttp sessions"""
