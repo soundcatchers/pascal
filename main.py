@@ -46,16 +46,24 @@ try:
 except ImportError:
     LED_AVAILABLE = False
 
+# TTS (Text-to-Speech) output (optional)
+try:
+    from modules.tts_manager import TTSManager
+    TTS_AVAILABLE = True
+except ImportError:
+    TTS_AVAILABLE = False
+
 class Pascal:
     """FIXED Pascal AI Assistant with enhanced conversational context + Voice Input"""
     
-    def __init__(self, voice_mode: bool = False, list_audio_devices: bool = False, debug_audio: bool = False, enable_leds: bool = True):
+    def __init__(self, voice_mode: bool = False, list_audio_devices: bool = False, debug_audio: bool = False, enable_leds: bool = True, speak_mode: bool = False):
         self.console = Console()
         self.running = False
         self.voice_mode = voice_mode
         self.list_audio_devices = list_audio_devices
         self.debug_audio = debug_audio
         self.enable_leds = enable_leds
+        self.speak_mode = speak_mode
         
         # Core components
         self.router = None
@@ -63,6 +71,7 @@ class Pascal:
         self.memory_manager = None
         self.speech_manager = None
         self.led_controller = None
+        self.tts_manager = None
         
         # Voice-safe exit command detection
         self.exit_detector = HomophoneFixer() if HOMOPHONE_FIXER_AVAILABLE else None
@@ -130,6 +139,28 @@ class Pascal:
                 self.led_controller = get_led_controller(enabled=True, brightness=50)
                 if self.led_controller.is_available():
                     self.led_controller.idle()
+            
+            # Initialize TTS (Text-to-Speech) output if enabled
+            if self.speak_mode:
+                if not TTS_AVAILABLE:
+                    self.console.print("⚠️  TTS not available. Install with:", style="yellow")
+                    self.console.print("   pip install piper-tts sounddevice numpy", style="yellow")
+                    self.speak_mode = False
+                else:
+                    self.tts_manager = TTSManager(
+                        voices_dir=settings.tts_voices_dir,
+                        led_controller=self.led_controller,
+                        debug=settings.debug_mode
+                    )
+                    if await self.tts_manager.initialize():
+                        current_personality = self.personality_manager.current_personality or "default"
+                        await self.tts_manager.set_voice(current_personality)
+                        available = self.tts_manager.get_available_voices()
+                        available_count = sum(1 for v in available.values() if v)
+                        self.console.print(f"🔊 TTS ready: {available_count} voice(s) available", style="green")
+                    else:
+                        self.console.print("⚠️  TTS initialized but no voices found", style="yellow")
+                        self.console.print("   Run: python setup_tts_voices.py", style="yellow")
             
             # Initialize voice input if enabled
             if self.voice_mode or self.list_audio_devices:
@@ -281,6 +312,12 @@ class Pascal:
             if hasattr(self.router, 'clear_context'):
                 self.router.clear_context()
             
+            # Switch TTS voice to match new personality
+            if self.tts_manager and self.speak_mode:
+                await self.tts_manager.set_voice(requested_personality)
+                # Speak the greeting with new voice
+                await self.tts_manager.speak(greeting)
+            
             if settings.debug_mode:
                 self.console.print(f"[DEBUG] Switched from {current_personality_name} to {requested_personality}", style="dim")
         else:
@@ -417,6 +454,10 @@ class Pascal:
                     
                     response_time = time.time() - response_start
                     print()  # New line after streaming
+                    
+                    # TTS: Speak the response if enabled
+                    if self.tts_manager and self.speak_mode and response_text.strip():
+                        await self.tts_manager.speak(response_text)
                     
                     # LED: Return to listening (voice mode) or idle
                     if self.led_controller:
@@ -706,6 +747,10 @@ Offline: {self.session_stats['offline_queries']} | Online: {self.session_stats['
                 self.speech_manager.stop_listening()
                 self.speech_manager.close()
             
+            # Stop TTS if active
+            if self.tts_manager:
+                await self.tts_manager.close()
+            
             # Save memory
             if self.memory_manager:
                 await self.memory_manager.save_session()
@@ -781,10 +826,15 @@ async def main():
     parser.add_argument('--list-devices', action='store_true', help='List available audio input devices and exit')
     parser.add_argument('--debug-audio', action='store_true', help='Show ALSA debug messages (for troubleshooting audio issues)')
     parser.add_argument('--no-leds', action='store_true', help='Disable ReSpeaker LED feedback')
+    parser.add_argument('--speak', action='store_true', help='Enable TTS voice output (requires Piper TTS)')
+    parser.add_argument('--no-tts', action='store_true', help='Disable TTS output even if --speak was implied')
     
     args = parser.parse_args()
     
-    pascal = Pascal(voice_mode=args.voice, list_audio_devices=args.list_devices, debug_audio=args.debug_audio, enable_leds=not args.no_leds)
+    # --voice implies --speak unless --no-tts is specified
+    speak_mode = args.speak or (args.voice and not args.no_tts)
+    
+    pascal = Pascal(voice_mode=args.voice, list_audio_devices=args.list_devices, debug_audio=args.debug_audio, enable_leds=not args.no_leds, speak_mode=speak_mode)
     await pascal.run()
 
 if __name__ == "__main__":
