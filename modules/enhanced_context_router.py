@@ -357,17 +357,21 @@ class EnhancedContextMixin:
         from collections import Counter
         
         # STEP 1: Extract ONLY the most recent user query (not assistant responses!)
-        # Parse conversation_history to find last "Q:" line
+        # Parse conversation_history to find ALL "Q:" segments (not "A:" answers!)
         user_query_text = ""
-        lines = conversation_history.split('\n')
-        for line in reversed(lines):
-            if line.strip().startswith('Q:') or line.strip().startswith('User:'):
-                user_query_text = line.split(':', 1)[1].strip() if ':' in line else ""
-                break
         
-        # Fallback: If no Q: found, use whole history (but this means formatting changed)
+        # The conversation_history format is: "Q: question A: answer Q: question A: answer"
+        # We need to extract ONLY the Q: parts, never the A: parts
+        q_matches = re.findall(r'Q:\s*([^A]+?)(?=\s*A:|$)', conversation_history)
+        if q_matches:
+            # Use the MOST RECENT user question only (last match)
+            user_query_text = q_matches[-1].strip()[:100]  # Limit to 100 chars
+        
+        # CRITICAL: If no Q: found, DO NOT fall back to whole history!
+        # The whole history contains assistant responses which cause context pollution
         if not user_query_text:
-            user_query_text = conversation_history
+            # Return empty to trigger fallback in caller, not pollute with answer text
+            return ""
         
         # STEP 2: Extract words from ONLY the last user query
         words = re.findall(r'\b[A-Za-z][A-Za-z0-9]*\b', user_query_text)
