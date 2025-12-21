@@ -315,8 +315,14 @@ class Pascal:
             # Switch TTS voice to match new personality
             if self.tts_manager and self.speak_mode:
                 await self.tts_manager.set_voice(requested_personality)
+                # Pause STT during TTS to prevent feedback loop
+                if self.speech_manager and self.voice_mode:
+                    self.speech_manager.pause(cooldown_ms=500)
                 # Speak the greeting with new voice
                 await self.tts_manager.speak(greeting)
+                # Resume STT after TTS
+                if self.speech_manager and self.voice_mode:
+                    self.speech_manager.resume()
             
             if settings.debug_mode:
                 self.console.print(f"[DEBUG] Switched from {current_personality_name} to {requested_personality}", style="dim")
@@ -457,7 +463,15 @@ class Pascal:
                     
                     # TTS: Speak the response if enabled
                     if self.tts_manager and self.speak_mode and response_text.strip():
+                        # Pause STT to prevent feedback loop (mic hearing speaker)
+                        if self.speech_manager and self.voice_mode:
+                            self.speech_manager.pause(cooldown_ms=500)
+                        
                         await self.tts_manager.speak(response_text)
+                        
+                        # Resume STT after TTS completes (with cooldown)
+                        if self.speech_manager and self.voice_mode:
+                            self.speech_manager.resume()
                     
                     # LED: Return to listening (voice mode) or idle
                     if self.led_controller:
