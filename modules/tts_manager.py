@@ -177,8 +177,7 @@ class TTSManager:
         return False
     
     def _prepare_text_for_speech(self, text: str) -> str:
-        """Clean and prepare text for TTS"""
-        # Remove markdown formatting
+        """Clean and prepare text for TTS - removes emojis, normalizes ranges, etc."""
         import re
         
         # Remove code blocks
@@ -187,6 +186,9 @@ class TTSManager:
         
         # Remove markdown links, keep text
         text = re.sub(r'\[([^\]]+)\]\([^)]+\)', r'\1', text)
+        
+        # Remove citation references like [1], [2]
+        text = re.sub(r'\[\d+\]', '', text)
         
         # Remove bold/italic markers
         text = re.sub(r'\*\*([^*]+)\*\*', r'\1', text)
@@ -197,11 +199,40 @@ class TTSManager:
         # Remove bullet points
         text = re.sub(r'^[\s]*[-*•]\s*', '', text, flags=re.MULTILINE)
         
-        # Remove numbered lists
+        # Remove numbered lists at start of lines
         text = re.sub(r'^[\s]*\d+\.\s*', '', text, flags=re.MULTILINE)
         
-        # Remove emoji (optional - some TTS handles them)
-        # text = re.sub(r'[^\x00-\x7F]+', '', text)
+        # ===== EMOJI REMOVAL =====
+        # Remove all emoji characters (comprehensive pattern)
+        emoji_pattern = re.compile("["
+            u"\U0001F600-\U0001F64F"  # emoticons
+            u"\U0001F300-\U0001F5FF"  # symbols & pictographs
+            u"\U0001F680-\U0001F6FF"  # transport & map symbols
+            u"\U0001F700-\U0001F77F"  # alchemical symbols
+            u"\U0001F780-\U0001F7FF"  # Geometric Shapes Extended
+            u"\U0001F800-\U0001F8FF"  # Supplemental Arrows-C
+            u"\U0001F900-\U0001F9FF"  # Supplemental Symbols and Pictographs
+            u"\U0001FA00-\U0001FA6F"  # Chess Symbols
+            u"\U0001FA70-\U0001FAFF"  # Symbols and Pictographs Extended-A
+            u"\U00002702-\U000027B0"  # Dingbats
+            u"\U000024C2-\U0001F251"  # Enclosed characters
+            "]+", flags=re.UNICODE)
+        text = emoji_pattern.sub('', text)
+        
+        # ===== TEXT NORMALIZATION FOR NATURAL SPEECH =====
+        # Convert "1-2 hours" to "1 to 2 hours" (number ranges)
+        text = re.sub(r'(\d+)\s*-\s*(\d+)', r'\1 to \2', text)
+        
+        # Convert "55-60 minutes" style ranges
+        text = re.sub(r'(\d+)\s*–\s*(\d+)', r'\1 to \2', text)  # en-dash
+        text = re.sub(r'(\d+)\s*—\s*(\d+)', r'\1 to \2', text)  # em-dash
+        
+        # Remove URLs
+        text = re.sub(r'https?://\S+', '', text)
+        
+        # Remove parenthetical kilometer conversions like "(90 kilometers)"
+        # Keep the main info, remove redundant conversions
+        text = re.sub(r'\s*\(\d+\s*(?:km|kilometers?|kilometres?)\)', '', text, flags=re.IGNORECASE)
         
         # Normalize whitespace
         text = re.sub(r'\s+', ' ', text)
