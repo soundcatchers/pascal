@@ -48,7 +48,7 @@ class PiperTTS:
     2. Subprocess mode (piper binary) - fallback
     """
     
-    def __init__(self, debug: bool = False):
+    def __init__(self, debug: bool = False, output_device: Optional[int] = None):
         self.debug = debug
         self.model = None
         self.model_path: Optional[str] = None
@@ -56,6 +56,7 @@ class PiperTTS:
         self.sample_rate: int = 22050
         self.available = False
         self.mode = None  # 'library' or 'subprocess'
+        self.output_device = output_device  # Audio output device index
         
         # Streaming state
         self._stop_flag = False
@@ -69,21 +70,11 @@ class PiperTTS:
         self._on_word: Optional[Callable] = None
         
         self._detect_mode()
+        self._detect_output_device()
     
     def _detect_mode(self):
-        """Detect which mode to use (library or subprocess)"""
-        # Try Python library first
-        try:
-            from piper import PiperVoice
-            self.mode = 'library'
-            self.available = True
-            if self.debug:
-                print("[TTS] ✅ Piper library mode available")
-            return
-        except ImportError:
-            pass
-        
-        # Try subprocess mode (piper binary)
+        """Detect which mode to use (subprocess preferred - more reliable on Pi)"""
+        # Try subprocess mode first (piper binary) - more reliable
         try:
             result = subprocess.run(
                 ['piper', '--version'],
@@ -100,9 +91,59 @@ class PiperTTS:
         except (FileNotFoundError, subprocess.TimeoutExpired):
             pass
         
+        # Fallback to Python library (has issues with wave file handling on Pi)
+        try:
+            from piper import PiperVoice
+            self.mode = 'library'
+            self.available = True
+            if self.debug:
+                print("[TTS] ✅ Piper library mode available (fallback)")
+            return
+        except ImportError:
+            pass
+        
         if self.debug:
             print("[TTS] ❌ Piper not available (install piper-tts or piper binary)")
         self.available = False
+    
+    def _detect_output_device(self):
+        """Auto-detect the best audio output device (prefer USB speakers, exclude mic arrays)"""
+        if not SOUNDDEVICE_AVAILABLE:
+            return
+        
+        if self.output_device is not None:
+            return  # Already set explicitly
+        
+        try:
+            devices = sd.query_devices()
+            usb_speaker = None
+            
+            # Look for USB audio output devices (exclude mic arrays)
+            for i, d in enumerate(devices):
+                if d['max_output_channels'] > 0:
+                    name_lower = d['name'].lower()
+                    # Skip microphone arrays (ReSpeaker is a mic, not a speaker)
+                    if 'respeaker' in name_lower or 'mic' in name_lower:
+                        continue
+                    # Prefer USB speakers
+                    if 'usb' in name_lower and usb_speaker is None:
+                        usb_speaker = i
+                        if self.debug:
+                            print(f"[TTS] 🔊 Found USB speaker: [{i}] {d['name']}")
+            
+            if usb_speaker is not None:
+                self.output_device = usb_speaker
+                if self.debug:
+                    print(f"[TTS] ✅ Using USB speaker: device {usb_speaker}")
+            else:
+                # Use default device (pulse/default usually works best)
+                self.output_device = None  # None = use system default
+                if self.debug:
+                    print(f"[TTS] 🔊 Using system default audio output")
+                
+        except Exception as e:
+            if self.debug:
+                print(f"[TTS] ⚠️  Could not detect audio devices: {e}")
     
     def load_model(self, model_path: str, config_path: Optional[str] = None) -> bool:
         """Load a voice model"""
@@ -159,13 +200,10 @@ class PiperTTS:
         try:
             if self.mode == 'library' and self.model:
                 import wave
-                with wave.open(output_path, 'wb') as wav_file:
-                    wav_file.setnchannels(1)
-                    wav_file.setsampwidth(2)  # 16-bit
-                    wav_file.setframerate(self.sample_rate)
-                    
-                    for audio_bytes in self.model.synthesize_stream_raw(text):
-                        wav_file.writeframes(audio_bytes)
+                # Piper handles wave parameters internally
+                wav_file = wave.open(output_path, 'w')
+                self.model.synthesize(text, wav_file)
+                wav_file.close()
                 return True
             else:
                 # Subprocess mode
@@ -197,10 +235,41 @@ class PiperTTS:
         
         if self.mode == 'library' and self.model:
             try:
-                for audio_bytes in self.model.synthesize_stream_raw(text):
-                    if self._stop_flag:
-                        break
-                    yield audio_bytes
+                # Try streaming API first (newer versions)
+                if hasattr(self.model, 'synthesize_stream_raw'):
+                    for audio_bytes in self.model.synthesize_stream_raw(text):
+                        if self._stop_flag:
+                            break
+                        yield audio_bytes
+                else:
+                    # Fallback: synthesize to temp file and read back
+                    import tempfile
+                    import wave
+                    import os
+                    
+                    temp_wav = tempfile.NamedTemporaryFile(suffix='.wav', delete=False)
+                    temp_path = temp_wav.name
+                    temp_wav.close()
+                    
+                    try:
+                        # Synthesize to temp file - Piper handles wave params internally
+                        wav_file = wave.open(temp_path, 'w')
+                        self.model.synthesize(text, wav_file)
+                        wav_file.close()
+                        
+                        # Read back raw audio frames
+                        with wave.open(temp_path, 'rb') as wav_file:
+                            chunk_size = 4096
+                            while True:
+                                if self._stop_flag:
+                                    break
+                                chunk = wav_file.readframes(chunk_size // 2)  # 2 bytes per frame
+                                if not chunk:
+                                    break
+                                yield chunk
+                    finally:
+                        if os.path.exists(temp_path):
+                            os.remove(temp_path)
             except Exception as e:
                 if self.debug:
                     print(f"[TTS] ❌ Stream error: {e}")
@@ -253,6 +322,9 @@ class PiperTTS:
         Returns:
             True if speech started successfully
         """
+        if self.debug:
+            print(f"[TTS] 🔊 Speaking: {text[:50]}...")
+        
         if not self.available or not self.model_path:
             if self.debug:
                 print("[TTS] ❌ Cannot speak - model not loaded")
@@ -285,35 +357,55 @@ class PiperTTS:
             self._on_start()
         
         try:
-            # Open audio stream
-            self._stream = sd.OutputStream(
-                samplerate=self.sample_rate,
-                channels=1,
-                dtype='int16'
-            )
-            self._stream.start()
+            if self.debug:
+                print(f"[TTS] 🎧 Synthesizing audio...")
             
-            # Stream audio chunks
+            # Collect all audio first (more reliable than streaming for some setups)
+            audio_chunks = []
             for audio_bytes in self.synthesize_stream(text):
                 if self._stop_flag:
                     break
-                
-                # Convert bytes to numpy array
-                audio_data = np.frombuffer(audio_bytes, dtype=np.int16)
-                self._stream.write(audio_data)
+                audio_chunks.append(audio_bytes)
+            
+            if not audio_chunks:
+                if self.debug:
+                    print("[TTS] ⚠️  No audio generated")
+                return
+            
+            # Combine all audio
+            all_audio = b''.join(audio_chunks)
+            audio_data = np.frombuffer(all_audio, dtype=np.int16)
+            
+            # Convert to float32 for playback (required by sounddevice)
+            audio_float = audio_data.astype(np.float32) / 32768.0
+            
+            # Resample to 48000Hz if needed (most devices support this)
+            playback_rate = 48000
+            if self.sample_rate != playback_rate:
+                # Simple linear resampling
+                original_length = len(audio_float)
+                new_length = int(original_length * playback_rate / self.sample_rate)
+                indices = np.linspace(0, original_length - 1, new_length)
+                audio_float = np.interp(indices, np.arange(original_length), audio_float)
+                if self.debug:
+                    print(f"[TTS] 🔄 Resampled from {self.sample_rate}Hz to {playback_rate}Hz")
+            
+            if self.debug:
+                print(f"[TTS] ▶️  Playing {len(audio_float)} samples at {playback_rate}Hz (device: {self.output_device})")
+            
+            # Play audio using blocking call (more reliable)
+            sd.play(audio_float, playback_rate, device=self.output_device)
+            sd.wait()  # Wait until audio finishes
+            
+            if self.debug:
+                print("[TTS] ✅ Playback complete")
             
         except Exception as e:
             if self.debug:
                 print(f"[TTS] ❌ Playback error: {e}")
+                import traceback
+                traceback.print_exc()
         finally:
-            if self._stream:
-                try:
-                    self._stream.stop()
-                    self._stream.close()
-                except:
-                    pass
-                self._stream = None
-            
             self._is_speaking = False
             
             if self._on_stop:
