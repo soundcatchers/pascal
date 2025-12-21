@@ -62,6 +62,8 @@ class SpeechInputManager:
         
         self.is_listening = False
         self._stop_requested = False
+        self._paused = False  # Pause STT during TTS playback to prevent feedback loop
+        self._pause_until = 0  # Timestamp when pause expires (for cooldown)
         self.audio_queue = queue.Queue()
         self.result_callback: Optional[Callable[[str, bool], None]] = None
         
@@ -371,12 +373,17 @@ class SpeechInputManager:
     
     def _process_loop(self):
         """Process audio data with Vosk (runs in separate thread)"""
+        import time
         while self.is_listening and not self._stop_requested:
             try:
                 data = self.audio_queue.get(timeout=0.5)
                 
                 if self._stop_requested:
                     break
+                
+                # Skip processing while paused (during TTS playback) or in cooldown
+                if self._paused or (self._pause_until > 0 and time.time() < self._pause_until):
+                    continue
                 
                 if self.recognizer.AcceptWaveform(data):
                     result_json = self.recognizer.Result()
@@ -420,7 +427,49 @@ class SpeechInputManager:
             except Exception as e:
                 if self.is_listening and not self._stop_requested:
                     print(f"[STT] Processing error: {e}")
+                    # Don't break - try to continue listening after recoverable errors
+                    continue
+    
+    def pause(self, cooldown_ms: int = 0):
+        """Pause STT processing (use during TTS playback to prevent feedback loop)
+        
+        Args:
+            cooldown_ms: Additional cooldown in milliseconds after resume() is called
+        """
+        self._paused = True
+        self._cooldown_duration = cooldown_ms / 1000.0  # Convert to seconds
+        # Do NOT call recognizer.Reset() here - it causes Vosk state errors
+        # Just drain the audio queue to discard buffered audio
+        while not self.audio_queue.empty():
+            try:
+                self.audio_queue.get_nowait()
+            except queue.Empty:
                 break
+    
+    def resume(self):
+        """Resume STT processing after TTS playback completes"""
+        import time
+        if hasattr(self, '_cooldown_duration') and self._cooldown_duration > 0:
+            self._pause_until = time.time() + self._cooldown_duration
+        else:
+            self._pause_until = time.time() + 0.5  # Default 500ms cooldown
+        # Drain any audio captured during pause
+        while not self.audio_queue.empty():
+            try:
+                self.audio_queue.get_nowait()
+            except queue.Empty:
+                break
+        self._paused = False
+    
+    def is_paused(self) -> bool:
+        """Check if STT is currently paused"""
+        import time
+        # Check explicit pause OR cooldown period
+        if self._paused:
+            return True
+        if self._pause_until > 0 and time.time() < self._pause_until:
+            return True
+        return False
     
     def stop_listening(self):
         """Stop continuous speech recognition"""
