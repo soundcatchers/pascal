@@ -77,17 +77,17 @@ class PiperTTS:
         # Try subprocess mode first (piper binary) - more reliable
         try:
             result = subprocess.run(
-                ['piper', '--version'],
+                ['piper', '--help'],
                 capture_output=True,
                 text=True,
                 timeout=5
             )
-            if result.returncode == 0:
-                self.mode = 'subprocess'
-                self.available = True
-                if self.debug:
-                    print(f"[TTS] ✅ Piper subprocess mode available: {result.stdout.strip()}")
-                return
+            # --help returns 0, piper exists if we get here without FileNotFoundError
+            self.mode = 'subprocess'
+            self.available = True
+            if self.debug:
+                print("[TTS] ✅ Piper subprocess mode available")
+            return
         except (FileNotFoundError, subprocess.TimeoutExpired):
             pass
         
