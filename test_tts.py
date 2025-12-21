@@ -139,10 +139,20 @@ def test_piper():
                 audio_float = np.interp(indices, np.arange(original_length), audio_float)
                 print(f"[TEST] Resampled from {original_rate}Hz to {playback_rate}Hz")
             
-            # Play it
+            # Play it through USB speaker
             import sounddevice as sd
-            print("[TEST] Playing synthesized speech...")
-            sd.play(audio_float, playback_rate)
+            
+            # Find USB speaker
+            usb_device = None
+            for i, d in enumerate(sd.query_devices()):
+                if d['max_output_channels'] > 0:
+                    name = d['name'].lower()
+                    if 'usb' in name and 'respeaker' not in name and 'mic' not in name:
+                        usb_device = i
+                        break
+            
+            print(f"[TEST] Playing synthesized speech on device {usb_device}...")
+            sd.play(audio_float, playback_rate, device=usb_device)
             sd.wait()
             print("[TEST] ✅ Playback complete - did you hear the speech?")
             return True
