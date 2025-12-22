@@ -429,6 +429,27 @@ class Pascal:
                 if any(user_input.lower().startswith(cmd) for cmd in command_keywords):
                     continue
                 
+                # Check for source queries ("where did you find that?")
+                if hasattr(self.router, 'conversation_context'):
+                    source_patterns = [
+                        r'where\s+did\s+you\s+(find|get|learn)\s+(that|this|it)',
+                        r"what('?s| is| are)\s+(your |the )?source",
+                        r'what\s+are\s+your\s+(sources?|references?)',
+                    ]
+                    is_source_query = any(re.search(p, user_input.lower()) for p in source_patterns)
+                    if is_source_query and hasattr(self.router, 'get_source_response'):
+                        source_response = self.router.get_source_response()
+                        self.console.print(f"Pascal: {source_response}\n", style="bold magenta")
+                        
+                        # Speak the source response
+                        if self.tts_manager and self.speak_mode:
+                            if self.speech_manager and self.voice_mode:
+                                self.speech_manager.pause(cooldown_ms=500)
+                            await self.tts_manager.speak(source_response)
+                            if self.speech_manager and self.voice_mode:
+                                self.speech_manager.resume()
+                        continue
+                
                 # Update session stats
                 self.session_stats['queries'] += 1
                 
@@ -460,6 +481,10 @@ class Pascal:
                     
                     response_time = time.time() - response_start
                     print()  # New line after streaming
+                    
+                    # Store response with sources for later retrieval
+                    if hasattr(self.router, 'store_response_with_sources'):
+                        self.router.store_response_with_sources(response_text)
                     
                     # TTS: Speak the response if enabled
                     if self.tts_manager and self.speak_mode and response_text.strip():
