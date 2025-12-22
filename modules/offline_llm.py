@@ -128,6 +128,9 @@ class LightningOfflineLLM:
             # Start keep-alive
             await self._start_keep_alive()
             
+            # Warmup with full context to pre-allocate memory
+            await self._warmup_model()
+            
             self.available = True
             self.consecutive_errors = 0
             self.last_successful_time = time.time()
@@ -320,6 +323,51 @@ class LightningOfflineLLM:
                 return True
         
         return False
+    
+    async def _warmup_model(self):
+        """Warmup model with full context size to pre-allocate memory.
+        This eliminates the delay on first real query.
+        """
+        if not self.current_model or not self.session:
+            return
+        
+        print(f"[OLLAMA] ⚡ Warming up {self.current_model}...")
+        
+        try:
+            # Use the same settings as real queries to pre-allocate full memory
+            profile = self.profiles.get(self.current_profile, self.profiles['balanced'])
+            
+            payload = {
+                "model": self.current_model,
+                "prompt": "Hello! Respond with a brief greeting.",
+                "system": "You are a helpful AI assistant. Be concise.",
+                "options": {
+                    "num_predict": 20,  # Short response for speed
+                    "temperature": profile['temperature'],
+                    "num_ctx": profile['num_ctx'],  # Full context size
+                    "num_thread": profile['num_thread'],
+                    "top_p": profile['top_p'],
+                    "top_k": profile['top_k']
+                },
+                "stream": False,
+                "keep_alive": self.keep_alive_duration
+            }
+            
+            start_time = time.time()
+            
+            async with self.session.post(
+                f"{self.host}/api/generate",
+                json=payload,
+                timeout=aiohttp.ClientTimeout(total=60)  # Allow time for first load
+            ) as response:
+                if response.status == 200:
+                    warmup_time = time.time() - start_time
+                    print(f"[OLLAMA] ✅ Warmup complete ({warmup_time:.1f}s) - model ready in memory")
+                else:
+                    print(f"[OLLAMA] ⚠️  Warmup returned HTTP {response.status}")
+                    
+        except Exception as e:
+            print(f"[OLLAMA] ⚠️  Warmup failed: {e}")
     
     async def _start_keep_alive(self):
         """Start keep-alive task"""
