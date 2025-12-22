@@ -180,6 +180,23 @@ class TTSManager:
         """Clean and prepare text for TTS - removes emojis, normalizes ranges, etc."""
         import re
         
+        # ===== REMOVE REFERENCE SECTIONS =====
+        # Remove "References:" section and everything after
+        text = re.sub(r'\n*\s*References?:?\s*\n[\s\S]*$', '', text, flags=re.IGNORECASE)
+        
+        # Remove "Sources:" section and everything after
+        text = re.sub(r'\n*\s*Sources?:?\s*\n[\s\S]*$', '', text, flags=re.IGNORECASE)
+        
+        # Remove "[Source: ...]" inline citations at end of text
+        text = re.sub(r'\s*\[Source:?\s*[^\]]+\]\s*$', '', text, flags=re.IGNORECASE)
+        
+        # Remove standalone reference lines like "[1] - Wikipedia" or "[1]: NASA.gov"
+        text = re.sub(r'^\s*\[\d+\]\s*[-:]\s*.*$', '', text, flags=re.MULTILINE)
+        
+        # Remove horizontal rules (often used before references)
+        text = re.sub(r'\n\s*---+\s*\n?', '\n', text)
+        text = re.sub(r'\n\s*\*\*\*+\s*\n?', '\n', text)
+        
         # Remove code blocks
         text = re.sub(r'```[\s\S]*?```', '', text)
         text = re.sub(r'`[^`]*`', '', text)
