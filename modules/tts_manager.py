@@ -230,9 +230,65 @@ class TTSManager:
         # Remove URLs
         text = re.sub(r'https?://\S+', '', text)
         
-        # Remove parenthetical kilometer conversions like "(90 kilometers)"
-        # Keep the main info, remove redundant conversions
-        text = re.sub(r'\s*\(\d+\s*(?:km|kilometers?|kilometres?)\)', '', text, flags=re.IGNORECASE)
+        # Remove parenthetical conversions like "(90 kilometers)" or "(44 mi/s)"
+        text = re.sub(r'\s*\([^)]*(?:km|mi|mph|kph|ft|lb|kg|oz|°[CF])[^)]*\)', '', text, flags=re.IGNORECASE)
+        
+        # ===== ABBREVIATION EXPANSION FOR NATURAL SPEECH =====
+        # Speed/velocity units
+        text = re.sub(r'(\d+)\s*km/s\b', r'\1 kilometers per second', text, flags=re.IGNORECASE)
+        text = re.sub(r'(\d+)\s*km/h\b', r'\1 kilometers per hour', text, flags=re.IGNORECASE)
+        text = re.sub(r'(\d+)\s*kph\b', r'\1 kilometers per hour', text, flags=re.IGNORECASE)
+        text = re.sub(r'(\d+)\s*mi/s\b', r'\1 miles per second', text, flags=re.IGNORECASE)
+        text = re.sub(r'(\d+)\s*mi/h\b', r'\1 miles per hour', text, flags=re.IGNORECASE)
+        text = re.sub(r'(\d+)\s*mph\b', r'\1 miles per hour', text, flags=re.IGNORECASE)
+        text = re.sub(r'(\d+)\s*m/s\b', r'\1 meters per second', text, flags=re.IGNORECASE)
+        
+        # Distance units
+        text = re.sub(r'(\d+)\s*km\b', r'\1 kilometers', text, flags=re.IGNORECASE)
+        text = re.sub(r'(\d+)\s*mi\b', r'\1 miles', text, flags=re.IGNORECASE)
+        text = re.sub(r'(\d+)\s*m\b(?!\w)', r'\1 meters', text)  # Avoid matching "5 minutes"
+        text = re.sub(r'(\d+)\s*ft\b', r'\1 feet', text, flags=re.IGNORECASE)
+        text = re.sub(r'(\d+)\s*in\b', r'\1 inches', text, flags=re.IGNORECASE)
+        text = re.sub(r'(\d+)\s*cm\b', r'\1 centimeters', text, flags=re.IGNORECASE)
+        text = re.sub(r'(\d+)\s*mm\b', r'\1 millimeters', text, flags=re.IGNORECASE)
+        
+        # Weight units
+        text = re.sub(r'(\d+)\s*kg\b', r'\1 kilograms', text, flags=re.IGNORECASE)
+        text = re.sub(r'(\d+)\s*lb\b', r'\1 pounds', text, flags=re.IGNORECASE)
+        text = re.sub(r'(\d+)\s*lbs\b', r'\1 pounds', text, flags=re.IGNORECASE)
+        text = re.sub(r'(\d+)\s*oz\b', r'\1 ounces', text, flags=re.IGNORECASE)
+        text = re.sub(r'(\d+)\s*g\b(?!\w)', r'\1 grams', text)  # Avoid matching words starting with g
+        
+        # Temperature
+        text = re.sub(r'(\d+)\s*°C\b', r'\1 degrees Celsius', text)
+        text = re.sub(r'(\d+)\s*°F\b', r'\1 degrees Fahrenheit', text)
+        text = re.sub(r'(\d+)\s*C\b(?=\s|$|,|\.)', r'\1 degrees Celsius', text)  # "25C" context
+        text = re.sub(r'(\d+)\s*F\b(?=\s|$|,|\.)', r'\1 degrees Fahrenheit', text)
+        
+        # Time abbreviations
+        text = re.sub(r'(\d+)\s*hrs?\b', r'\1 hours', text, flags=re.IGNORECASE)
+        text = re.sub(r'(\d+)\s*mins?\b', r'\1 minutes', text, flags=re.IGNORECASE)
+        text = re.sub(r'(\d+)\s*secs?\b', r'\1 seconds', text, flags=re.IGNORECASE)
+        
+        # Common abbreviations
+        text = re.sub(r'\betc\.\b', 'etcetera', text, flags=re.IGNORECASE)
+        text = re.sub(r'\be\.g\.\b', 'for example', text, flags=re.IGNORECASE)
+        text = re.sub(r'\bi\.e\.\b', 'that is', text, flags=re.IGNORECASE)
+        text = re.sub(r'\bvs\.?\b', 'versus', text, flags=re.IGNORECASE)
+        text = re.sub(r'\bapprox\.?\b', 'approximately', text, flags=re.IGNORECASE)
+        text = re.sub(r'\bw/\b', 'with', text, flags=re.IGNORECASE)
+        text = re.sub(r'\bw/o\b', 'without', text, flags=re.IGNORECASE)
+        
+        # Scientific notation (basic)
+        text = re.sub(r'(\d+)\s*x\s*10\^(\d+)', r'\1 times 10 to the power of \2', text)
+        
+        # Percentage
+        text = re.sub(r'(\d+)%', r'\1 percent', text)
+        
+        # Currency (basic)
+        text = re.sub(r'\$(\d+(?:,\d{3})*(?:\.\d{2})?)\s*(?:USD)?', r'\1 dollars', text)
+        text = re.sub(r'£(\d+(?:,\d{3})*(?:\.\d{2})?)', r'\1 pounds', text)
+        text = re.sub(r'€(\d+(?:,\d{3})*(?:\.\d{2})?)', r'\1 euros', text)
         
         # Normalize whitespace
         text = re.sub(r'\s+', ' ', text)
