@@ -23,7 +23,9 @@ class EnhancedContextMixin:
             'entities_mentioned': [],
             'current_topic': None,
             'topic_history': [],
-            'session_start_time': time.time()
+            'session_start_time': time.time(),
+            'last_full_response': None,  # Store full response with references
+            'last_extracted_sources': []  # Extracted source citations
         }
     
     async def _analyze_conversation_context(self, query: str, session_id: Optional[str]) -> Dict[str, Any]:
@@ -67,6 +69,28 @@ class EnhancedContextMixin:
         
         if any(re.search(pattern, query_lower) for pattern in casual_patterns):
             context_info['should_force_offline'] = True
+            return context_info
+        
+        # ===== SOURCE QUERY DETECTION =====
+        # Detect when user asks about sources/references
+        source_query_patterns = [
+            r'where\s+did\s+you\s+(find|get|learn)\s+(that|this|it)',
+            r"what('?s| is| are)\s+(your |the )?source",
+            r"where('?d| did)\s+you\s+(read|hear|see)\s+(that|this)",
+            r'cite\s+(your|the)\s+sources?',
+            r'what\s+are\s+your\s+(sources?|references?)',
+            r'can\s+you\s+(cite|reference)',
+            r'where\s+is\s+(that|this)\s+(from|information)',
+            r'who\s+said\s+that',
+            r'how\s+do\s+you\s+know\s+(that|this)',
+        ]
+        
+        is_source_query = any(re.search(pattern, query_lower) for pattern in source_query_patterns)
+        if is_source_query:
+            context_info['is_source_query'] = True
+            context_info['should_force_offline'] = True  # Handle locally
+            if settings.debug_mode:
+                print(f"[ENHANCED_CONTEXT] 📚 Source query detected")
             return context_info
         
         # Check for standalone queries that don't need context
@@ -1069,8 +1093,66 @@ class EnhancedContextMixin:
             'entities_mentioned': [],
             'current_topic': None,
             'topic_history': [],
-            'session_start_time': time.time()
+            'session_start_time': time.time(),
+            'last_full_response': None,
+            'last_extracted_sources': []
         }
+    
+    def _extract_sources_from_response(self, response: str) -> List[str]:
+        """Extract source citations from a response."""
+        sources = []
+        
+        # Pattern 1: [Source: X, Y, Z] at end
+        source_match = re.search(r'\[Source:?\s*([^\]]+)\]', response, re.IGNORECASE)
+        if source_match:
+            sources.extend([s.strip() for s in source_match.group(1).split(',')])
+        
+        # Pattern 2: References section
+        ref_section = re.search(r'References?:\s*\n([\s\S]*?)(?:\n\n|$)', response, re.IGNORECASE)
+        if ref_section:
+            for line in ref_section.group(1).split('\n'):
+                line = line.strip()
+                if line and not line.startswith('---'):
+                    # Clean up reference lines like "[1] - Wikipedia"
+                    clean = re.sub(r'^\[\d+\]\s*[-:]\s*', '', line)
+                    if clean:
+                        sources.append(clean)
+        
+        # Pattern 3: Inline citations like [1], [2] with numbered references
+        inline_refs = re.findall(r'\[\d+\]\s*[-:]\s*([^\n\[\]]+)', response)
+        sources.extend([r.strip() for r in inline_refs if r.strip()])
+        
+        # Remove duplicates while preserving order
+        seen = set()
+        unique_sources = []
+        for s in sources:
+            if s.lower() not in seen:
+                seen.add(s.lower())
+                unique_sources.append(s)
+        
+        return unique_sources
+    
+    def store_response_with_sources(self, response: str):
+        """Store the full response and extract sources for later retrieval."""
+        self.conversation_context['last_full_response'] = response
+        self.conversation_context['last_extracted_sources'] = self._extract_sources_from_response(response)
+        
+        if settings.debug_mode and self.conversation_context['last_extracted_sources']:
+            print(f"[ENHANCED_CONTEXT] 📚 Stored {len(self.conversation_context['last_extracted_sources'])} sources")
+    
+    def get_source_response(self) -> str:
+        """Generate a response about sources for the last answer."""
+        sources = self.conversation_context.get('last_extracted_sources', [])
+        topic = self.conversation_context.get('current_topic', 'that topic')
+        
+        if not sources:
+            return "I don't have specific sources recorded for my last response. The information came from my general knowledge."
+        
+        if len(sources) == 1:
+            return f"That information came from {sources[0]}."
+        else:
+            source_list = ', '.join(sources[:-1]) + f" and {sources[-1]}"
+            return f"I gathered that information from {source_list}."
 
 
 # Create a combined router class that inherits from IntelligentRouter and uses the mixin
