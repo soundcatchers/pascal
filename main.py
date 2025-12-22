@@ -10,6 +10,7 @@ import signal
 import sys
 import time
 import argparse
+import re
 from pathlib import Path
 from rich.console import Console
 from rich.panel import Panel
