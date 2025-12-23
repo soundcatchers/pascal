@@ -115,10 +115,15 @@ class Settings:
         # When disabled: full pipeline including punctuation restoration (~500ms)
         self.voice_fast_mode = os.getenv("VOICE_FAST_MODE", "false").lower() == "true"
         
+        # ASYNC PUNCTUATION: Best of both worlds - fast response + punctuated memory
+        # When enabled: Returns text immediately, punctuates in background for memory storage
+        # Requires: deepmultilingualpunctuation installed
+        self.voice_async_punctuation = os.getenv("VOICE_ASYNC_PUNCTUATION", "false").lower() == "true"
+        
         self.voice_enable_spell_check = os.getenv("VOICE_ENABLE_SPELL_CHECK", "true").lower() == "true"
         self.voice_enable_confidence_filter = os.getenv("VOICE_ENABLE_CONFIDENCE_FILTER", "true").lower() == "true"
-        # Punctuation is automatically disabled in fast mode
-        self.voice_enable_punctuation = os.getenv("VOICE_ENABLE_PUNCTUATION", "true").lower() == "true" and not self.voice_fast_mode
+        # Punctuation is disabled in fast mode (unless async is enabled - then it runs in background)
+        self.voice_enable_punctuation = os.getenv("VOICE_ENABLE_PUNCTUATION", "true").lower() == "true" and (not self.voice_fast_mode or self.voice_async_punctuation)
         self.voice_confidence_threshold = float(os.getenv("VOICE_CONFIDENCE_THRESHOLD", "0.80"))
         self.voice_spell_check_max_distance = int(os.getenv("VOICE_SPELL_CHECK_MAX_DISTANCE", "3"))
         
@@ -148,7 +153,10 @@ class Settings:
             if self.enable_turbo_mode:
                 print(f"[SETTINGS] 🚀 TURBO MODE ENABLED")
             if self.voice_fast_mode:
-                print(f"[SETTINGS] ⚡ VOICE FAST MODE: Punctuation disabled (~500ms saved)")
+                if self.voice_async_punctuation:
+                    print(f"[SETTINGS] ⚡ VOICE FAST MODE + ASYNC: Fast response, punctuated memory")
+                else:
+                    print(f"[SETTINGS] ⚡ VOICE FAST MODE: Punctuation disabled (~500ms saved)")
     
     def _create_directories(self):
         """Create necessary directories"""
