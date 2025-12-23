@@ -110,9 +110,15 @@ class Settings:
         self.short_query_threshold = 8  # Words
         
         # Voice Input Post-Processing Settings
+        # FAST MODE: Disables heavy post-processing (punctuator) for ~500ms speedup
+        # When enabled: spell check + homophone fix only (fast, ~20ms)
+        # When disabled: full pipeline including punctuation restoration (~500ms)
+        self.voice_fast_mode = os.getenv("VOICE_FAST_MODE", "false").lower() == "true"
+        
         self.voice_enable_spell_check = os.getenv("VOICE_ENABLE_SPELL_CHECK", "true").lower() == "true"
         self.voice_enable_confidence_filter = os.getenv("VOICE_ENABLE_CONFIDENCE_FILTER", "true").lower() == "true"
-        self.voice_enable_punctuation = os.getenv("VOICE_ENABLE_PUNCTUATION", "true").lower() == "true"
+        # Punctuation is automatically disabled in fast mode
+        self.voice_enable_punctuation = os.getenv("VOICE_ENABLE_PUNCTUATION", "true").lower() == "true" and not self.voice_fast_mode
         self.voice_confidence_threshold = float(os.getenv("VOICE_CONFIDENCE_THRESHOLD", "0.80"))
         self.voice_spell_check_max_distance = int(os.getenv("VOICE_SPELL_CHECK_MAX_DISTANCE", "3"))
         
@@ -141,6 +147,8 @@ class Settings:
             print(f"[SETTINGS] Speed optimizations: ULTRA-ENABLED")
             if self.enable_turbo_mode:
                 print(f"[SETTINGS] 🚀 TURBO MODE ENABLED")
+            if self.voice_fast_mode:
+                print(f"[SETTINGS] ⚡ VOICE FAST MODE: Punctuation disabled (~500ms saved)")
     
     def _create_directories(self):
         """Create necessary directories"""
