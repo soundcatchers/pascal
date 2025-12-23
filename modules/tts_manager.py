@@ -6,6 +6,8 @@ LED feedback, and interruptible streaming audio.
 """
 
 import asyncio
+import re
+import time
 import threading
 from typing import Optional, Callable
 from pathlib import Path
@@ -148,15 +150,29 @@ class TTSManager:
         # Clean text for speech
         clean_text = self._prepare_text_for_speech(text)
         
+        # Check if streaming TTS is enabled
+        use_streaming = getattr(settings, 'tts_streaming', False)
+        
         if blocking:
             # Run in thread pool to avoid blocking event loop
             loop = asyncio.get_event_loop()
-            return await loop.run_in_executor(
-                None, 
-                lambda: self._piper.speak(clean_text, blocking=True)
-            )
+            if use_streaming:
+                # Use streaming speak for lower latency
+                return await loop.run_in_executor(
+                    None, 
+                    lambda: self._piper.speak_streaming(clean_text, blocking=True)
+                )
+            else:
+                # Use traditional speak (full synthesis before playback)
+                return await loop.run_in_executor(
+                    None, 
+                    lambda: self._piper.speak(clean_text, blocking=True)
+                )
         else:
-            return self._piper.speak_async(clean_text)
+            if use_streaming:
+                return self._piper.speak_streaming(clean_text, blocking=False)
+            else:
+                return self._piper.speak_async(clean_text)
     
     async def speak_streaming(self, text: str) -> bool:
         """
@@ -164,6 +180,18 @@ class TTSManager:
         Preferred method for long responses.
         """
         return await self.speak(text, blocking=False)
+    
+    def create_sentence_streamer(self):
+        """
+        Create a SentenceStreamer for sentence-by-sentence TTS during LLM streaming.
+        
+        Usage:
+            streamer = tts_manager.create_sentence_streamer()
+            async for chunk in llm_response:
+                await streamer.add_chunk(chunk)
+            await streamer.finish()
+        """
+        return SentenceStreamer(self)
     
     def stop(self):
         """Stop current speech immediately"""
@@ -452,6 +480,153 @@ class TTSManager:
         
         if self.debug:
             print("[TTS] 👋 Shutdown complete")
+
+
+class SentenceStreamer:
+    """
+    Streams TTS sentence-by-sentence as LLM generates text.
+    
+    This enables speaking to start before the full LLM response is complete,
+    significantly reducing perceived latency especially for slow/offline models.
+    
+    Usage:
+        streamer = tts_manager.create_sentence_streamer()
+        async for chunk in llm_response:
+            print(chunk, end="")
+            await streamer.add_chunk(chunk)
+        await streamer.finish()
+    """
+    
+    def __init__(self, tts_manager: TTSManager):
+        self.tts_manager = tts_manager
+        self.buffer = ""
+        self.sentence_queue = asyncio.Queue()
+        self.is_speaking = False
+        self.speaker_task = None
+        self.finished = False
+        self.debug = tts_manager.debug
+        self.sentences_spoken = 0
+        self.first_sentence_time = None
+        self.start_time = None
+        
+        # Sentence ending patterns (more aggressive for lower latency)
+        self.sentence_endings = re.compile(r'[.!?]\s*$|[.!?]["\']\s*$')
+        # Minimum chars before looking for sentence break (prevents tiny fragments)
+        self.min_sentence_length = 20
+        
+    async def add_chunk(self, chunk: str):
+        """Add a chunk of text from the LLM stream"""
+        if not chunk:
+            return
+            
+        if self.start_time is None:
+            self.start_time = time.time()
+        
+        self.buffer += chunk
+        
+        # Check for sentence completion
+        await self._check_and_queue_sentences()
+        
+        # Start speaker task if not running
+        if self.speaker_task is None:
+            self.speaker_task = asyncio.create_task(self._speaker_loop())
+    
+    async def _check_and_queue_sentences(self):
+        """Check buffer for complete sentences and queue them"""
+        while len(self.buffer) >= self.min_sentence_length:
+            # Find sentence boundary
+            match = self.sentence_endings.search(self.buffer)
+            if match:
+                # Extract complete sentence
+                end_pos = match.end()
+                sentence = self.buffer[:end_pos].strip()
+                self.buffer = self.buffer[end_pos:].lstrip()
+                
+                if sentence:
+                    await self.sentence_queue.put(sentence)
+                    if self.debug:
+                        print(f"\n[TTS-STREAM] Queued: {sentence[:40]}...")
+            else:
+                break
+    
+    async def _speaker_loop(self):
+        """Background task that speaks queued sentences"""
+        try:
+            while True:
+                # Check for exit conditions
+                if self.finished and self.sentence_queue.empty():
+                    break
+                    
+                try:
+                    # Wait for next sentence with timeout
+                    sentence = await asyncio.wait_for(
+                        self.sentence_queue.get(), 
+                        timeout=0.2
+                    )
+                    
+                    if self.first_sentence_time is None:
+                        self.first_sentence_time = time.time()
+                        if self.debug and self.start_time:
+                            latency = (self.first_sentence_time - self.start_time) * 1000
+                            print(f"\n[TTS-STREAM] ⚡ First sentence latency: {latency:.0f}ms")
+                    
+                    # Speak this sentence (uses run_in_executor internally, doesn't block event loop)
+                    self.is_speaking = True
+                    try:
+                        await self.tts_manager.speak(sentence, blocking=True)
+                    except Exception as speak_error:
+                        if self.debug:
+                            print(f"\n[TTS-STREAM] ⚠️  Speak error: {speak_error}")
+                    finally:
+                        self.is_speaking = False
+                    self.sentences_spoken += 1
+                    
+                except asyncio.TimeoutError:
+                    # No sentence ready, check if we should exit
+                    if self.finished:
+                        break
+                    continue
+                except asyncio.CancelledError:
+                    if self.debug:
+                        print("\n[TTS-STREAM] Cancelled")
+                    raise
+                    
+        except asyncio.CancelledError:
+            pass  # Expected when stop() is called
+        except Exception as e:
+            if self.debug:
+                print(f"\n[TTS-STREAM] ❌ Speaker error: {e}")
+                import traceback
+                traceback.print_exc()
+    
+    async def finish(self):
+        """Signal that all text has been received and speak any remaining buffer"""
+        self.finished = True
+        
+        # Speak any remaining text in buffer
+        remaining = self.buffer.strip()
+        if remaining:
+            await self.sentence_queue.put(remaining)
+            self.buffer = ""
+        
+        # Wait for speaker to finish
+        if self.speaker_task:
+            try:
+                await asyncio.wait_for(self.speaker_task, timeout=60.0)
+            except asyncio.TimeoutError:
+                if self.debug:
+                    print("[TTS-STREAM] ⚠️  Speaker timeout")
+                self.speaker_task.cancel()
+        
+        if self.debug:
+            print(f"[TTS-STREAM] ✅ Complete: {self.sentences_spoken} sentences spoken")
+    
+    def stop(self):
+        """Stop streaming immediately"""
+        self.finished = True
+        self.tts_manager.stop()
+        if self.speaker_task:
+            self.speaker_task.cancel()
 
 
 # Convenience function for quick TTS
