@@ -22,10 +22,12 @@ except ImportError:
     print("[STT] ⚠️  Vosk not installed. Install with: pip install vosk")
 
 try:
-    from modules.vosk_postprocessor import VoskPostProcessor
+    from modules.vosk_postprocessor import VoskPostProcessor, AsyncPunctuator
     POSTPROCESSOR_AVAILABLE = True
+    ASYNC_PUNCTUATOR_AVAILABLE = True
 except ImportError:
     POSTPROCESSOR_AVAILABLE = False
+    ASYNC_PUNCTUATOR_AVAILABLE = False
     print("[STT] ⚠️  Post-processor not available (missing dependencies)")
 
 try:
@@ -80,6 +82,11 @@ class SpeechInputManager:
         self.homophone_fixer = None
         
         self.led_controller = led_controller
+        
+        # Async punctuator for background processing
+        self.async_punctuator = None
+        self.enable_async_punctuation = False
+        self.punctuation_callback = None  # Called with (original, punctuated, context_id)
         
     def _find_model_path(self) -> Optional[str]:
         """Find Vosk model in common locations"""
@@ -198,10 +205,41 @@ class SpeechInputManager:
             elif settings.voice_fast_mode:
                 print(f"[STT]   ⏩ Punctuation skipped (fast mode)")
             
+            # Initialize async punctuator if enabled (fast mode + async = best of both)
+            if settings.voice_async_punctuation and ASYNC_PUNCTUATOR_AVAILABLE:
+                self._init_async_punctuator()
+            
         except Exception as e:
             print(f"[STT] ⚠️  Post-processor initialization failed: {e}")
             self.enable_postprocessing = False
             self.postprocessor = None
+    
+    def _init_async_punctuator(self):
+        """Initialize background async punctuator for memory enhancement"""
+        try:
+            self.async_punctuator = AsyncPunctuator(callback=self._on_punctuation_complete)
+            if self.async_punctuator.start():
+                self.enable_async_punctuation = True
+                print(f"[STT]   🔄 Async punctuation (background memory enhancement)")
+            else:
+                self.async_punctuator = None
+                print(f"[STT]   ⚠️  Async punctuator not available")
+        except Exception as e:
+            print(f"[STT] ⚠️  Async punctuator initialization failed: {e}")
+            self.async_punctuator = None
+    
+    def _on_punctuation_complete(self, original: str, punctuated: str, context_id: str = None):
+        """Called when background punctuation completes"""
+        if self.punctuation_callback:
+            self.punctuation_callback(original, punctuated, context_id)
+    
+    def set_punctuation_callback(self, callback):
+        """Set callback for async punctuation completion
+        
+        Args:
+            callback: Function(original_text, punctuated_text, context_id) called when done
+        """
+        self.punctuation_callback = callback
     
     def _init_homophone_fixer(self):
         """Initialize the fast rule-based homophone fixer"""
@@ -395,8 +433,14 @@ class SpeechInputManager:
                 if self.recognizer.AcceptWaveform(data):
                     result_json = self.recognizer.Result()
                     
+                    # Fast path: process without heavy punctuation
                     if self.enable_postprocessing and self.postprocessor:
-                        text = self.postprocessor.process(result_json).strip()
+                        # Use process_with_confidence (fast) instead of process (slow)
+                        # when async punctuation is handling the heavy work
+                        if self.enable_async_punctuation:
+                            text = self.postprocessor.process_with_confidence(result_json).strip()
+                        else:
+                            text = self.postprocessor.process(result_json).strip()
                     else:
                         result = json.loads(result_json)
                         text = result.get('text', '').strip()
@@ -413,6 +457,10 @@ class SpeechInputManager:
                     
                     if text and self.result_callback and not self._stop_requested:
                         self.result_callback(text, is_final=True)
+                        
+                        # Queue for async punctuation (background memory enhancement)
+                        if self.enable_async_punctuation and self.async_punctuator:
+                            self.async_punctuator.queue_text(text)
                 else:
                     partial_json = self.recognizer.PartialResult()
                     partial = json.loads(partial_json)
@@ -520,6 +568,11 @@ class SpeechInputManager:
                 self.audio_queue.get_nowait()
             except queue.Empty:
                 break
+        
+        # Stop async punctuator if running
+        if self.async_punctuator:
+            self.async_punctuator.stop()
+            self.async_punctuator = None
         
         if self.led_controller:
             self.led_controller.idle()
