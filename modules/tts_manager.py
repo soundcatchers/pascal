@@ -307,6 +307,80 @@ class TTSManager:
         text = re.sub(r'£(\d+(?:,\d{3})*(?:\.\d{2})?)', r'\1 pounds', text)
         text = re.sub(r'€(\d+(?:,\d{3})*(?:\.\d{2})?)', r'\1 euros', text)
         
+        # ===== YEAR PRONUNCIATION =====
+        # Convert years like 1976 to "nineteen seventy six" instead of "nineteen hundred..."
+        # Matches standalone 4-digit years from 1000-2099
+        def year_to_words(match):
+            year = match.group(0)
+            year_int = int(year)
+            
+            # Handle years 1000-1999 and 2000-2099
+            if 1000 <= year_int <= 1999:
+                century = year_int // 100
+                decade = year_int % 100
+                
+                # Convert century (10-19)
+                century_words = {
+                    10: "ten", 11: "eleven", 12: "twelve", 13: "thirteen",
+                    14: "fourteen", 15: "fifteen", 16: "sixteen", 17: "seventeen",
+                    18: "eighteen", 19: "nineteen"
+                }
+                
+                if decade == 0:
+                    # 1900 -> "nineteen hundred"
+                    return f"{century_words.get(century, str(century))} hundred"
+                elif decade < 10:
+                    # 1906 -> "nineteen oh six"
+                    ones = ["", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine"]
+                    return f"{century_words.get(century, str(century))} oh {ones[decade]}"
+                else:
+                    # 1976 -> "nineteen seventy six"
+                    tens = ["", "", "twenty", "thirty", "forty", "fifty", "sixty", "seventy", "eighty", "ninety"]
+                    ones = ["", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine",
+                           "ten", "eleven", "twelve", "thirteen", "fourteen", "fifteen", "sixteen",
+                           "seventeen", "eighteen", "nineteen"]
+                    
+                    if decade < 20:
+                        return f"{century_words.get(century, str(century))} {ones[decade]}"
+                    else:
+                        ten_part = tens[decade // 10]
+                        one_part = ones[decade % 10]
+                        if one_part:
+                            return f"{century_words.get(century, str(century))} {ten_part} {one_part}"
+                        else:
+                            return f"{century_words.get(century, str(century))} {ten_part}"
+                            
+            elif 2000 <= year_int <= 2009:
+                # 2000-2009 -> "two thousand", "two thousand one", etc.
+                ones = ["", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine"]
+                if year_int == 2000:
+                    return "two thousand"
+                else:
+                    return f"two thousand {ones[year_int - 2000]}"
+                    
+            elif 2010 <= year_int <= 2099:
+                # 2010-2099 -> "twenty ten", "twenty twenty five", etc.
+                decade = year_int % 100
+                tens = ["", "", "twenty", "thirty", "forty", "fifty", "sixty", "seventy", "eighty", "ninety"]
+                ones = ["", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine",
+                       "ten", "eleven", "twelve", "thirteen", "fourteen", "fifteen", "sixteen",
+                       "seventeen", "eighteen", "nineteen"]
+                
+                if decade < 20:
+                    return f"twenty {ones[decade]}"
+                else:
+                    ten_part = tens[decade // 10]
+                    one_part = ones[decade % 10]
+                    if one_part:
+                        return f"twenty {ten_part} {one_part}"
+                    else:
+                        return f"twenty {ten_part}"
+            
+            return year
+        
+        # Match standalone 4-digit years (not part of larger numbers)
+        text = re.sub(r'\b(1\d{3}|20\d{2})\b', year_to_words, text)
+        
         # Normalize whitespace
         text = re.sub(r'\s+', ' ', text)
         text = text.strip()
