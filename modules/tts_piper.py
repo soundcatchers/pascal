@@ -2,12 +2,13 @@
 Piper TTS Implementation for Pascal AI Assistant
 
 Handles the Piper text-to-speech engine with streaming audio output.
-Supports interruption and multiple voice models.
+Supports interruption, multiple voice models, and real-time streaming playback.
 """
 
 import asyncio
 import subprocess
 import threading
+import queue
 import time
 from pathlib import Path
 from typing import Optional, Generator, Callable
@@ -414,6 +415,210 @@ class PiperTTS:
     def speak_async(self, text: str) -> bool:
         """Speak text asynchronously (non-blocking)"""
         return self.speak(text, blocking=False)
+    
+    def speak_streaming(self, text: str, blocking: bool = True) -> bool:
+        """
+        Speak text with true streaming - start playback as synthesis begins.
+        
+        This reduces perceived latency by starting audio output immediately
+        instead of waiting for full synthesis to complete.
+        
+        Args:
+            text: Text to speak
+            blocking: If True, wait until speech completes
+        
+        Returns:
+            True if speech started successfully
+        """
+        if self.debug:
+            print(f"[TTS] 🔊 Streaming: {text[:50]}...")
+        
+        if not self.available or not self.model_path:
+            if self.debug:
+                print("[TTS] ❌ Cannot speak - model not loaded")
+            return False
+        
+        if not SOUNDDEVICE_AVAILABLE or not NUMPY_AVAILABLE:
+            if self.debug:
+                print("[TTS] ❌ Cannot speak - sounddevice/numpy not available")
+            return False
+        
+        if self._is_speaking:
+            self.stop()
+            time.sleep(0.1)
+        
+        self._stop_flag = False
+        
+        if blocking:
+            self._speak_streaming_internal(text)
+        else:
+            self._speak_thread = threading.Thread(target=self._speak_streaming_internal, args=(text,))
+            self._speak_thread.start()
+        
+        return True
+    
+    def _speak_streaming_internal(self, text: str):
+        """
+        Internal streaming speak method using queue-based audio playback.
+        
+        Starts audio output as soon as first chunk is ready, continues
+        synthesizing and playing in parallel.
+        """
+        self._is_speaking = True
+        
+        if self._on_start:
+            self._on_start()
+        
+        playback_rate = 48000
+        resample_ratio = playback_rate / self.sample_rate
+        
+        # Audio buffer queue for producer-consumer pattern
+        audio_queue = queue.Queue(maxsize=50)  # Buffer up to 50 chunks
+        synthesis_done = threading.Event()
+        playback_started = threading.Event()
+        first_chunk_time = [None]  # Track latency
+        
+        def synthesize_producer():
+            """Producer: synthesize audio and push to queue"""
+            try:
+                for audio_bytes in self.synthesize_stream(text):
+                    if self._stop_flag:
+                        break
+                    
+                    if first_chunk_time[0] is None:
+                        first_chunk_time[0] = time.time()
+                        if self.debug:
+                            print(f"[TTS] ⚡ First audio chunk ready")
+                    
+                    # Convert and resample this chunk immediately
+                    chunk_data = np.frombuffer(audio_bytes, dtype=np.int16)
+                    chunk_float = chunk_data.astype(np.float32) / 32768.0
+                    
+                    # Resample chunk
+                    if self.sample_rate != playback_rate:
+                        original_len = len(chunk_float)
+                        new_len = int(original_len * resample_ratio)
+                        if new_len > 0:
+                            indices = np.linspace(0, original_len - 1, new_len)
+                            chunk_float = np.interp(indices, np.arange(original_len), chunk_float)
+                    
+                    # Put chunk in queue (blocks if queue is full)
+                    try:
+                        audio_queue.put(chunk_float, timeout=5.0)
+                    except queue.Full:
+                        if self.debug:
+                            print("[TTS] ⚠️  Audio queue full, dropping chunk")
+            except Exception as e:
+                if self.debug:
+                    print(f"[TTS] ❌ Synthesis error: {e}")
+            finally:
+                synthesis_done.set()
+        
+        def audio_consumer():
+            """Consumer: play audio chunks as they arrive"""
+            try:
+                # Wait for first chunk with timeout
+                first_chunk = None
+                try:
+                    first_chunk = audio_queue.get(timeout=10.0)
+                except queue.Empty:
+                    if self.debug:
+                        print("[TTS] ⚠️  No audio chunks received")
+                    return
+                
+                if first_chunk is None or len(first_chunk) == 0:
+                    return
+                
+                # Collect initial buffer for smooth playback (about 100ms worth)
+                buffer_chunks = [first_chunk]
+                buffer_samples = len(first_chunk)
+                min_buffer = int(playback_rate * 0.1)  # 100ms buffer
+                
+                while buffer_samples < min_buffer and not synthesis_done.is_set():
+                    try:
+                        chunk = audio_queue.get(timeout=0.1)
+                        buffer_chunks.append(chunk)
+                        buffer_samples += len(chunk)
+                    except queue.Empty:
+                        break
+                
+                playback_started.set()
+                
+                if self.debug:
+                    print(f"[TTS] ▶️  Starting playback (buffered {buffer_samples} samples)")
+                
+                # Start streaming playback
+                stream = sd.OutputStream(
+                    samplerate=playback_rate,
+                    channels=1,
+                    dtype=np.float32,
+                    device=self.output_device,
+                    blocksize=2048
+                )
+                
+                with stream:
+                    # Play initial buffer
+                    for chunk in buffer_chunks:
+                        if self._stop_flag:
+                            return
+                        stream.write(chunk.reshape(-1, 1))
+                    
+                    # Continue playing as chunks arrive
+                    while not self._stop_flag:
+                        try:
+                            chunk = audio_queue.get(timeout=0.2)
+                            stream.write(chunk.reshape(-1, 1))
+                        except queue.Empty:
+                            if synthesis_done.is_set():
+                                break
+                    
+                    # Drain any remaining chunks
+                    while not audio_queue.empty():
+                        try:
+                            chunk = audio_queue.get_nowait()
+                            stream.write(chunk.reshape(-1, 1))
+                        except queue.Empty:
+                            break
+                
+                if self.debug:
+                    print("[TTS] ✅ Streaming playback complete")
+                    
+            except Exception as e:
+                if self.debug:
+                    print(f"[TTS] ❌ Playback error: {e}")
+                    import traceback
+                    traceback.print_exc()
+        
+        try:
+            if self.debug:
+                start_time = time.time()
+                print(f"[TTS] 🎧 Starting streaming synthesis...")
+            
+            # Start producer and consumer threads
+            producer_thread = threading.Thread(target=synthesize_producer)
+            consumer_thread = threading.Thread(target=audio_consumer)
+            
+            producer_thread.start()
+            consumer_thread.start()
+            
+            # Wait for both to complete
+            producer_thread.join()
+            consumer_thread.join()
+            
+            if self.debug and first_chunk_time[0]:
+                latency = first_chunk_time[0] - start_time
+                print(f"[TTS] ⏱️  First audio latency: {latency*1000:.0f}ms")
+                
+        except Exception as e:
+            if self.debug:
+                print(f"[TTS] ❌ Streaming error: {e}")
+                import traceback
+                traceback.print_exc()
+        finally:
+            self._is_speaking = False
+            
+            if self._on_stop:
+                self._on_stop()
     
     def stop(self):
         """Stop current speech immediately"""
