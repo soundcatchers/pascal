@@ -484,10 +484,17 @@ class TTSManager:
 
 class SentenceStreamer:
     """
-    Streams TTS sentence-by-sentence as LLM generates text.
+    Streams TTS sentence-by-sentence as LLM generates text with PRE-SYNTHESIS.
     
     This enables speaking to start before the full LLM response is complete,
-    significantly reducing perceived latency especially for slow/offline models.
+    and pre-synthesizes upcoming sentences while the current one is playing.
+    
+    Architecture:
+        1. LLM chunks → sentence_queue (complete sentences)
+        2. synthesizer_task: sentence_queue → audio_queue (pre-synthesized audio)
+        3. speaker_task: audio_queue → playback
+        
+    The synthesizer works ahead of the speaker, so audio is ready when needed.
     
     Usage:
         streamer = tts_manager.create_sentence_streamer()
@@ -500,18 +507,20 @@ class SentenceStreamer:
     def __init__(self, tts_manager: TTSManager):
         self.tts_manager = tts_manager
         self.buffer = ""
-        self.sentence_queue = asyncio.Queue()
+        self.sentence_queue = asyncio.Queue()  # Text sentences waiting for synthesis
+        self.audio_queue = asyncio.Queue()      # Pre-synthesized audio waiting for playback
         self.is_speaking = False
+        self.synthesizer_task = None
         self.speaker_task = None
         self.finished = False
+        self.synthesis_done = False
         self.debug = tts_manager.debug
         self.sentences_spoken = 0
         self.first_sentence_time = None
         self.start_time = None
         
-        # Sentence ending patterns (more aggressive for lower latency)
+        # Sentence ending patterns
         self.sentence_endings = re.compile(r'[.!?]\s*$|[.!?]["\']\s*$')
-        # Minimum chars before looking for sentence break (prevents tiny fragments)
         self.min_sentence_length = 20
         
     async def add_chunk(self, chunk: str):
@@ -527,17 +536,17 @@ class SentenceStreamer:
         # Check for sentence completion
         await self._check_and_queue_sentences()
         
-        # Start speaker task if not running
+        # Start pipeline tasks if not running
+        if self.synthesizer_task is None:
+            self.synthesizer_task = asyncio.create_task(self._synthesizer_loop())
         if self.speaker_task is None:
             self.speaker_task = asyncio.create_task(self._speaker_loop())
     
     async def _check_and_queue_sentences(self):
-        """Check buffer for complete sentences and queue them"""
+        """Check buffer for complete sentences and queue them for synthesis"""
         while len(self.buffer) >= self.min_sentence_length:
-            # Find sentence boundary
             match = self.sentence_endings.search(self.buffer)
             if match:
-                # Extract complete sentence
                 end_pos = match.end()
                 sentence = self.buffer[:end_pos].strip()
                 self.buffer = self.buffer[end_pos:].lstrip()
@@ -545,20 +554,23 @@ class SentenceStreamer:
                 if sentence:
                     await self.sentence_queue.put(sentence)
                     if self.debug:
-                        print(f"\n[TTS-STREAM] Queued: {sentence[:40]}...")
+                        print(f"\n[TTS-STREAM] Queued for synthesis: {sentence[:40]}...")
             else:
                 break
     
-    async def _speaker_loop(self):
-        """Background task that speaks queued sentences"""
+    async def _synthesizer_loop(self):
+        """
+        Background task that pre-synthesizes sentences into audio buffers.
+        Runs ahead of playback so audio is ready when needed.
+        """
+        loop = asyncio.get_event_loop()
+        
         try:
             while True:
-                # Check for exit conditions
                 if self.finished and self.sentence_queue.empty():
                     break
                     
                 try:
-                    # Wait for next sentence with timeout
                     sentence = await asyncio.wait_for(
                         self.sentence_queue.get(), 
                         timeout=0.2
@@ -570,32 +582,103 @@ class SentenceStreamer:
                             latency = (self.first_sentence_time - self.start_time) * 1000
                             print(f"\n[TTS-STREAM] ⚡ First sentence latency: {latency:.0f}ms")
                     
-                    # Speak this sentence (uses run_in_executor internally, doesn't block event loop)
-                    self.is_speaking = True
-                    try:
-                        await self.tts_manager.speak(sentence, blocking=True)
-                    except Exception as speak_error:
-                        if self.debug:
-                            print(f"\n[TTS-STREAM] ⚠️  Speak error: {speak_error}")
-                    finally:
-                        self.is_speaking = False
-                    self.sentences_spoken += 1
+                    # Pre-synthesize to buffer (runs in thread pool)
+                    if self.debug:
+                        print(f"\n[TTS-SYNTH] Synthesizing: {sentence[:35]}...")
+                    
+                    piper = self.tts_manager._piper
+                    if piper:
+                        audio_buffer = await loop.run_in_executor(
+                            None,
+                            piper.synthesize_to_buffer,
+                            sentence
+                        )
+                        
+                        if audio_buffer is not None:
+                            # Queue pre-synthesized audio for playback
+                            await self.audio_queue.put((sentence, audio_buffer))
+                            if self.debug:
+                                print(f"\n[TTS-SYNTH] ✅ Ready: {sentence[:35]}...")
+                        else:
+                            if self.debug:
+                                print(f"\n[TTS-SYNTH] ⚠️  Synthesis failed")
                     
                 except asyncio.TimeoutError:
-                    # No sentence ready, check if we should exit
                     if self.finished:
                         break
                     continue
                 except asyncio.CancelledError:
-                    if self.debug:
-                        print("\n[TTS-STREAM] Cancelled")
                     raise
                     
         except asyncio.CancelledError:
-            pass  # Expected when stop() is called
+            pass
         except Exception as e:
             if self.debug:
-                print(f"\n[TTS-STREAM] ❌ Speaker error: {e}")
+                print(f"\n[TTS-SYNTH] ❌ Error: {e}")
+        finally:
+            self.synthesis_done = True
+    
+    async def _speaker_loop(self):
+        """
+        Background task that plays pre-synthesized audio buffers.
+        Audio should already be ready, so playback starts immediately.
+        """
+        loop = asyncio.get_event_loop()
+        
+        try:
+            while True:
+                # Exit when both synthesis is done AND audio queue is empty
+                if self.synthesis_done and self.audio_queue.empty():
+                    break
+                    
+                try:
+                    sentence, audio_buffer = await asyncio.wait_for(
+                        self.audio_queue.get(), 
+                        timeout=0.2
+                    )
+                    
+                    if self.debug:
+                        print(f"\n[TTS-PLAY] ▶️  Playing: {sentence[:35]}...")
+                    
+                    self.is_speaking = True
+                    
+                    # Play pre-synthesized audio (runs in thread pool)
+                    piper = self.tts_manager._piper
+                    if piper:
+                        # Handle LED feedback
+                        if self.tts_manager.led_controller:
+                            try:
+                                self.tts_manager.led_controller.set_mode('speaking')
+                            except:
+                                pass
+                        
+                        await loop.run_in_executor(
+                            None,
+                            lambda: piper.play_buffer(audio_buffer, blocking=True)
+                        )
+                        
+                        if self.tts_manager.led_controller:
+                            try:
+                                self.tts_manager.led_controller.set_mode('idle')
+                            except:
+                                pass
+                    
+                    self.is_speaking = False
+                    self.sentences_spoken += 1
+                    
+                except asyncio.TimeoutError:
+                    # No audio ready yet, check if we should exit
+                    if self.synthesis_done and self.audio_queue.empty():
+                        break
+                    continue
+                except asyncio.CancelledError:
+                    raise
+                    
+        except asyncio.CancelledError:
+            pass
+        except Exception as e:
+            if self.debug:
+                print(f"\n[TTS-PLAY] ❌ Error: {e}")
                 import traceback
                 traceback.print_exc()
     
@@ -603,28 +686,36 @@ class SentenceStreamer:
         """Signal that all text has been received and speak any remaining buffer"""
         self.finished = True
         
-        # Speak any remaining text in buffer
+        # Queue any remaining text
         remaining = self.buffer.strip()
         if remaining:
             await self.sentence_queue.put(remaining)
             self.buffer = ""
+        
+        # Wait for synthesizer to finish
+        if self.synthesizer_task:
+            try:
+                await asyncio.wait_for(self.synthesizer_task, timeout=60.0)
+            except asyncio.TimeoutError:
+                self.synthesizer_task.cancel()
         
         # Wait for speaker to finish
         if self.speaker_task:
             try:
                 await asyncio.wait_for(self.speaker_task, timeout=60.0)
             except asyncio.TimeoutError:
-                if self.debug:
-                    print("[TTS-STREAM] ⚠️  Speaker timeout")
                 self.speaker_task.cancel()
         
         if self.debug:
-            print(f"[TTS-STREAM] ✅ Complete: {self.sentences_spoken} sentences spoken")
+            print(f"\n[TTS-STREAM] ✅ Complete: {self.sentences_spoken} sentences spoken")
     
     def stop(self):
         """Stop streaming immediately"""
         self.finished = True
+        self.synthesis_done = True
         self.tts_manager.stop()
+        if self.synthesizer_task:
+            self.synthesizer_task.cancel()
         if self.speaker_task:
             self.speaker_task.cancel()
 
