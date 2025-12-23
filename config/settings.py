@@ -143,6 +143,16 @@ class Settings:
         self.tts_interruptible = os.getenv("TTS_INTERRUPTIBLE", "true").lower() == "true"
         self.tts_led_feedback = os.getenv("TTS_LED_FEEDBACK", "true").lower() == "true"
         
+        # TTS STREAMING: Start audio playback while still synthesizing
+        # When enabled: Reduces perceived latency by ~200-500ms (starts playing immediately)
+        # When disabled: Full audio is synthesized before any playback (more reliable)
+        self.tts_streaming = os.getenv("TTS_STREAMING", "true").lower() == "true"
+        
+        # TTS SENTENCE STREAMING: Start TTS per sentence as LLM generates text
+        # When enabled: Speech begins before full LLM response is complete
+        # Works with both online (Groq) and offline (Ollama) models
+        self.tts_sentence_streaming = os.getenv("TTS_SENTENCE_STREAMING", "true").lower() == "true"
+        
         if self.debug_mode:
             print(f"[SETTINGS] Pascal v{self.version} - ULTRA-SPEED OPTIMIZED")
             print(f"[SETTINGS] Hardware: {self.pi_model} ({self.available_ram_gb}GB RAM, {self.cpu_cores} cores)")
