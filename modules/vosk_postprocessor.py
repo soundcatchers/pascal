@@ -259,6 +259,121 @@ class VoskPostProcessor:
         }
 
 
+class AsyncPunctuator:
+    """
+    Async punctuator for background processing.
+    
+    Provides fast voice response while punctuating text in the background
+    for improved memory storage quality.
+    
+    Flow:
+    1. Voice input arrives
+    2. Fast processing (spell check + homophone) returns immediately
+    3. Background thread punctuates text
+    4. Callback updates memory with punctuated version
+    """
+    
+    def __init__(self, callback=None):
+        """
+        Initialize async punctuator.
+        
+        Args:
+            callback: Function called with (original_text, punctuated_text) when done
+        """
+        import threading
+        import queue
+        
+        self.callback = callback
+        self.queue = queue.Queue()
+        self.running = False
+        self.thread = None
+        self.punctuator = None
+        self._initialized = False
+        
+    def start(self):
+        """Start the background punctuation thread"""
+        import threading
+        
+        if self.running:
+            return
+            
+        if not PUNCTUATION_AVAILABLE:
+            print("[ASYNC-PUNCT] ⚠️  Punctuation not available (deepmultilingualpunctuation not installed)")
+            return False
+        
+        try:
+            print("[ASYNC-PUNCT] Loading punctuation model in background...")
+            self.punctuator = PunctuationModel()
+            self._initialized = True
+            print("[ASYNC-PUNCT] ✅ Punctuation model loaded")
+        except Exception as e:
+            print(f"[ASYNC-PUNCT] ❌ Failed to load punctuation model: {e}")
+            return False
+        
+        self.running = True
+        self.thread = threading.Thread(target=self._process_loop, daemon=True)
+        self.thread.start()
+        print("[ASYNC-PUNCT] ✅ Background punctuator started")
+        return True
+    
+    def stop(self):
+        """Stop the background punctuation thread"""
+        self.running = False
+        if self.thread:
+            self.queue.put(None)  # Signal to exit
+            self.thread.join(timeout=2.0)
+            self.thread = None
+        print("[ASYNC-PUNCT] Stopped")
+    
+    def queue_text(self, text: str, context_id: str = None):
+        """
+        Queue text for background punctuation.
+        
+        Args:
+            text: Raw text to punctuate
+            context_id: Optional ID for tracking (passed to callback)
+        """
+        if not self.running or not self._initialized:
+            return
+            
+        self.queue.put((text, context_id))
+    
+    def _process_loop(self):
+        """Background processing loop"""
+        import queue as queue_module
+        
+        while self.running:
+            try:
+                item = self.queue.get(timeout=1.0)
+                
+                if item is None:  # Exit signal
+                    break
+                    
+                text, context_id = item
+                
+                if not text or not text.strip():
+                    continue
+                
+                try:
+                    punctuated = self.punctuator.restore_punctuation(text)
+                    
+                    if self.callback and punctuated != text:
+                        self.callback(text, punctuated, context_id)
+                        
+                except Exception as e:
+                    print(f"[ASYNC-PUNCT] ⚠️  Punctuation failed for '{text[:30]}...': {e}")
+                    
+            except queue_module.Empty:
+                continue
+            except Exception as e:
+                if self.running:
+                    print(f"[ASYNC-PUNCT] Error in process loop: {e}")
+    
+    def is_available(self) -> bool:
+        """Check if async punctuation is available and running"""
+        return self.running and self._initialized
+
+
 def test_postprocessor():
     """Test post-processor with sample data"""
     print("\n" + "="*60)
