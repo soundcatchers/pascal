@@ -174,6 +174,11 @@ class SpeechInputManager:
             )
             
             status = self.postprocessor.get_status()
+            
+            # Check for fast mode
+            if settings.voice_fast_mode:
+                print(f"[STT] ⚡ FAST MODE: Heavy post-processing disabled (~500ms saved)")
+            
             print(f"[STT] Post-processing status:")
             
             if status['spell_check']['enabled']:
@@ -190,6 +195,8 @@ class SpeechInputManager:
                     print(f"[STT]   ✅ Punctuation & case restoration")
                 else:
                     print(f"[STT]   ⚠️  Punctuation enabled but not initialized")
+            elif settings.voice_fast_mode:
+                print(f"[STT]   ⏩ Punctuation skipped (fast mode)")
             
         except Exception as e:
             print(f"[STT] ⚠️  Post-processor initialization failed: {e}")
