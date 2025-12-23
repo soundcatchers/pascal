@@ -500,7 +500,7 @@ class PiperTTS:
                         new_len = int(original_len * resample_ratio)
                         if new_len > 0:
                             indices = np.linspace(0, original_len - 1, new_len)
-                            chunk_float = np.interp(indices, np.arange(original_len), chunk_float)
+                            chunk_float = np.interp(indices, np.arange(original_len), chunk_float).astype(np.float32)
                     
                     # Put chunk in queue (blocks if queue is full)
                     try:
