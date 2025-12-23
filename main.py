@@ -251,8 +251,10 @@ class Pascal:
         # Update the most recent interaction in memory with punctuated version
         if self.memory_manager and hasattr(self.memory_manager, 'short_term_memory'):
             for interaction in reversed(self.memory_manager.short_term_memory):
-                if interaction.get('query', '').lower() == original.lower():
-                    interaction['query'] = punctuated
+                # MemoryInteraction uses 'user_input' attribute, not dict
+                user_input = getattr(interaction, 'user_input', None)
+                if user_input and user_input.lower() == original.lower():
+                    interaction.user_input = punctuated
                     if settings.debug_mode:
                         self.console.print(f"[MEMORY] Updated query with punctuation", style="dim")
                     break
