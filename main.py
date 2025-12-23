@@ -185,6 +185,10 @@ class Pascal:
                             self.console.print(f"{marker} Voice input ready: {device_info['name']}", style="green")
                         else:
                             self.console.print("⚠️  Voice input initialized but no device detected", style="yellow")
+                        
+                        # Set up async punctuation callback for memory enhancement
+                        if hasattr(self.speech_manager, 'enable_async_punctuation') and self.speech_manager.enable_async_punctuation:
+                            self.speech_manager.set_punctuation_callback(self._on_async_punctuation_done)
                     else:
                         self.console.print("❌ Failed to initialize voice input", style="red")
                         if self.voice_mode:
@@ -227,6 +231,31 @@ class Pascal:
         
         health += 10  # Router always available
         return health
+    
+    def _on_async_punctuation_done(self, original: str, punctuated: str, context_id: str = None):
+        """
+        Callback for async punctuation completion.
+        Updates memory with properly punctuated version of voice input.
+        
+        Args:
+            original: Raw text without punctuation
+            punctuated: Text with punctuation and proper casing
+            context_id: Optional context ID for tracking
+        """
+        if original == punctuated:
+            return
+            
+        if settings.debug_mode:
+            self.console.print(f"[ASYNC-PUNCT] '{original}' → '{punctuated}'", style="dim")
+        
+        # Update the most recent interaction in memory with punctuated version
+        if self.memory_manager and hasattr(self.memory_manager, 'short_term_memory'):
+            for interaction in reversed(self.memory_manager.short_term_memory):
+                if interaction.get('query', '').lower() == original.lower():
+                    interaction['query'] = punctuated
+                    if settings.debug_mode:
+                        self.console.print(f"[MEMORY] Updated query with punctuation", style="dim")
+                    break
     
     async def check_personality_switch(self, user_input: str) -> bool:
         """
@@ -471,6 +500,21 @@ class Pascal:
                     response_start = time.time()
                     first_chunk = True
                     
+                    # Check if sentence streaming is enabled for TTS
+                    use_sentence_streaming = (
+                        self.tts_manager and 
+                        self.speak_mode and 
+                        getattr(settings, 'tts_sentence_streaming', False)
+                    )
+                    
+                    # Create sentence streamer for real-time TTS during LLM generation
+                    sentence_streamer = None
+                    if use_sentence_streaming:
+                        # Pause STT early to prevent feedback during streaming
+                        if self.speech_manager and self.voice_mode:
+                            self.speech_manager.pause(cooldown_ms=500)
+                        sentence_streamer = self.tts_manager.create_sentence_streamer()
+                    
                     # Use enhanced streaming response
                     async for chunk in self.router.get_enhanced_streaming_response(user_input, session_id=self.memory_manager.session_id):
                         # LED: Switch to speaking on first chunk
@@ -479,16 +523,27 @@ class Pascal:
                             first_chunk = False
                         print(chunk, end="", flush=True)
                         response_text += chunk
+                        
+                        # Feed chunk to sentence streamer for real-time TTS
+                        if sentence_streamer:
+                            await sentence_streamer.add_chunk(chunk)
                     
                     response_time = time.time() - response_start
                     print()  # New line after streaming
+                    
+                    # Finish sentence streaming TTS (speaks any remaining buffer)
+                    if sentence_streamer:
+                        await sentence_streamer.finish()
+                        # Resume STT after sentence streaming completes
+                        if self.speech_manager and self.voice_mode:
+                            self.speech_manager.resume()
                     
                     # Store response with sources for later retrieval
                     if hasattr(self.router, 'store_response_with_sources'):
                         self.router.store_response_with_sources(response_text)
                     
-                    # TTS: Speak the response if enabled
-                    if self.tts_manager and self.speak_mode and response_text.strip():
+                    # TTS: Speak the response if enabled (fallback when NOT using sentence streaming)
+                    if self.tts_manager and self.speak_mode and response_text.strip() and not use_sentence_streaming:
                         # Pause STT to prevent feedback loop (mic hearing speaker)
                         if self.speech_manager and self.voice_mode:
                             self.speech_manager.pause(cooldown_ms=500)
