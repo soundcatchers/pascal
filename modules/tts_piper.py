@@ -646,6 +646,102 @@ class PiperTTS:
         self._on_stop = on_stop
         self._on_word = on_word
     
+    def synthesize_to_buffer(self, text: str) -> Optional[np.ndarray]:
+        """
+        Synthesize text to audio buffer without playing.
+        
+        This enables pre-synthesis: synthesize the next sentence
+        while the current one is still playing.
+        
+        Args:
+            text: Text to synthesize
+            
+        Returns:
+            numpy array of float32 audio samples ready for playback, or None on error
+        """
+        if not self.available or not self.model_path:
+            return None
+        
+        if not NUMPY_AVAILABLE:
+            return None
+        
+        text = self._prepare_text_for_speech(text)
+        if not text:
+            return None
+        
+        try:
+            audio_chunks = []
+            for audio_bytes in self.synthesize_stream(text):
+                audio_chunks.append(audio_bytes)
+            
+            if not audio_chunks:
+                return None
+            
+            all_audio = b''.join(audio_chunks)
+            audio_data = np.frombuffer(all_audio, dtype=np.int16)
+            audio_float = audio_data.astype(np.float32) / 32768.0
+            
+            playback_rate = 48000
+            if self.sample_rate != playback_rate:
+                original_length = len(audio_float)
+                new_length = int(original_length * playback_rate / self.sample_rate)
+                indices = np.linspace(0, original_length - 1, new_length)
+                audio_float = np.interp(indices, np.arange(original_length), audio_float).astype(np.float32)
+            
+            return audio_float
+            
+        except Exception as e:
+            if self.debug:
+                print(f"[TTS] ❌ Pre-synthesis error: {e}")
+            return None
+    
+    def play_buffer(self, audio_buffer: np.ndarray, blocking: bool = True) -> bool:
+        """
+        Play pre-synthesized audio buffer.
+        
+        Args:
+            audio_buffer: numpy array of float32 audio samples
+            blocking: If True, wait until playback completes
+            
+        Returns:
+            True if playback started successfully
+        """
+        if audio_buffer is None or len(audio_buffer) == 0:
+            return False
+        
+        if not SOUNDDEVICE_AVAILABLE:
+            return False
+        
+        if self._is_speaking:
+            self.stop()
+            time.sleep(0.05)
+        
+        self._is_speaking = True
+        self._stop_flag = False
+        
+        if self._on_start:
+            self._on_start()
+        
+        def play_internal():
+            try:
+                sd.play(audio_buffer, 48000, device=self.output_device)
+                sd.wait()
+            except Exception as e:
+                if self.debug:
+                    print(f"[TTS] ❌ Buffer playback error: {e}")
+            finally:
+                self._is_speaking = False
+                if self._on_stop:
+                    self._on_stop()
+        
+        if blocking:
+            play_internal()
+        else:
+            self._speak_thread = threading.Thread(target=play_internal)
+            self._speak_thread.start()
+        
+        return True
+    
     def get_info(self) -> dict:
         """Get TTS engine info"""
         return {
