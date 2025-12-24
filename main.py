@@ -179,11 +179,14 @@ class Pascal:
                         self.speech_manager = SpeechInputManager(debug_audio=self.debug_audio, led_controller=self.led_controller)
                         
                         if self.list_audio_devices:
-                            self.speech_manager.initialize()
+                            # Run sync code in thread to not block event loop
+                            await asyncio.to_thread(self.speech_manager.initialize)
                             self.speech_manager.list_devices()
                             return "list_devices"
                         
-                        if self.speech_manager.initialize():
+                        # Run sync initialize() in thread to avoid blocking LLM init
+                        stt_success = await asyncio.to_thread(self.speech_manager.initialize)
+                        if stt_success:
                             device_info = self.speech_manager.get_device_info()
                             if device_info['available']:
                                 marker = "🎙️  ReSpeaker" if device_info.get('is_respeaker') else "🎤"
@@ -201,6 +204,7 @@ class Pascal:
                 return True
             
             # Run all initializations in parallel
+            # Using asyncio.to_thread for STT ensures sync code doesn't block LLM init
             llm_result, tts_result, stt_result = await asyncio.gather(
                 init_llm(),
                 init_tts(),
@@ -208,10 +212,16 @@ class Pascal:
                 return_exceptions=True
             )
             
+            # Check for exceptions in results (return_exceptions=True captures them)
+            for name, result in [("LLM", llm_result), ("TTS", tts_result), ("STT", stt_result)]:
+                if isinstance(result, Exception):
+                    if settings.debug_mode:
+                        self.console.print(f"[DEBUG] {name} init exception: {type(result).__name__}: {result}", style="red")
+            
             # Handle results
             if stt_result == "list_devices":
                 return False
-            if self.voice_mode and stt_result is False:
+            if self.voice_mode and (stt_result is False or isinstance(stt_result, Exception)):
                 return False
             
             # Verify at least one system is available
