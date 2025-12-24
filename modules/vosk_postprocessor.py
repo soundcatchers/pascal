@@ -257,6 +257,10 @@ class VoskPostProcessor:
                 "initialized": self.punctuator is not None
             }
         }
+    
+    def get_punctuator(self):
+        """Get the punctuation model for sharing with AsyncPunctuator (saves ~1-2s startup)"""
+        return self.punctuator
 
 
 class AsyncPunctuator:
@@ -273,12 +277,13 @@ class AsyncPunctuator:
     4. Callback updates memory with punctuated version
     """
     
-    def __init__(self, callback=None):
+    def __init__(self, callback=None, shared_model=None):
         """
         Initialize async punctuator.
         
         Args:
             callback: Function called with (original_text, punctuated_text) when done
+            shared_model: Optional pre-loaded PunctuationModel to share (saves ~1-2s startup)
         """
         import threading
         import queue
@@ -287,28 +292,33 @@ class AsyncPunctuator:
         self.queue = queue.Queue()
         self.running = False
         self.thread = None
-        self.punctuator = None
-        self._initialized = False
+        self.punctuator = shared_model  # Can be pre-shared from VoskPostProcessor
+        self._initialized = shared_model is not None
         
     def start(self):
         """Start the background punctuation thread"""
         import threading
         
         if self.running:
-            return
+            return True
             
         if not PUNCTUATION_AVAILABLE:
             print("[ASYNC-PUNCT] ⚠️  Punctuation not available (deepmultilingualpunctuation not installed)")
             return False
         
-        try:
-            print("[ASYNC-PUNCT] Loading punctuation model in background...")
-            self.punctuator = PunctuationModel()
+        # Only load model if not already shared
+        if self.punctuator is None:
+            try:
+                print("[ASYNC-PUNCT] Loading punctuation model in background...")
+                self.punctuator = PunctuationModel()
+                self._initialized = True
+                print("[ASYNC-PUNCT] ✅ Punctuation model loaded")
+            except Exception as e:
+                print(f"[ASYNC-PUNCT] ❌ Failed to load punctuation model: {e}")
+                return False
+        else:
+            print("[ASYNC-PUNCT] ✅ Using shared punctuation model")
             self._initialized = True
-            print("[ASYNC-PUNCT] ✅ Punctuation model loaded")
-        except Exception as e:
-            print(f"[ASYNC-PUNCT] ❌ Failed to load punctuation model: {e}")
-            return False
         
         self.running = True
         self.thread = threading.Thread(target=self._process_loop, daemon=True)
