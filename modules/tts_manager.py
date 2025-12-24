@@ -582,16 +582,21 @@ class SentenceStreamer:
                             latency = (self.first_sentence_time - self.start_time) * 1000
                             print(f"\n[TTS-STREAM] ⚡ First sentence latency: {latency:.0f}ms")
                     
+                    # Prepare text (strip references, convert years, clean up)
+                    clean_text = self.tts_manager._prepare_text_for_speech(sentence)
+                    if not clean_text:
+                        continue
+                    
                     # Pre-synthesize to buffer (runs in thread pool)
                     if self.debug:
-                        print(f"\n[TTS-SYNTH] Synthesizing: {sentence[:35]}...")
+                        print(f"\n[TTS-SYNTH] Synthesizing: {clean_text[:35]}...")
                     
                     piper = self.tts_manager._piper
                     if piper:
                         audio_buffer = await loop.run_in_executor(
                             None,
                             piper.synthesize_to_buffer,
-                            sentence
+                            clean_text
                         )
                         
                         if audio_buffer is not None:
