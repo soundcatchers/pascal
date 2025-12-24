@@ -232,8 +232,11 @@ class TTSManager:
         # Remove markdown links, keep text
         text = re.sub(r'\[([^\]]+)\]\([^)]+\)', r'\1', text)
         
-        # Remove citation references like [1], [2]
-        text = re.sub(r'\[\d+\]', '', text)
+        # Remove citation references like [1], [2], [1, 2], [1-3]
+        text = re.sub(r'\s*\[\d+(?:\s*[-,]\s*\d+)*\]', '', text)
+        
+        # Remove any remaining square bracket content with numbers
+        text = re.sub(r'\s*\[[^\]]*\d+[^\]]*\]', '', text)
         
         # Remove bold/italic markers
         text = re.sub(r'\*\*([^*]+)\*\*', r'\1', text)
