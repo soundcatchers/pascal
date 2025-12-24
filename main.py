@@ -633,6 +633,15 @@ class Pascal:
         if command_clean in ['quit', 'exit', 'bye', 'stop', 'goodbye', 'done'] or (self.exit_detector and self.exit_detector.is_exit_command(command_clean)):
             farewell = self._get_personality_farewell()
             self.console.print(f"\n{farewell}", style="cyan")
+            
+            # Speak farewell audibly before exiting
+            if self.tts_manager and self.voice_mode:
+                try:
+                    await self.tts_manager.speak(farewell, blocking=True)
+                except Exception as e:
+                    if settings.debug_mode:
+                        print(f"[DEBUG] Farewell TTS error: {e}")
+            
             if self.speech_manager:
                 self.speech_manager.stop_listening()
             if self.led_controller:
