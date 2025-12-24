@@ -302,7 +302,8 @@ class IntelligentRouter:
             self.offline_llm = LightningOfflineLLM()
 
             start_time = time.time()
-            success = await asyncio.wait_for(self.offline_llm.initialize(), timeout=30.0)
+            # Use 90s timeout to allow for warmup (which has 60s internal timeout)
+            success = await asyncio.wait_for(self.offline_llm.initialize(), timeout=90.0)
             init_time = time.time() - start_time
 
             self.offline_available = success
@@ -312,10 +313,15 @@ class IntelligentRouter:
                 status = "✅" if success else "❌"
                 print(f"{status} [INTELLIGENT_ROUTER] Offline LLM: {init_time:.1f}s")
 
+        except asyncio.TimeoutError:
+            self.offline_available = False
+            if settings.debug_mode:
+                print(f"❌ [INTELLIGENT_ROUTER] Offline LLM failed: initialization timeout (>90s)")
         except Exception as e:
             self.offline_available = False
             if settings.debug_mode:
-                print(f"❌ [INTELLIGENT_ROUTER] Offline LLM failed: {e}")
+                error_msg = str(e) if str(e) else type(e).__name__
+                print(f"❌ [INTELLIGENT_ROUTER] Offline LLM failed: {error_msg}")
 
     async def _init_online_llm(self):
         """Initialize online LLM with health tracking"""
