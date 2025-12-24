@@ -654,7 +654,7 @@ class PiperTTS:
         while the current one is still playing.
         
         Args:
-            text: Text to synthesize
+            text: Text to synthesize (should be pre-cleaned by caller)
             
         Returns:
             numpy array of float32 audio samples ready for playback, or None on error
@@ -665,8 +665,7 @@ class PiperTTS:
         if not NUMPY_AVAILABLE:
             return None
         
-        text = self._prepare_text_for_speech(text)
-        if not text:
+        if not text or not text.strip():
             return None
         
         try:
