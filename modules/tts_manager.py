@@ -524,7 +524,7 @@ class SentenceStreamer:
         
         # Sentence ending patterns
         self.sentence_endings = re.compile(r'[.!?]\s*$|[.!?]["\']\s*$')
-        self.min_sentence_length = 20
+        self.min_sentence_length = 15  # Lower = faster first speech, higher = fewer tiny fragments
         
     async def add_chunk(self, chunk: str):
         """Add a chunk of text from the LLM stream"""
