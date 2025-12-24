@@ -131,68 +131,88 @@ class Pascal:
             if hasattr(self.router, 'clear_context'):
                 self.router.clear_context()
             
-            # FIXED: Eager initialization at startup (not on first query)
-            await self.router._check_llm_availability()
-            self.router._initialized = True  # Mark as initialized to prevent re-init on first query
-            
-            # Initialize LED controller for ReSpeaker visual feedback
+            # Initialize LED controller first (fast, needed by TTS/STT)
             if self.enable_leds and LED_AVAILABLE:
                 self.led_controller = get_led_controller(enabled=True, brightness=50)
                 if self.led_controller.is_available():
                     self.led_controller.idle()
             
-            # Initialize TTS (Text-to-Speech) output if enabled
-            if self.speak_mode:
-                if not TTS_AVAILABLE:
-                    self.console.print("⚠️  TTS not available. Install with:", style="yellow")
-                    self.console.print("   pip install piper-tts sounddevice numpy", style="yellow")
-                    self.speak_mode = False
-                else:
-                    self.tts_manager = TTSManager(
-                        voices_dir=settings.tts_voices_dir,
-                        led_controller=self.led_controller,
-                        debug=settings.debug_mode
-                    )
-                    if await self.tts_manager.initialize():
-                        current_personality = self.personality_manager.current_personality or "default"
-                        await self.tts_manager.set_voice(current_personality)
-                        available = self.tts_manager.get_available_voices()
-                        available_count = sum(1 for v in available.values() if v)
-                        self.console.print(f"🔊 TTS ready: {available_count} voice(s) available", style="green")
-                    else:
-                        self.console.print("⚠️  TTS initialized but no voices found", style="yellow")
-                        self.console.print("   Run: python setup_tts_voices.py", style="yellow")
+            # PARALLEL STARTUP: Run LLM check alongside TTS/STT initialization
+            # This saves ~10s by not blocking on Ollama warmup
+            async def init_llm():
+                await self.router._check_llm_availability()
+                self.router._initialized = True
             
-            # Initialize voice input if enabled
-            if self.voice_mode or self.list_audio_devices:
-                if not VOICE_AVAILABLE:
-                    self.console.print("❌ Voice input not available. Install with:", style="red")
-                    self.console.print("   pip install vosk pyaudio", style="yellow")
-                    if self.voice_mode:
+            async def init_tts():
+                if self.speak_mode:
+                    if not TTS_AVAILABLE:
+                        self.console.print("⚠️  TTS not available. Install with:", style="yellow")
+                        self.console.print("   pip install piper-tts sounddevice numpy", style="yellow")
+                        self.speak_mode = False
                         return False
-                else:
-                    self.speech_manager = SpeechInputManager(debug_audio=self.debug_audio, led_controller=self.led_controller)
-                    
-                    if self.list_audio_devices:
-                        self.speech_manager.initialize()
-                        self.speech_manager.list_devices()
-                        return False
-                    
-                    if self.speech_manager.initialize():
-                        device_info = self.speech_manager.get_device_info()
-                        if device_info['available']:
-                            marker = "🎙️  ReSpeaker" if device_info.get('is_respeaker') else "🎤"
-                            self.console.print(f"{marker} Voice input ready: {device_info['name']}", style="green")
-                        else:
-                            self.console.print("⚠️  Voice input initialized but no device detected", style="yellow")
-                        
-                        # Set up async punctuation callback for memory enhancement
-                        if hasattr(self.speech_manager, 'enable_async_punctuation') and self.speech_manager.enable_async_punctuation:
-                            self.speech_manager.set_punctuation_callback(self._on_async_punctuation_done)
                     else:
-                        self.console.print("❌ Failed to initialize voice input", style="red")
-                        if self.voice_mode:
+                        self.tts_manager = TTSManager(
+                            voices_dir=settings.tts_voices_dir,
+                            led_controller=self.led_controller,
+                            debug=settings.debug_mode
+                        )
+                        if await self.tts_manager.initialize():
+                            current_personality = self.personality_manager.current_personality or "default"
+                            await self.tts_manager.set_voice(current_personality)
+                            available = self.tts_manager.get_available_voices()
+                            available_count = sum(1 for v in available.values() if v)
+                            self.console.print(f"🔊 TTS ready: {available_count} voice(s) available", style="green")
+                            return True
+                        else:
+                            self.console.print("⚠️  TTS initialized but no voices found", style="yellow")
+                            self.console.print("   Run: python setup_tts_voices.py", style="yellow")
                             return False
+                return True
+            
+            async def init_stt():
+                if self.voice_mode or self.list_audio_devices:
+                    if not VOICE_AVAILABLE:
+                        self.console.print("❌ Voice input not available. Install with:", style="red")
+                        self.console.print("   pip install vosk pyaudio", style="yellow")
+                        return False
+                    else:
+                        self.speech_manager = SpeechInputManager(debug_audio=self.debug_audio, led_controller=self.led_controller)
+                        
+                        if self.list_audio_devices:
+                            self.speech_manager.initialize()
+                            self.speech_manager.list_devices()
+                            return "list_devices"
+                        
+                        if self.speech_manager.initialize():
+                            device_info = self.speech_manager.get_device_info()
+                            if device_info['available']:
+                                marker = "🎙️  ReSpeaker" if device_info.get('is_respeaker') else "🎤"
+                                self.console.print(f"{marker} Voice input ready: {device_info['name']}", style="green")
+                            else:
+                                self.console.print("⚠️  Voice input initialized but no device detected", style="yellow")
+                            
+                            # Set up async punctuation callback for memory enhancement
+                            if hasattr(self.speech_manager, 'enable_async_punctuation') and self.speech_manager.enable_async_punctuation:
+                                self.speech_manager.set_punctuation_callback(self._on_async_punctuation_done)
+                            return True
+                        else:
+                            self.console.print("❌ Failed to initialize voice input", style="red")
+                            return False
+                return True
+            
+            # Run all initializations in parallel
+            llm_result, tts_result, stt_result = await asyncio.gather(
+                init_llm(),
+                init_tts(),
+                init_stt(),
+                return_exceptions=True
+            )
+            
+            # Handle results
+            if stt_result == "list_devices":
+                return False
+            if self.voice_mode and stt_result is False:
+                return False
             
             # Verify at least one system is available
             if not (self.router.offline_available or self.router.online_available):
