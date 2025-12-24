@@ -217,7 +217,15 @@ class SpeechInputManager:
     def _init_async_punctuator(self):
         """Initialize background async punctuator for memory enhancement"""
         try:
-            self.async_punctuator = AsyncPunctuator(callback=self._on_punctuation_complete)
+            # Share punctuation model from VoskPostProcessor to save ~1-2s startup
+            shared_model = None
+            if self.postprocessor and hasattr(self.postprocessor, 'get_punctuator'):
+                shared_model = self.postprocessor.get_punctuator()
+            
+            self.async_punctuator = AsyncPunctuator(
+                callback=self._on_punctuation_complete,
+                shared_model=shared_model
+            )
             if self.async_punctuator.start():
                 self.enable_async_punctuation = True
                 print(f"[STT]   🔄 Async punctuation (background memory enhancement)")
